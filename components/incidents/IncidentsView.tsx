@@ -1,0 +1,130 @@
+import React, { useState, useEffect, useCallback, useContext } from 'react';
+import { getIncidents, getEmployees, getLocations, getRooms, addIncident, updateIncident } from '../../services/mockApi';
+import { Incident, Employee, Location, Room } from '../../types';
+import { AuthContext } from '../../App';
+import Card from '../shared/Card';
+import Button from '../shared/Button';
+import Spinner from '../shared/Spinner';
+import IncidentFormModal from './IncidentFormModal';
+import { formatDate } from '../../utils/helpers';
+
+const IncidentsView: React.FC = () => {
+    const auth = useContext(AuthContext);
+    const [incidents, setIncidents] = useState<Incident[]>([]);
+    const [employees, setEmployees] = useState<Employee[]>([]);
+    const [locations, setLocations] = useState<Location[]>([]);
+    const [rooms, setRooms] = useState<Room[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
+
+    const canManage = auth?.role?.permissions.includes('manage_incidents') ?? false;
+
+    const fetchData = useCallback(async () => {
+        setIsLoading(true);
+        try {
+            const [incs, emps, locs, allRooms] = await Promise.all([getIncidents(), getEmployees(), getLocations(), getRooms()]);
+            setIncidents(incs.sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+            setEmployees(emps);
+            setLocations(locs);
+            setRooms(allRooms);
+        } catch (error) {
+            console.error("Failed to fetch data", error);
+        } finally {
+            setIsLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchData();
+    }, [fetchData]);
+
+    const handleOpenModal = (incident: Incident | null) => {
+        setSelectedIncident(incident);
+        setIsModalOpen(true);
+    };
+
+    const handleSaveIncident = async (data: Omit<Incident, 'incident_id' | 'created_at' | 'reported_by'> | Incident) => {
+        if ('incident_id' in data) {
+            await updateIncident(data);
+        } else if (auth?.employee) {
+            await addIncident({ ...data, reported_by: auth.employee.employee_id });
+        }
+        fetchData();
+        setIsModalOpen(false);
+    };
+
+    const getEmployeeName = (id: string) => {
+        const emp = employees.find(e => e.employee_id === id);
+        return emp ? `${emp.first_name} ${emp.last_name}` : 'N/A';
+    };
+
+    const getLocationName = (id: string) => locations.find(l => l.location_id === id)?.name || 'N/A';
+    const getRoomName = (id?: string) => id ? (rooms.find(r => r.room_id === id)?.name || 'N/A') : '-';
+    
+    const getStatusPill = (status: Incident['status']) => {
+        const base = 'px-2 py-1 text-xs font-semibold rounded-full capitalize';
+        switch (status) {
+          case 'open': return `${base} bg-red-100 text-red-800`;
+          case 'in_progress': return `${base} bg-yellow-100 text-yellow-800`;
+          case 'resolved': return `${base} bg-green-100 text-green-800`;
+          default: return `${base} bg-gray-100 text-gray-800`;
+        }
+    };
+    
+    if (isLoading) return <Spinner />;
+
+    return (
+        <Card title="Gestión de Incidencias">
+            <Button onClick={() => handleOpenModal(null)} className="mb-4">
+                Reportar Nueva Incidencia
+            </Button>
+            <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                    <thead>
+                        <tr className="border-b bg-gray-50">
+                            <th className="p-3">Fecha</th>
+                            <th className="p-3">Establecimiento</th>
+                            <th className="p-3">Habitación/Zona</th>
+                            <th className="p-3">Descripción</th>
+                            <th className="p-3">Reportado por</th>
+                            <th className="p-3">Estado</th>
+                            {canManage && <th className="p-3">Acciones</th>}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {incidents.map(incident => (
+                            <tr key={incident.incident_id} className="border-b hover:bg-gray-50">
+                                <td className="p-3">{formatDate(new Date(incident.created_at))}</td>
+                                <td className="p-3">{getLocationName(incident.location_id)}</td>
+                                <td className="p-3">{getRoomName(incident.room_id)}</td>
+                                <td className="p-3">{incident.description}</td>
+                                <td className="p-3">{getEmployeeName(incident.reported_by)}</td>
+                                <td className="p-3"><span className={getStatusPill(incident.status)}>{incident.status.replace('_', ' ')}</span></td>
+                                {canManage && (
+                                    <td className="p-3">
+                                        <Button size="sm" variant="secondary" onClick={() => handleOpenModal(incident)}>Ver/Editar</Button>
+                                    </td>
+                                )}
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+            {isModalOpen && (
+                <IncidentFormModal
+                    isOpen={isModalOpen}
+                    onClose={() => setIsModalOpen(false)}
+                    onSave={handleSaveIncident}
+                    incident={selectedIncident}
+                    locations={locations}
+                    employees={employees}
+                    rooms={rooms}
+                    canManage={canManage}
+                />
+            )}
+        </Card>
+    );
+};
+
+export default IncidentsView;
