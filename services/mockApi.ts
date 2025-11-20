@@ -1,6 +1,6 @@
 
 import { createClient } from '@supabase/supabase-js';
-import { Role, Employee, Location, TimeEntry, Policy, Announcement, Room, Task, TaskTimeLog, Incident, ShiftLogEntry, ActivityLog } from '../types';
+import { Role, Employee, Location, TimeEntry, Policy, Announcement, Room, Task, TaskTimeLog, Incident, ShiftLogEntry, ActivityLog, LostItem } from '../types';
 
 // --- Supabase Configuration ---
 // Estas son las credenciales que me has facilitado.
@@ -479,6 +479,44 @@ export const updateShiftLogEntry = async (data: ShiftLogEntry): Promise<ShiftLog
         .select()
         .single();
         
+    if (error) throw error;
+    return updated;
+};
+
+// Lost Items
+export const getLostItems = async (): Promise<LostItem[]> => {
+    const { data, error } = await supabase
+        .from('lost_items')
+        .select('*')
+        .order('found_date', { ascending: false });
+    if (error) throw error;
+    return data || [];
+};
+
+export const addLostItem = async (data: Omit<LostItem, 'item_id' | 'found_date' | 'status'>): Promise<LostItem> => {
+    const newItem = {
+        ...data,
+        item_id: uid(),
+        found_date: new Date().toISOString(),
+        status: 'pending' as const
+    };
+
+    const { data: created, error } = await supabase
+        .from('lost_items')
+        .insert([newItem])
+        .select()
+        .single();
+    if (error) throw error;
+    return created;
+};
+
+export const updateLostItem = async (data: LostItem): Promise<LostItem> => {
+    const { data: updated, error } = await supabase
+        .from('lost_items')
+        .update(data)
+        .eq('item_id', data.item_id)
+        .select()
+        .single();
     if (error) throw error;
     return updated;
 };
