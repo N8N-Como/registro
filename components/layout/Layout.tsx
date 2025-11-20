@@ -2,7 +2,7 @@
 import React, { useState, useContext, useMemo } from 'react';
 import { AuthContext } from '../../App';
 import { Permission } from '../../types';
-import { DashboardIcon, TimesheetIcon, AdminIcon, IncidentIcon, ReportIcon, LogoutIcon, BroomIcon, BookOpenIcon, PencilIcon, MegaphoneIcon, CalendarIcon, MenuIcon } from '../icons';
+import { DashboardIcon, TimesheetIcon, AdminIcon, IncidentIcon, ReportIcon, LogoutIcon, BroomIcon, BookOpenIcon, PencilIcon, MegaphoneIcon, CalendarIcon, MenuIcon, ArchiveBoxIcon } from '../icons';
 import DashboardView from '../dashboard/DashboardView';
 import TimesheetsView from '../timesheets/TimesheetsView';
 import AdminView from '../admin/AdminView';
@@ -11,6 +11,7 @@ import ReportsView from '../reports/ReportsView';
 import CleaningView from '../cleaning/CleaningView';
 import GobernantaView from '../gobernanta/GobernantaView';
 import ShiftLogView from '../shiftlog/ShiftLogView';
+import LostFoundView from '../lostandfound/LostFoundView';
 import { COMPANY_NAME } from '../../constants';
 import ProfileEditModal from '../user/ProfileEditModal';
 import AnnouncementsView from '../announcements/AnnouncementsView';
@@ -30,6 +31,7 @@ const navItems: NavItem[] = [
     { name: 'Tareas Limpieza', view: 'cleaning', icon: BroomIcon, role_id: 'cleaner' },
     { name: 'Planificador Tareas', view: 'scheduler', icon: CalendarIcon, requiredPermission: 'schedule_tasks' },
     { name: 'Incidencias', view: 'incidents', icon: IncidentIcon },
+    { name: 'Objetos Olvidados', view: 'lost_found', icon: ArchiveBoxIcon },
     { name: 'Registro de Turno', view: 'shiftlog', icon: BookOpenIcon, requiredPermission: 'access_shift_log' },
     { name: 'Comunicados', view: 'announcements', icon: MegaphoneIcon, requiredPermission: 'manage_announcements' },
     { name: 'Informes', view: 'reports', icon: ReportIcon, requiredPermission: 'view_reports' },
@@ -63,6 +65,7 @@ const Layout: React.FC = () => {
             case 'scheduler': return <GobernantaView />;
             case 'shiftlog': return <ShiftLogView />;
             case 'announcements': return <AnnouncementsView />;
+            case 'lost_found': return <LostFoundView />;
             default: return <DashboardView />;
         }
     };
