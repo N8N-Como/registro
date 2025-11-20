@@ -1,3 +1,4 @@
+
 export type Permission = 
   | 'manage_employees'
   | 'manage_locations'
@@ -111,6 +112,7 @@ export interface Incident {
     status: 'open' | 'in_progress' | 'resolved';
     priority: 'low' | 'medium' | 'high';
     assigned_to?: string; // employee_id
+    photo_url?: string;
 }
 
 export interface ShiftLogEntry {
@@ -120,4 +122,18 @@ export interface ShiftLogEntry {
     message: string;
     target_role_id: string; // 'all' or a role_id
     status: 'pending' | 'in_progress' | 'resolved';
+}
+
+export interface LostItem {
+    item_id: string;
+    description: string;
+    photo_url?: string;
+    found_at_location_id: string;
+    found_at_room_id?: string;
+    found_date: string; // ISO Date
+    found_by_employee_id: string;
+    status: 'pending' | 'returned';
+    returned_to?: string; // Name of the person receiving the item
+    returned_date?: string; // ISO Date
+    returned_by_employee_id?: string;
 }
