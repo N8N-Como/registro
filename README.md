@@ -1,3 +1,4 @@
+
 # Como en Casa - Sistema de Gestión de Personal
 
 Aplicación web para la gestión integral de horarios, tareas de limpieza, incidencias y comunicados internos de **Como en Casa Alojamientos Turísticos SL**.
@@ -13,7 +14,18 @@ Aplicación web para la gestión integral de horarios, tareas de limpieza, incid
 
 Este proyecto está configurado para ser desplegado en **Vercel** o **Netlify** usando **Vite**.
 
-### Método Recomendado: Subida Manual
+### 1. Base de Datos (Supabase) - ¡IMPORTANTE!
+Para que la aplicación funcione, necesitas crear las tablas en Supabase:
+
+1.  Ve a tu proyecto en [Supabase](https://supabase.com).
+2.  Entra en el **SQL Editor** (icono de terminal en la barra lateral).
+3.  Abre el archivo `supabase_schema.sql` incluido en este proyecto.
+4.  Copia todo su contenido y pégalo en el editor de Supabase.
+5.  Pulsa **Run**.
+6.  ¡Listo! Ya tienes el usuario administrador creado.
+    *   **PIN Admin:** `1234`
+
+### 2. Subida del Código
 Si la sincronización automática falla, sigue estos pasos:
 
 1.  **Descargar:** Descarga este proyecto como un archivo `.ZIP` y descomprímelo en tu ordenador.
@@ -27,7 +39,11 @@ Si la sincronización automática falla, sigue estos pasos:
     *   Selecciona el repositorio que acabas de crear en GitHub.
     *   Pulsa **Deploy**.
 
-Vercel detectará automáticamente la configuración (`package.json` y `vite.config.ts`) y publicará la aplicación.
+### 3. Configuración de Dominio
+Para añadir tu dominio (ej: `app.comoencasa.com`):
+1. Ve a tu proyecto en Vercel -> Settings -> Domains.
+2. Añade tu dominio.
+3. Configura los DNS en tu proveedor de dominio según las instrucciones que te dé Vercel.
 
 ## 🛠️ Tecnologías
 *   React 18 + TypeScript

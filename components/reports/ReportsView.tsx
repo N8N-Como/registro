@@ -1,11 +1,15 @@
+
 import React, { useState, useEffect } from 'react';
 import { getEmployees, getTimeEntriesForEmployee, getActivityLogsForTimeEntry, getLocations } from '../../services/mockApi';
-import { Employee, TimeEntry, ActivityLog, Location } from '../../types';
+import { Employee, Location } from '../../types';
 import Button from '../shared/Button';
 import Spinner from '../shared/Spinner';
 import Card from '../shared/Card';
 import BarChart from './BarChart';
 import { formatDuration } from '../../utils/helpers';
+import MonthlyWorkLogReport from './MonthlyWorkLogReport';
+import ProductivityReport from './ProductivityReport';
+import { DashboardIcon, CarIcon, BookOpenIcon } from '../icons';
 
 interface ReportData {
     kpis: {
@@ -17,7 +21,12 @@ interface ReportData {
     hoursByLocation: { name: string; hours: number }[];
 }
 
+type ReportTab = 'general' | 'monthly_log' | 'productivity';
+
 const ReportsView: React.FC = () => {
+    const [activeTab, setActiveTab] = useState<ReportTab>('general');
+    
+    // General Report State
     const [allEmployees, setAllEmployees] = useState<Employee[]>([]);
     const [allLocations, setAllLocations] = useState<Location[]>([]);
     const [startDate, setStartDate] = useState('');
@@ -121,62 +130,98 @@ const ReportsView: React.FC = () => {
         }
     };
     
-    // Auto-generate report on initial load
+    // Auto-generate report on initial load if tab is general
     useEffect(() => {
-        if (!isLoading) {
+        if (!isLoading && activeTab === 'general') {
             handleGenerateReport();
         }
-    }, [isLoading]);
+    }, [isLoading, activeTab]);
 
     if (isLoading) return <Spinner />;
 
+    const tabClasses = (tabName: ReportTab) => 
+        `px-4 py-2 font-semibold rounded-t-lg transition-colors flex items-center space-x-2 ${
+          activeTab === tabName 
+            ? 'bg-white border-b-0 border-gray-200 text-primary' 
+            : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+        }`;
+
     return (
         <div className="space-y-6">
-            <Card>
-                <div className="flex flex-col sm:flex-row items-end gap-4 p-4 bg-gray-50 border rounded-md">
-                    <div className="flex-grow w-full sm:w-auto">
-                        <label className="block text-sm font-medium text-gray-700">Desde</label>
-                        <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm" />
-                    </div>
-                    <div className="flex-grow w-full sm:w-auto">
-                        <label className="block text-sm font-medium text-gray-700">Hasta</label>
-                        <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm" />
-                    </div>
-                    <Button onClick={handleGenerateReport} isLoading={isGenerating} className="w-full sm:w-auto">
-                        Actualizar Informe
-                    </Button>
-                </div>
-            </Card>
+             <div className="border-b border-gray-200 mb-6">
+                <nav className="-mb-px flex space-x-2" aria-label="Report Tabs">
+                    <button onClick={() => setActiveTab('general')} className={tabClasses('general')}>
+                        <DashboardIcon className="w-5 h-5" />
+                        <span>KPIs Generales</span>
+                    </button>
+                    <button onClick={() => setActiveTab('productivity')} className={tabClasses('productivity')}>
+                        <CarIcon className="w-5 h-5" />
+                        <span>Desplazamientos y Eficiencia</span>
+                    </button>
+                    <button onClick={() => setActiveTab('monthly_log')} className={tabClasses('monthly_log')}>
+                        <BookOpenIcon className="w-5 h-5" />
+                        <span>Registro Oficial Mensual</span>
+                    </button>
+                </nav>
+            </div>
 
-            {isGenerating && <div className="text-center p-8"><Spinner /></div>}
-            
-            {reportData && (
+            {activeTab === 'general' && (
                 <>
-                    <Card title="Resumen del Periodo">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-center">
-                            <div>
-                                <h4 className="text-gray-500 uppercase text-sm font-semibold">Total Horas Registradas</h4>
-                                <p className="text-3xl font-bold text-primary">{formatDuration(reportData.kpis.totalHours)}</p>
+                    <Card>
+                        <div className="flex flex-col sm:flex-row items-end gap-4 p-4 bg-gray-50 border rounded-md">
+                            <div className="flex-grow w-full sm:w-auto">
+                                <label className="block text-sm font-medium text-gray-700">Desde</label>
+                                <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm" />
                             </div>
-                            <div>
-                                <h4 className="text-gray-500 uppercase text-sm font-semibold">Empleados con Actividad</h4>
-                                <p className="text-3xl font-bold text-primary">{reportData.kpis.totalEmployees}</p>
+                            <div className="flex-grow w-full sm:w-auto">
+                                <label className="block text-sm font-medium text-gray-700">Hasta</label>
+                                <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm" />
                             </div>
-                            <div>
-                                <h4 className="text-gray-500 uppercase text-sm font-semibold">Promedio Horas / Empleado</h4>
-                                <p className="text-3xl font-bold text-primary">{formatDuration(reportData.kpis.avgWorkday)}</p>
-                            </div>
+                            <Button onClick={handleGenerateReport} isLoading={isGenerating} className="w-full sm:w-auto">
+                                Actualizar Informe
+                            </Button>
                         </div>
                     </Card>
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <Card title="Horas por Empleado">
-                           {reportData.hoursByEmployee.length > 0 ? <BarChart data={reportData.hoursByEmployee} /> : <p className="text-center text-gray-500 py-8">Sin datos</p>}
-                        </Card>
-                        <Card title="Horas por Establecimiento">
-                           {reportData.hoursByLocation.length > 0 ? <BarChart data={reportData.hoursByLocation} /> : <p className="text-center text-gray-500 py-8">Sin datos</p>}
-                        </Card>
-                    </div>
+
+                    {isGenerating && <div className="text-center p-8"><Spinner /></div>}
+                    
+                    {reportData && (
+                        <>
+                            <Card title="Resumen del Periodo">
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-center">
+                                    <div>
+                                        <h4 className="text-gray-500 uppercase text-sm font-semibold">Total Horas Registradas</h4>
+                                        <p className="text-3xl font-bold text-primary">{formatDuration(reportData.kpis.totalHours)}</p>
+                                    </div>
+                                    <div>
+                                        <h4 className="text-gray-500 uppercase text-sm font-semibold">Empleados con Actividad</h4>
+                                        <p className="text-3xl font-bold text-primary">{reportData.kpis.totalEmployees}</p>
+                                    </div>
+                                    <div>
+                                        <h4 className="text-gray-500 uppercase text-sm font-semibold">Promedio Horas / Empleado</h4>
+                                        <p className="text-3xl font-bold text-primary">{formatDuration(reportData.kpis.avgWorkday)}</p>
+                                    </div>
+                                </div>
+                            </Card>
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                <Card title="Horas Totales por Empleado">
+                                {reportData.hoursByEmployee.length > 0 ? <BarChart data={reportData.hoursByEmployee} /> : <p className="text-center text-gray-500 py-8">Sin datos</p>}
+                                </Card>
+                                <Card title="Ocupación de Establecimientos">
+                                {reportData.hoursByLocation.length > 0 ? <BarChart data={reportData.hoursByLocation} /> : <p className="text-center text-gray-500 py-8">Sin datos</p>}
+                                </Card>
+                            </div>
+                        </>
+                    )}
                 </>
+            )}
+
+            {activeTab === 'productivity' && (
+                <ProductivityReport />
+            )}
+
+            {activeTab === 'monthly_log' && (
+                <MonthlyWorkLogReport />
             )}
         </div>
     );

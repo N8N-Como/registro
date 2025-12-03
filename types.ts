@@ -54,6 +54,19 @@ export interface ActivityLog {
   location_id: string;
   check_in_time: string;
   check_out_time?: string;
+  check_in_latitude?: number;
+  check_in_longitude?: number;
+}
+
+export interface AccessLog {
+    log_id: string;
+    employee_id: string;
+    location_id: string;
+    attempt_time: string;
+    latitude: number;
+    longitude: number;
+    was_allowed: boolean;
+    denial_reason?: string;
 }
 
 export interface Policy {

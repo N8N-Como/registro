@@ -119,7 +119,6 @@ const LostItemFormModal: React.FC<LostItemFormModalProps> = ({ isOpen, onClose, 
 
         // Logic for returning an item
         if (item && formData.status === 'returned' && item.status !== 'returned') {
-             // We are marking as returned now
              const returnData = {
                  ...formData,
                  photo_url: photoBase64,
@@ -128,7 +127,6 @@ const LostItemFormModal: React.FC<LostItemFormModalProps> = ({ isOpen, onClose, 
              } as LostItem;
              onSave(returnData);
         } else {
-            // Creating or editing normal fields
             onSave({
                 ...formData,
                 photo_url: photoBase64
@@ -168,7 +166,7 @@ const LostItemFormModal: React.FC<LostItemFormModalProps> = ({ isOpen, onClose, 
                  <div className="relative">
                      <img src={previewUrl} alt="Objeto" className="w-full h-48 object-cover rounded-md border" />
                      {!isAlreadyReturned && (
-                        <button type="button" onClick={() => { setPreviewUrl(null); setFormData(prev => ({...prev, photo_url: undefined})); }} className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1">
+                        <button type="button" onClick={() => { setPreviewUrl(null); setFormData(prev => ({...prev, photo_url: undefined})); }} className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 shadow-md" title="Eliminar foto">
                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                         </button>
                      )}

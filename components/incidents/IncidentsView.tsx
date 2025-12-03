@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useContext } from 'react';
 import { getIncidents, getEmployees, getLocations, getRooms, addIncident, updateIncident } from '../../services/mockApi';
 import { Incident, Employee, Location, Room } from '../../types';
@@ -7,6 +8,8 @@ import Button from '../shared/Button';
 import Spinner from '../shared/Spinner';
 import IncidentFormModal from './IncidentFormModal';
 import { formatDate } from '../../utils/helpers';
+import AIAssistant from '../shared/AIAssistant';
+import { AIResponse } from '../../services/geminiService';
 
 const IncidentsView: React.FC = () => {
     const auth = useContext(AuthContext);
@@ -54,6 +57,25 @@ const IncidentsView: React.FC = () => {
         setIsModalOpen(false);
     };
 
+    const handleAIAction = async (response: AIResponse) => {
+        if (response.action === 'createIncident' && response.data && auth?.employee) {
+            try {
+                 await addIncident({
+                    description: response.data.description,
+                    location_id: response.data.location_id,
+                    room_id: response.data.room_id || '',
+                    priority: response.data.priority || 'medium',
+                    status: 'open',
+                    reported_by: auth.employee.employee_id
+                });
+                fetchData();
+            } catch (e) {
+                console.error("Failed to create incident from AI", e);
+                alert("Error al crear la incidencia desde la IA");
+            }
+        }
+    };
+
     const getEmployeeName = (id: string) => {
         const emp = employees.find(e => e.employee_id === id);
         return emp ? `${emp.first_name} ${emp.last_name}` : 'N/A';
@@ -75,55 +97,70 @@ const IncidentsView: React.FC = () => {
     if (isLoading) return <Spinner />;
 
     return (
-        <Card title="Gestión de Incidencias">
-            <Button onClick={() => handleOpenModal(null)} className="mb-4">
-                Reportar Nueva Incidencia
-            </Button>
-            <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                    <thead>
-                        <tr className="border-b bg-gray-50">
-                            <th className="p-3">Fecha</th>
-                            <th className="p-3">Establecimiento</th>
-                            <th className="p-3">Habitación/Zona</th>
-                            <th className="p-3">Descripción</th>
-                            <th className="p-3">Reportado por</th>
-                            <th className="p-3">Estado</th>
-                            {canManage && <th className="p-3">Acciones</th>}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {incidents.map(incident => (
-                            <tr key={incident.incident_id} className="border-b hover:bg-gray-50">
-                                <td className="p-3">{formatDate(new Date(incident.created_at))}</td>
-                                <td className="p-3">{getLocationName(incident.location_id)}</td>
-                                <td className="p-3">{getRoomName(incident.room_id)}</td>
-                                <td className="p-3">{incident.description}</td>
-                                <td className="p-3">{getEmployeeName(incident.reported_by)}</td>
-                                <td className="p-3"><span className={getStatusPill(incident.status)}>{incident.status.replace('_', ' ')}</span></td>
-                                {canManage && (
-                                    <td className="p-3">
-                                        <Button size="sm" variant="secondary" onClick={() => handleOpenModal(incident)}>Ver/Editar</Button>
-                                    </td>
-                                )}
+        <div className="relative">
+            <Card title="Gestión de Incidencias">
+                <Button onClick={() => handleOpenModal(null)} className="mb-4">
+                    Reportar Nueva Incidencia
+                </Button>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                        <thead>
+                            <tr className="border-b bg-gray-50">
+                                <th className="p-3">Fecha</th>
+                                <th className="p-3">Establecimiento</th>
+                                <th className="p-3">Habitación/Zona</th>
+                                <th className="p-3">Descripción</th>
+                                <th className="p-3">Reportado por</th>
+                                <th className="p-3">Estado</th>
+                                <th className="p-3">Acciones</th>
                             </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
-            {isModalOpen && (
-                <IncidentFormModal
-                    isOpen={isModalOpen}
-                    onClose={() => setIsModalOpen(false)}
-                    onSave={handleSaveIncident}
-                    incident={selectedIncident}
-                    locations={locations}
-                    employees={employees}
-                    rooms={rooms}
-                    canManage={canManage}
-                />
-            )}
-        </Card>
+                        </thead>
+                        <tbody>
+                            {incidents.map(incident => (
+                                <tr key={incident.incident_id} className="border-b hover:bg-gray-50">
+                                    <td className="p-3">{formatDate(new Date(incident.created_at))}</td>
+                                    <td className="p-3">{getLocationName(incident.location_id)}</td>
+                                    <td className="p-3">{getRoomName(incident.room_id)}</td>
+                                    <td className="p-3">
+                                        {incident.description}
+                                        {incident.photo_url && (
+                                            <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                                                📷 Foto
+                                            </span>
+                                        )}
+                                    </td>
+                                    <td className="p-3">{getEmployeeName(incident.reported_by)}</td>
+                                    <td className="p-3"><span className={getStatusPill(incident.status)}>{incident.status.replace('_', ' ')}</span></td>
+                                    <td className="p-3">
+                                        <Button size="sm" variant="secondary" onClick={() => handleOpenModal(incident)}>
+                                            {canManage ? 'Editar' : 'Ver'}
+                                        </Button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+                {isModalOpen && (
+                    <IncidentFormModal
+                        isOpen={isModalOpen}
+                        onClose={() => setIsModalOpen(false)}
+                        onSave={handleSaveIncident}
+                        incident={selectedIncident}
+                        locations={locations}
+                        employees={employees}
+                        rooms={rooms}
+                        canManage={canManage}
+                    />
+                )}
+            </Card>
+
+            {/* AI Assistant Integration */}
+            <AIAssistant 
+                context={{ employees, rooms, locations, currentUser: auth?.employee || undefined }} 
+                onAction={handleAIAction}
+            />
+        </div>
     );
 };
 

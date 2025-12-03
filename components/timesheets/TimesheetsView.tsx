@@ -1,13 +1,14 @@
+
 import React, { useState, useEffect, useContext, useMemo, useCallback } from 'react';
 import { AuthContext } from '../../App';
 import { useGeolocation } from '../../hooks/useGeolocation';
-import { getLocations, getTimeEntriesForEmployee, clockIn, clockOut, getActivityLogsForTimeEntry, checkInToLocation, checkOutOfLocation } from '../../services/mockApi';
+import { getLocations, getTimeEntriesForEmployee, clockIn, clockOut, getActivityLogsForTimeEntry, checkInToLocation, checkOutOfLocation, logAccessAttempt } from '../../services/mockApi';
 import { getDistanceFromLatLonInMeters, formatDuration, formatTime } from '../../utils/helpers';
 import { TimeEntry, Location as OfficeLocation, ActivityLog } from '../../types';
 import Button from '../shared/Button';
 import Spinner from '../shared/Spinner';
 import Card from '../shared/Card';
-import { LocationIcon, CheckIcon, CarIcon, BuildingIcon, FlagIcon, DotIcon } from '../icons';
+import { LocationIcon, CarIcon, BuildingIcon, FlagIcon, DotIcon } from '../icons';
 
 type TimelineItem = 
     | { type: 'WORKDAY_START', time: Date, entry: TimeEntry }
@@ -75,16 +76,12 @@ const TimesheetsView: React.FC = () => {
     }
   }, [runningWorkday, currentActivity, getLocation]);
   
-  const nearbyLocations = useMemo(() => {
-    if (!position) return [];
-    return locations.filter(loc => 
-      getDistanceFromLatLonInMeters(
-        position.coords.latitude,
-        position.coords.longitude,
-        loc.latitude,
-        loc.longitude
-      ) <= loc.radius_meters
-    ).sort((a,b) => getDistanceFromLatLonInMeters(position.coords.latitude, position.coords.longitude, a.latitude, a.longitude) - getDistanceFromLatLonInMeters(position.coords.latitude, position.coords.longitude, b.latitude, b.longitude));
+  const sortedLocations = useMemo(() => {
+    if (!position) return locations;
+    return [...locations].sort((a,b) => 
+        getDistanceFromLatLonInMeters(position.coords.latitude, position.coords.longitude, a.latitude, a.longitude) - 
+        getDistanceFromLatLonInMeters(position.coords.latitude, position.coords.longitude, b.latitude, b.longitude)
+    );
   }, [position, locations]);
 
   const handleClockIn = async () => {
@@ -105,13 +102,62 @@ const TimesheetsView: React.FC = () => {
     } finally { setIsSubmitting(false); }
   };
   
-  const handleCheckIn = async (locationId: string) => {
-    if (!auth?.employee || !runningWorkday) return;
+  const handleCheckInAttempt = async (locationId: string) => {
+    if (!auth?.employee || !runningWorkday || !position) {
+        alert("Esperando señal GPS...");
+        getLocation();
+        return;
+    }
+
+    const location = locations.find(l => l.location_id === locationId);
+    if (!location) return;
+
     setIsSubmitting(`location-in-${locationId}`);
     try {
-        await checkInToLocation(runningWorkday.entry_id, auth.employee.employee_id, locationId);
-        fetchData();
-    } finally { setIsSubmitting(false); }
+        const distance = getDistanceFromLatLonInMeters(
+            position.coords.latitude, 
+            position.coords.longitude, 
+            location.latitude, 
+            location.longitude
+        );
+
+        if (distance > location.radius_meters) {
+            // BLOCK and LOG FAILURE
+            await logAccessAttempt({
+                employee_id: auth.employee.employee_id,
+                location_id: location.location_id,
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+                was_allowed: false,
+                denial_reason: `Distancia excesiva: ${Math.round(distance)}m > ${location.radius_meters}m`
+            });
+            alert(`No puedes fichar aquí. Estás a ${Math.round(distance)} metros del establecimiento (máximo permitido: ${location.radius_meters}m). Se ha registrado el intento.`);
+        } else {
+            // ALLOW and LOG SUCCESS (Optional, but good for consistency)
+            await logAccessAttempt({
+                employee_id: auth.employee.employee_id,
+                location_id: location.location_id,
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+                was_allowed: true,
+            });
+
+            // Perform Actual Check-In
+            await checkInToLocation(
+                runningWorkday.entry_id, 
+                auth.employee.employee_id, 
+                locationId, 
+                position.coords.latitude, 
+                position.coords.longitude
+            );
+            fetchData();
+        }
+    } catch(e) {
+        console.error("Error during check-in attempt", e);
+        alert("Error técnico al intentar fichar.");
+    } finally { 
+        setIsSubmitting(false); 
+    }
   }
 
   const handleCheckOut = async () => {
@@ -239,17 +285,36 @@ const TimesheetsView: React.FC = () => {
                   <div className="space-y-4">
                       <p className="text-center font-semibold text-lg text-orange-600">En Desplazamiento</p>
                        <div className="space-y-2 pt-2">
-                          <h4 className="font-semibold text-center text-gray-700">Registrar Entrada en Establecimiento Cercano</h4>
-                          {nearbyLocations.length > 0 ? (
-                             <div className="flex flex-wrap justify-center gap-2">
-                               {nearbyLocations.map(loc => (
-                                 <Button key={loc.location_id} onClick={() => handleCheckIn(loc.location_id)} variant="primary" isLoading={isSubmitting === `location-in-${loc.location_id}`}>
-                                    <LocationIcon /> <span className="ml-2">{loc.name}</span>
-                                 </Button>
-                               ))}
+                          <h4 className="font-semibold text-center text-gray-700">Registrar Entrada en Establecimiento</h4>
+                          {sortedLocations.length > 0 ? (
+                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                               {sortedLocations.map(loc => {
+                                 const dist = position ? getDistanceFromLatLonInMeters(position.coords.latitude, position.coords.longitude, loc.latitude, loc.longitude) : Infinity;
+                                 const isFar = dist > loc.radius_meters;
+
+                                 return (
+                                 <button 
+                                    key={loc.location_id} 
+                                    onClick={() => handleCheckInAttempt(loc.location_id)} 
+                                    disabled={isSubmitting !== false}
+                                    className={`flex items-center justify-between p-3 rounded-lg border transition-all ${
+                                        isFar ? 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100' : 'bg-white border-primary text-primary hover:bg-blue-50'
+                                    }`}
+                                 >
+                                    <div className="flex items-center">
+                                        <LocationIcon /> 
+                                        <span className="ml-2 font-medium text-left">{loc.name}</span>
+                                    </div>
+                                    {position && (
+                                        <span className="text-xs ml-2 whitespace-nowrap">
+                                            {dist > 1000 ? `${(dist/1000).toFixed(1)} km` : `${Math.round(dist)} m`}
+                                        </span>
+                                    )}
+                                 </button>
+                               )})}
                              </div>
                           ) : (
-                            <p className="text-sm text-center text-gray-500">No se detectan establecimientos cercanos. Acércate a uno para poder registrar tu entrada.</p>
+                            <p className="text-sm text-center text-gray-500">No se encontraron establecimientos configurados.</p>
                           )}
                        </div>
                   </div>

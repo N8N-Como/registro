@@ -45,7 +45,9 @@ const App: React.FC = () => {
         }
       } catch (error: any) {
         console.error("Failed to fetch initial data", error);
-        setError("No se pudo conectar con la base de datos. Comprueba tu conexión a internet.");
+        // Extract meaningful error message instead of [object Object]
+        const errorMessage = error?.message || error?.error_description || JSON.stringify(error);
+        setError(`No se pudo conectar con la base de datos. Detalle: ${errorMessage}`);
       } finally {
         setIsLoading(false);
       }
@@ -157,7 +159,7 @@ const App: React.FC = () => {
           <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
               <div className="bg-white p-8 rounded-lg shadow-md max-w-md text-center">
                   <h2 className="text-xl font-bold text-red-600 mb-4">Estado de Conexión</h2>
-                  <p className="text-gray-700 mb-6">{error}</p>
+                  <p className="text-gray-700 mb-6 break-words">{error}</p>
                   <Button onClick={() => window.location.reload()} size="md">
                     Reintentar Conexión
                   </Button>

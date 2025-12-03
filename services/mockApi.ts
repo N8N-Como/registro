@@ -1,6 +1,6 @@
 
 import { createClient } from '@supabase/supabase-js';
-import { Role, Employee, Location, TimeEntry, Policy, Announcement, Room, Task, TaskTimeLog, Incident, ShiftLogEntry, ActivityLog, LostItem } from '../types';
+import { Role, Employee, Location, TimeEntry, Policy, Announcement, Room, Task, TaskTimeLog, Incident, ShiftLogEntry, ActivityLog, LostItem, AccessLog } from '../types';
 
 // --- Supabase Configuration ---
 // Estas son las credenciales que me has facilitado.
@@ -173,13 +173,15 @@ export const getActivityLogsForTimeEntry = async (timeEntryId: string): Promise<
     return data || [];
 };
 
-export const checkInToLocation = async (timeEntryId: string, employeeId: string, locationId: string): Promise<ActivityLog> => {
+export const checkInToLocation = async (timeEntryId: string, employeeId: string, locationId: string, latitude?: number, longitude?: number): Promise<ActivityLog> => {
     const newLog: ActivityLog = {
         activity_id: uid(),
         time_entry_id: timeEntryId,
         employee_id: employeeId,
         location_id: locationId,
         check_in_time: new Date().toISOString(),
+        check_in_latitude: latitude,
+        check_in_longitude: longitude,
     };
     
     const { data, error } = await supabase
@@ -205,6 +207,29 @@ export const checkOutOfLocation = async (activityId: string): Promise<ActivityLo
     if (error) throw error;
     return data;
 };
+
+// Access Attempts (Security Log)
+export const logAccessAttempt = async (data: Omit<AccessLog, 'log_id' | 'attempt_time'>): Promise<AccessLog> => {
+    const newLog = {
+        ...data,
+        log_id: uid(),
+        attempt_time: new Date().toISOString(),
+    };
+
+    const { data: created, error } = await supabase
+        .from('access_logs')
+        .insert([newLog])
+        .select()
+        .single();
+
+    if (error) {
+        // Fallback for demo if table doesn't exist yet, just console log
+        console.warn("Could not save access log to Supabase (Table might be missing):", error);
+        return newLog as AccessLog;
+    }
+    return created;
+}
+
 
 // Policies
 export const getPolicies = async (): Promise<Policy[]> => {
