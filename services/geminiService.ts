@@ -2,9 +2,6 @@
 import { GoogleGenAI, FunctionDeclaration, Type } from "@google/genai";
 import { Employee, Room, Location, Task, Incident } from '../types';
 
-// IMPORTANT: In a real environment, this should be an environment variable.
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-
 // Define interfaces for context
 export interface ContextData {
     employees: Employee[];
@@ -19,7 +16,6 @@ export interface ChatMessage {
 }
 
 // Function Declarations (Tools)
-
 const createTaskTool: FunctionDeclaration = {
     name: 'createTask',
     description: 'Create a new cleaning or maintenance task assigned to an employee. Use this when the user wants to add a job, chore, or to-do.',
@@ -57,44 +53,56 @@ export interface AIResponse {
     message: string;
 }
 
+// Lazy initialization function
+const getAIClient = () => {
+    // Access process.env safely. In Vite with our config, this won't crash even if undefined.
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) {
+        throw new Error("API Key not configured");
+    }
+    return new GoogleGenAI({ apiKey });
+};
+
 export const processNaturalLanguageCommand = async (
     history: ChatMessage[], 
     context: ContextData
 ): Promise<AIResponse> => {
     
-    // Prepare System Instruction with mapped IDs to help Gemini
-    const employeeList = context.employees.map(e => `${e.first_name} ${e.last_name} (ID: ${e.employee_id})`).join(', ');
-    const locationList = context.locations.map(l => `${l.name} (ID: ${l.location_id})`).join(', ');
-    
-    // Create a strict mapping for Room -> Location to prevent AI hallucinations
-    const roomMapping = context.rooms.map(r => {
-        const loc = context.locations.find(l => l.location_id === r.location_id);
-        return `Room "${r.name}" is inside Location ID "${r.location_id}" (RoomID: ${r.room_id})`;
-    }).join('\n');
-
-    const systemInstruction = `
-    You are an efficient AI Assistant for "Como en Casa" hotel management.
-    Your capability is to CREATE TASKS and REPORT INCIDENTS based on user input.
-
-    Current Date: ${new Date().toISOString().split('T')[0]}
-    Current User ID: ${context.currentUser?.employee_id || 'unknown'}
-
-    DATA CONTEXT:
-    - Employees: ${employeeList}
-    - Locations: ${locationList}
-    
-    CRITICAL - ROOM TO LOCATION MAPPING:
-    ${roomMapping}
-
-    RULES:
-    1. **Context Memory**: Use the chat history to understand references like "create another one" or "for the same room".
-    2. **Location Resolution**: If the user mentions a Room, you MUST look up the corresponding Location ID from the "ROOM TO LOCATION MAPPING" list above. Do not guess the location.
-    3. **Date Handling**: If "tomorrow" or "Monday" is mentioned, calculate YYYY-MM-DD based on Current Date.
-    4. **Self Assignment**: If assigned to "me" or "myself", use the Current User ID.
-    5. **Clarity**: If you trigger a function, reply with a short confirmation. If you cannot understand, ask for clarification.
-    `;
-
     try {
+        const ai = getAIClient();
+        
+        // Prepare System Instruction with mapped IDs to help Gemini
+        const employeeList = context.employees.map(e => `${e.first_name} ${e.last_name} (ID: ${e.employee_id})`).join(', ');
+        const locationList = context.locations.map(l => `${l.name} (ID: ${l.location_id})`).join(', ');
+        
+        // Create a strict mapping for Room -> Location to prevent AI hallucinations
+        const roomMapping = context.rooms.map(r => {
+            const loc = context.locations.find(l => l.location_id === r.location_id);
+            return `Room "${r.name}" is inside Location ID "${r.location_id}" (RoomID: ${r.room_id})`;
+        }).join('\n');
+
+        const systemInstruction = `
+        You are an efficient AI Assistant for "Como en Casa" hotel management.
+        Your capability is to CREATE TASKS and REPORT INCIDENTS based on user input.
+
+        Current Date: ${new Date().toISOString().split('T')[0]}
+        Current User ID: ${context.currentUser?.employee_id || 'unknown'}
+
+        DATA CONTEXT:
+        - Employees: ${employeeList}
+        - Locations: ${locationList}
+        
+        CRITICAL - ROOM TO LOCATION MAPPING:
+        ${roomMapping}
+
+        RULES:
+        1. **Context Memory**: Use the chat history to understand references like "create another one" or "for the same room".
+        2. **Location Resolution**: If the user mentions a Room, you MUST look up the corresponding Location ID from the "ROOM TO LOCATION MAPPING" list above. Do not guess the location.
+        3. **Date Handling**: If "tomorrow" or "Monday" is mentioned, calculate YYYY-MM-DD based on Current Date.
+        4. **Self Assignment**: If assigned to "me" or "myself", use the Current User ID.
+        5. **Clarity**: If you trigger a function, reply with a short confirmation. If you cannot understand, ask for clarification.
+        `;
+
         // Convert internal ChatMessage history to Gemini Content format
         const contents = history.map(msg => ({
             role: msg.role,
@@ -145,7 +153,7 @@ export const processNaturalLanguageCommand = async (
         console.error("Gemini API Error:", error);
         return {
             action: 'none',
-            message: "Hubo un error al conectar con la IA."
+            message: "El asistente no está disponible en este momento (Falta API Key o error de conexión)."
         };
     }
 };
