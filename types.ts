@@ -7,7 +7,8 @@ export type Permission =
   | 'manage_incidents'
   | 'manage_tasks'
   | 'access_shift_log'
-  | 'schedule_tasks';
+  | 'schedule_tasks'
+  | 'audit_records'; // New permission for inspection
 
 export interface Role {
   role_id: string;
@@ -35,6 +36,9 @@ export interface Location {
   radius_meters: number;
 }
 
+export type WorkType = 'ordinaria' | 'extra' | 'guardia' | 'formacion';
+export type WorkMode = 'presencial' | 'teletrabajo';
+
 export interface TimeEntry {
   entry_id: string;
   employee_id: string;
@@ -45,6 +49,18 @@ export interface TimeEntry {
   clock_out_time?: string;
   clock_out_location_id?: string;
   status: 'running' | 'completed';
+  // Compliance fields
+  work_type?: WorkType;
+  work_mode?: WorkMode;
+  verified_by_photo?: string;
+}
+
+export interface BreakLog {
+    break_id: string;
+    time_entry_id: string;
+    start_time: string;
+    end_time?: string;
+    break_type: string; // 'comida', 'descanso', 'personal'
 }
 
 export interface ActivityLog {
@@ -97,7 +113,6 @@ export interface Task {
     task_id: string;
     description: string;
     room_id: string;
-    // Fix: Add optional location_id to Task type to support location-wide tasks.
     location_id?: string;
     assigned_to: string; // employee_id
     due_date: string; // YYYY-MM-DD

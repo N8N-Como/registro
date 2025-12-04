@@ -2,19 +2,22 @@
 import React, { useState, useEffect, useContext, useMemo, useCallback } from 'react';
 import { AuthContext } from '../../App';
 import { useGeolocation } from '../../hooks/useGeolocation';
-import { getLocations, getTimeEntriesForEmployee, clockIn, clockOut, getActivityLogsForTimeEntry, checkInToLocation, checkOutOfLocation, logAccessAttempt } from '../../services/mockApi';
+import { getLocations, getTimeEntriesForEmployee, clockIn, clockOut, getActivityLogsForTimeEntry, checkInToLocation, checkOutOfLocation, logAccessAttempt, getBreaksForTimeEntry, startBreak, endBreak } from '../../services/mockApi';
 import { getDistanceFromLatLonInMeters, formatDuration, formatTime } from '../../utils/helpers';
-import { TimeEntry, Location as OfficeLocation, ActivityLog } from '../../types';
+import { TimeEntry, Location as OfficeLocation, ActivityLog, BreakLog, WorkType, WorkMode } from '../../types';
 import Button from '../shared/Button';
 import Spinner from '../shared/Spinner';
 import Card from '../shared/Card';
 import { LocationIcon, CarIcon, BuildingIcon, FlagIcon, DotIcon } from '../icons';
+import ClockInModal from './ClockInModal';
 
 type TimelineItem = 
     | { type: 'WORKDAY_START', time: Date, entry: TimeEntry }
     | { type: 'WORKDAY_END', time: Date, entry: TimeEntry }
     | { type: 'LOCATION_CHECK_IN', time: Date, log: ActivityLog }
     | { type: 'LOCATION_CHECK_OUT', time: Date, log: ActivityLog }
+    | { type: 'BREAK_START', time: Date, log: BreakLog }
+    | { type: 'BREAK_END', time: Date, log: BreakLog }
     | { type: 'TRAVEL', startTime: Date, endTime: Date };
 
 
@@ -25,12 +28,19 @@ const TimesheetsView: React.FC = () => {
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
   const [locations, setLocations] = useState<OfficeLocation[]>([]);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
+  const [breakLogs, setBreakLogs] = useState<BreakLog[]>([]);
+  
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState<string | false>(false);
   const [elapsedWorkdayTime, setElapsedWorkdayTime] = useState(0);
+  
+  // Modal State
+  const [isClockInModalOpen, setIsClockInModalOpen] = useState(false);
+  const [isOnBreak, setIsOnBreak] = useState(false);
 
   const runningWorkday = useMemo(() => timeEntries.find(t => t.status === 'running'), [timeEntries]);
   const currentActivity = useMemo(() => activityLogs.find(a => !a.check_out_time), [activityLogs]);
+  const currentBreak = useMemo(() => breakLogs.find(b => !b.end_time), [breakLogs]);
 
   const fetchData = useCallback(async () => {
     if (!auth?.employee) return;
@@ -45,10 +55,17 @@ const TimesheetsView: React.FC = () => {
 
       const currentRunningWorkday = entries.find(t => t.status === 'running');
       if (currentRunningWorkday) {
-        const logs = await getActivityLogsForTimeEntry(currentRunningWorkday.entry_id);
+        const [logs, breaks] = await Promise.all([
+            getActivityLogsForTimeEntry(currentRunningWorkday.entry_id),
+            getBreaksForTimeEntry(currentRunningWorkday.entry_id)
+        ]);
         setActivityLogs(logs.sort((a,b) => new Date(a.check_in_time).getTime() - new Date(b.check_in_time).getTime()));
+        setBreakLogs(breaks);
+        setIsOnBreak(breaks.some(b => !b.end_time));
       } else {
         setActivityLogs([]);
+        setBreakLogs([]);
+        setIsOnBreak(false);
       }
     } catch (error) {
       console.error("Failed to fetch data", error);
@@ -61,20 +78,31 @@ const TimesheetsView: React.FC = () => {
     fetchData();
   }, [fetchData]);
   
+  // Timer Logic: Calculate Effective Time (Total - Breaks)
   useEffect(() => {
     if (runningWorkday) {
       const interval = setInterval(() => {
-        setElapsedWorkdayTime(Date.now() - new Date(runningWorkday.clock_in_time).getTime());
+        const now = Date.now();
+        const start = new Date(runningWorkday.clock_in_time).getTime();
+        let totalBreakTime = 0;
+        
+        breakLogs.forEach(b => {
+            const bStart = new Date(b.start_time).getTime();
+            const bEnd = b.end_time ? new Date(b.end_time).getTime() : now;
+            totalBreakTime += (bEnd - bStart);
+        });
+
+        setElapsedWorkdayTime(now - start - totalBreakTime);
       }, 1000);
       return () => clearInterval(interval);
     }
-  }, [runningWorkday]);
+  }, [runningWorkday, breakLogs]);
 
   useEffect(() => {
-    if (runningWorkday && !currentActivity) {
+    if (runningWorkday && !currentActivity && !isOnBreak) {
       getLocation(); // Get location immediately when in travel mode
     }
-  }, [runningWorkday, currentActivity, getLocation]);
+  }, [runningWorkday, currentActivity, isOnBreak, getLocation]);
   
   const sortedLocations = useMemo(() => {
     if (!position) return locations;
@@ -84,17 +112,41 @@ const TimesheetsView: React.FC = () => {
     );
   }, [position, locations]);
 
-  const handleClockIn = async () => {
+  // CLOCK IN HANDLER (Called from Modal)
+  const handleClockInConfirm = async (data: { workType: WorkType; workMode: WorkMode; photoUrl: string }) => {
     if (!auth?.employee) return;
     setIsSubmitting('workday-in');
     try {
-      await clockIn(auth.employee.employee_id);
+      await clockIn(
+          auth.employee.employee_id, 
+          undefined, 
+          position?.coords.latitude, 
+          position?.coords.longitude,
+          data.workType,
+          data.workMode,
+          data.photoUrl
+      );
+      setIsClockInModalOpen(false);
       fetchData();
+    } catch (e) {
+        alert("Error al iniciar jornada.");
+        console.error(e);
     } finally { setIsSubmitting(false); }
   };
 
   const handleClockOut = async () => {
     if (!auth?.employee || !runningWorkday) return;
+    
+    // Safety check: Close active activities/breaks before clocking out
+    if (currentActivity) {
+        alert("Debes salir del establecimiento antes de finalizar la jornada.");
+        return;
+    }
+    if (currentBreak) {
+        alert("Debes reanudar el trabajo (finalizar pausa) antes de terminar el día.");
+        return;
+    }
+
     setIsSubmitting('workday-out');
     try {
       await clockOut(runningWorkday.entry_id);
@@ -102,10 +154,36 @@ const TimesheetsView: React.FC = () => {
     } finally { setIsSubmitting(false); }
   };
   
+  // Break Handlers
+  const handleStartBreak = async (type: string) => {
+      if (!runningWorkday) return;
+      setIsSubmitting('break-start');
+      try {
+          await startBreak(runningWorkday.entry_id, type);
+          fetchData();
+      } finally { setIsSubmitting(false); }
+  };
+
+  const handleEndBreak = async () => {
+      if (!currentBreak) return;
+      setIsSubmitting('break-end');
+      try {
+          await endBreak(currentBreak.break_id);
+          fetchData();
+      } finally { setIsSubmitting(false); }
+  };
+
+
+  // Location Check In
   const handleCheckInAttempt = async (locationId: string) => {
     if (!auth?.employee || !runningWorkday || !position) {
         alert("Esperando señal GPS...");
         getLocation();
+        return;
+    }
+    
+    if (isOnBreak) {
+        alert("Estás en pausa. Reanuda el trabajo para fichar en un sitio.");
         return;
     }
 
@@ -121,7 +199,7 @@ const TimesheetsView: React.FC = () => {
             location.longitude
         );
 
-        if (distance > location.radius_meters) {
+        if (distance > 200) { // Hard limit 200m as requested
             // BLOCK and LOG FAILURE
             await logAccessAttempt({
                 employee_id: auth.employee.employee_id,
@@ -129,11 +207,11 @@ const TimesheetsView: React.FC = () => {
                 latitude: position.coords.latitude,
                 longitude: position.coords.longitude,
                 was_allowed: false,
-                denial_reason: `Distancia excesiva: ${Math.round(distance)}m > ${location.radius_meters}m`
+                denial_reason: `Distancia excesiva: ${Math.round(distance)}m > 200m`
             });
-            alert(`No puedes fichar aquí. Estás a ${Math.round(distance)} metros del establecimiento (máximo permitido: ${location.radius_meters}m). Se ha registrado el intento.`);
+            alert(`No puedes fichar aquí. Estás a ${Math.round(distance)} metros del establecimiento (Límite: 200m). Se ha registrado el intento.`);
         } else {
-            // ALLOW and LOG SUCCESS (Optional, but good for consistency)
+            // ALLOW
             await logAccessAttempt({
                 employee_id: auth.employee.employee_id,
                 location_id: location.location_id,
@@ -142,7 +220,6 @@ const TimesheetsView: React.FC = () => {
                 was_allowed: true,
             });
 
-            // Perform Actual Check-In
             await checkInToLocation(
                 runningWorkday.entry_id, 
                 auth.employee.employee_id, 
@@ -174,11 +251,11 @@ const TimesheetsView: React.FC = () => {
 
     const items: (TimelineItem & { sortTime: Date })[] = [];
     
-    // Add workday start
+    // Start
     const startTime = new Date(runningWorkday.clock_in_time);
     items.push({ type: 'WORKDAY_START', time: startTime, entry: runningWorkday, sortTime: startTime });
 
-    // Add activities
+    // Locations
     activityLogs.forEach(log => {
         const checkInTime = new Date(log.check_in_time);
         items.push({ type: 'LOCATION_CHECK_IN', time: checkInTime, log: log, sortTime: checkInTime });
@@ -188,8 +265,18 @@ const TimesheetsView: React.FC = () => {
         }
     });
 
+    // Breaks
+    breakLogs.forEach(log => {
+        const st = new Date(log.start_time);
+        items.push({ type: 'BREAK_START', time: st, log, sortTime: st });
+        if (log.end_time) {
+            const et = new Date(log.end_time);
+            items.push({ type: 'BREAK_END', time: et, log, sortTime: et });
+        }
+    });
+
     return items.sort((a, b) => a.sortTime.getTime() - b.sortTime.getTime());
-  }, [runningWorkday, activityLogs]);
+  }, [runningWorkday, activityLogs, breakLogs]);
   
   const renderTimeline = () => (
     <div className="mt-6 flow-root">
@@ -197,29 +284,36 @@ const TimesheetsView: React.FC = () => {
             {timelineItems.map((item, itemIdx) => {
                 const isLast = itemIdx === timelineItems.length - 1;
                 let content;
+                let colorClass = 'bg-gray-400';
+                let icon = <DotIcon className="w-5 h-5 text-white" />;
+
                 switch (item.type) {
                     case 'WORKDAY_START':
-                        content = <><p className="font-semibold text-green-600">Inicio de Jornada</p><p className="text-sm text-gray-500">{formatTime(item.time)}</p></>;
+                        content = <><p className="font-semibold text-green-600">Inicio Jornada ({runningWorkday?.work_type})</p><p className="text-sm text-gray-500">{formatTime(item.time)}</p></>;
+                        colorClass = 'bg-green-500';
+                        icon = <FlagIcon className="w-5 h-5 text-white" />;
                         break;
                     case 'LOCATION_CHECK_IN':
                         const locNameIn = locations.find(l => l.location_id === item.log.location_id)?.name;
-                        content = <><p className="font-semibold text-blue-600">Entrada en {locNameIn}</p><p className="text-sm text-gray-500">{formatTime(item.time)}</p></>;
+                        content = <><p className="font-semibold text-blue-600">Entrada: {locNameIn}</p><p className="text-sm text-gray-500">{formatTime(item.time)}</p></>;
+                        colorClass = 'bg-blue-500';
+                        icon = <BuildingIcon className="w-5 h-5 text-white" />;
                         break;
                     case 'LOCATION_CHECK_OUT':
                         const locNameOut = locations.find(l => l.location_id === item.log.location_id)?.name;
-                        content = <><p className="font-semibold text-orange-600">Salida de {locNameOut}</p><p className="text-sm text-gray-500">{formatTime(item.time)}</p></>;
+                        content = <><p className="font-semibold text-orange-600">Salida: {locNameOut}</p><p className="text-sm text-gray-500">{formatTime(item.time)}</p></>;
+                        colorClass = 'bg-orange-500';
+                        icon = <CarIcon className="w-5 h-5 text-white" />;
+                        break;
+                    case 'BREAK_START':
+                        content = <><p className="font-semibold text-gray-600">Pausa ({item.log.break_type})</p><p className="text-sm text-gray-500">{formatTime(item.time)}</p></>;
+                        colorClass = 'bg-gray-500';
+                        break;
+                    case 'BREAK_END':
+                        content = <><p className="font-semibold text-gray-800">Fin de Pausa</p><p className="text-sm text-gray-500">{formatTime(item.time)}</p></>;
+                        colorClass = 'bg-gray-700';
                         break;
                 }
-                
-                let icon;
-                switch (item.type) {
-                    case 'WORKDAY_START': icon = <FlagIcon className="w-5 h-5 text-white" />; break;
-                    case 'LOCATION_CHECK_IN': icon = <BuildingIcon className="w-5 h-5 text-white" />; break;
-                    case 'LOCATION_CHECK_OUT': icon = <CarIcon className="w-5 h-5 text-white" />; break;
-                    default: icon = <DotIcon className="w-5 h-5 text-white" />; break;
-                }
-                
-                const iconBgColor = item.type === 'WORKDAY_START' ? 'bg-green-500' : item.type === 'LOCATION_CHECK_IN' ? 'bg-blue-500' : 'bg-orange-500';
 
                 return (
                     <li key={itemIdx}>
@@ -227,7 +321,7 @@ const TimesheetsView: React.FC = () => {
                             {!isLast ? <span className="absolute top-4 left-4 -ml-px h-full w-0.5 bg-gray-200" aria-hidden="true" /> : null}
                             <div className="relative flex space-x-3">
                                 <div>
-                                    <span className={`h-8 w-8 rounded-full flex items-center justify-center ring-4 ring-white ${iconBgColor}`}>
+                                    <span className={`h-8 w-8 rounded-full flex items-center justify-center ring-4 ring-white ${colorClass}`}>
                                         {icon}
                                     </span>
                                 </div>
@@ -252,16 +346,42 @@ const TimesheetsView: React.FC = () => {
         <div className="text-center">
           {runningWorkday ? (
             <>
-              <p className="text-lg text-gray-600">Jornada en curso</p>
-              <p className="text-5xl font-bold text-gray-800 my-4">{formatDuration(elapsedWorkdayTime)}</p>
-              <Button onClick={handleClockOut} variant="danger" size="lg" className="w-full sm:w-auto" isLoading={isSubmitting === 'workday-out'}>
-                Finalizar Jornada
-              </Button>
+              <p className="text-lg text-gray-600">Jornada en curso ({runningWorkday.work_type})</p>
+              
+              {isOnBreak ? (
+                  <div className="my-4 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+                      <p className="text-xl font-bold text-yellow-800 mb-2">⏸ EN PAUSA</p>
+                      <Button onClick={handleEndBreak} variant="primary" size="lg" isLoading={isSubmitting === 'break-end'}>
+                          Reanudar Trabajo
+                      </Button>
+                  </div>
+              ) : (
+                 <div className="my-4">
+                    <p className="text-5xl font-bold text-gray-800 mb-2">{formatDuration(elapsedWorkdayTime)}</p>
+                    <p className="text-xs text-gray-500">Tiempo de trabajo efectivo</p>
+                 </div>
+              )}
+
+              <div className="flex flex-col sm:flex-row justify-center gap-3 mt-6">
+                  {!isOnBreak && (
+                    <>
+                        <Button onClick={() => handleStartBreak('descanso')} variant="secondary" className="bg-gray-600 hover:bg-gray-700" isLoading={isSubmitting === 'break-start'}>
+                            ☕ Pausa Café
+                        </Button>
+                         <Button onClick={() => handleStartBreak('comida')} variant="secondary" className="bg-gray-600 hover:bg-gray-700" isLoading={isSubmitting === 'break-start'}>
+                            🍽 Comida
+                        </Button>
+                    </>
+                  )}
+                  <Button onClick={handleClockOut} variant="danger" isLoading={isSubmitting === 'workday-out'}>
+                    Finalizar Jornada
+                  </Button>
+              </div>
             </>
           ) : (
             <>
               <p className="text-lg text-gray-600">Bienvenido, {auth?.employee?.first_name}.</p>
-              <Button onClick={handleClockIn} variant="success" size="lg" className="w-full my-4 sm:w-auto" isLoading={isSubmitting === 'workday-in'}>
+              <Button onClick={() => setIsClockInModalOpen(true)} variant="success" size="lg" className="w-full my-4 sm:w-auto">
                 Iniciar Jornada
               </Button>
             </>
@@ -281,7 +401,7 @@ const TimesheetsView: React.FC = () => {
                         Registrar Salida de Establecimiento
                       </Button>
                   </div>
-              ) : (
+              ) : !isOnBreak ? (
                   <div className="space-y-4">
                       <p className="text-center font-semibold text-lg text-orange-600">En Desplazamiento</p>
                        <div className="space-y-2 pt-2">
@@ -290,7 +410,7 @@ const TimesheetsView: React.FC = () => {
                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                {sortedLocations.map(loc => {
                                  const dist = position ? getDistanceFromLatLonInMeters(position.coords.latitude, position.coords.longitude, loc.latitude, loc.longitude) : Infinity;
-                                 const isFar = dist > loc.radius_meters;
+                                 const isFar = dist > 200; // Hard limit 200m
 
                                  return (
                                  <button 
@@ -318,9 +438,21 @@ const TimesheetsView: React.FC = () => {
                           )}
                        </div>
                   </div>
+              ) : (
+                  <p className="text-center text-gray-500 italic">Opciones de ubicación deshabilitadas durante la pausa.</p>
               )}
             </div>
         </Card>
+      )}
+
+      {/* Clock In Modal */}
+      {isClockInModalOpen && (
+          <ClockInModal 
+            isOpen={isClockInModalOpen}
+            onClose={() => setIsClockInModalOpen(false)}
+            onConfirm={handleClockInConfirm}
+            isLoading={isSubmitting === 'workday-in'}
+          />
       )}
     </div>
   );

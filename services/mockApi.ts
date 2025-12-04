@@ -1,9 +1,8 @@
 
 import { createClient } from '@supabase/supabase-js';
-import { Role, Employee, Location, TimeEntry, Policy, Announcement, Room, Task, TaskTimeLog, Incident, ShiftLogEntry, ActivityLog, LostItem, AccessLog } from '../types';
+import { Role, Employee, Location, TimeEntry, Policy, Announcement, Room, Task, TaskTimeLog, Incident, ShiftLogEntry, ActivityLog, LostItem, AccessLog, BreakLog, WorkType, WorkMode } from '../types';
 
 // --- Supabase Configuration ---
-// Estas son las credenciales que me has facilitado.
 const SUPABASE_URL = 'https://acinnuphpdnsrmijsbsu.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFjaW5udXBocGRuc3JtaWpzYnN1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMzOTIyNjgsImV4cCI6MjA3ODk2ODI2OH0.DcaNxpI68W0gaGppraL9yZO6a9fHStVkU1ee4_zKbsg';
 
@@ -44,8 +43,6 @@ export const getEmployees = async (): Promise<Employee[]> => {
 };
 
 export const addEmployee = async (employeeData: Omit<Employee, 'employee_id'>): Promise<Employee> => {
-    // We generate ID here for consistency with the previous mock logic, 
-    // though Supabase could handle UUIDs automatically.
     const newId = uid();
     const newEmployee = { ...employeeData, employee_id: newId };
     
@@ -125,7 +122,16 @@ export const getTimeEntriesForEmployee = async (employeeId: string): Promise<Tim
     return data || [];
 };
 
-export const clockIn = async (employeeId: string, locationId?: string, latitude?: number, longitude?: number): Promise<TimeEntry> => {
+// MODIFIED for Compliance: Accepts metadata for verification
+export const clockIn = async (
+    employeeId: string, 
+    locationId?: string, 
+    latitude?: number, 
+    longitude?: number,
+    workType: WorkType = 'ordinaria',
+    workMode: WorkMode = 'presencial',
+    photoUrl?: string
+): Promise<TimeEntry> => {
     const newEntry: TimeEntry = {
         entry_id: uid(),
         employee_id: employeeId,
@@ -134,6 +140,9 @@ export const clockIn = async (employeeId: string, locationId?: string, latitude?
         clock_in_latitude: latitude,
         clock_in_longitude: longitude,
         status: 'running',
+        work_type: workType,
+        work_mode: workMode,
+        verified_by_photo: photoUrl
     };
     
     const { data, error } = await supabase
@@ -162,6 +171,54 @@ export const clockOut = async (entryId: string, locationId?: string): Promise<Ti
     return data;
 };
 
+// --- BREAK MANAGEMENT (New) ---
+
+export const getBreaksForTimeEntry = async (timeEntryId: string): Promise<BreakLog[]> => {
+    const { data, error } = await supabase
+        .from('break_logs')
+        .select('*')
+        .eq('time_entry_id', timeEntryId)
+        .order('start_time', { ascending: true });
+        
+    if (error) {
+        // Fallback if table doesn't exist yet
+        console.warn("Break logs table might be missing", error);
+        return [];
+    }
+    return data || [];
+};
+
+export const startBreak = async (timeEntryId: string, breakType: string): Promise<BreakLog> => {
+    const newBreak = {
+        break_id: uid(),
+        time_entry_id: timeEntryId,
+        start_time: new Date().toISOString(),
+        break_type: breakType
+    };
+
+    const { data, error } = await supabase
+        .from('break_logs')
+        .insert([newBreak])
+        .select()
+        .single();
+
+    if (error) throw error;
+    return data;
+};
+
+export const endBreak = async (breakId: string): Promise<BreakLog> => {
+    const { data, error } = await supabase
+        .from('break_logs')
+        .update({ end_time: new Date().toISOString() })
+        .eq('break_id', breakId)
+        .select()
+        .single();
+
+    if (error) throw error;
+    return data;
+};
+
+
 // Activity Log (Establishment Check-in/out)
 export const getActivityLogsForTimeEntry = async (timeEntryId: string): Promise<ActivityLog[]> => {
     const { data, error } = await supabase
@@ -170,6 +227,16 @@ export const getActivityLogsForTimeEntry = async (timeEntryId: string): Promise<
         .eq('time_entry_id', timeEntryId);
         
     if (error) throw error;
+    return data || [];
+};
+
+export const getCurrentEstablishmentStatus = async (): Promise<ActivityLog[]> => {
+    const { data, error } = await supabase
+        .from('activity_logs')
+        .select('*')
+        .is('check_out_time', null);
+    
+    if (error) return [];
     return data || [];
 };
 
@@ -223,8 +290,7 @@ export const logAccessAttempt = async (data: Omit<AccessLog, 'log_id' | 'attempt
         .single();
 
     if (error) {
-        // Fallback for demo if table doesn't exist yet, just console log
-        console.warn("Could not save access log to Supabase (Table might be missing):", error);
+        console.warn("Could not save access log to Supabase:", error);
         return newLog as AccessLog;
     }
     return created;
