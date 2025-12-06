@@ -1,8 +1,8 @@
 
 import React from 'react';
 import { COMPANY_NAME } from '../../constants';
-import { formatDuration, formatTime } from '../../utils/helpers';
-import { Employee } from '../../types';
+import { formatDuration } from '../../utils/helpers';
+import { Employee, MonthlySignature } from '../../types';
 import Button from '../shared/Button';
 
 interface DailyLog {
@@ -20,6 +20,7 @@ interface EmployeeReportData {
     employee: Employee;
     dailyLogs: DailyLog[];
     monthlyTotal: number;
+    signature?: MonthlySignature | null;
 }
 
 interface PrintableMonthlyLogProps {
@@ -41,7 +42,7 @@ const PrintableMonthlyLog: React.FC<PrintableMonthlyLogProps> = ({ data, month, 
                 <Button onClick={handlePrint}>Imprimir Informe Completo</Button>
             </div>
             <div id="print-area" className="text-xs">
-                {data.map(({ employee, dailyLogs, monthlyTotal }, index) => (
+                {data.map(({ employee, dailyLogs, monthlyTotal, signature }, index) => (
                     <div key={employee.employee_id} className={`mb-12 ${index < data.length - 1 ? 'break-after-page' : ''}`}>
                         <header className="flex justify-between items-center pb-4 border-b mb-4">
                             <div>
@@ -86,11 +87,20 @@ const PrintableMonthlyLog: React.FC<PrintableMonthlyLogProps> = ({ data, month, 
                         </main>
 
                         <footer className="mt-16 flex justify-around text-center">
-                            <div>
-                                <p className="border-t pt-2">Firma del Trabajador/a</p>
+                            <div className="flex flex-col items-center">
+                                {signature ? (
+                                    <img src={signature.signature_url} alt="Firma Empleado" className="h-16 mb-2 border-b border-gray-300" />
+                                ) : (
+                                    <div className="h-16 w-48 mb-2 border-b border-gray-300 bg-gray-50 flex items-center justify-center text-gray-400 italic">
+                                        Sin Firma Digital
+                                    </div>
+                                )}
+                                <p className="text-gray-700">Firma del Trabajador/a</p>
+                                {signature && <p className="text-[10px] text-gray-400">Firmado digitalmente: {new Date(signature.signed_at).toLocaleString()}</p>}
                             </div>
-                            <div>
-                                <p className="border-t pt-2">Firma de la Empresa</p>
+                            <div className="flex flex-col items-center justify-end">
+                                <div className="h-16 w-48 mb-2 border-b border-gray-300"></div>
+                                <p className="text-gray-700">Firma de la Empresa</p>
                             </div>
                         </footer>
                     </div>

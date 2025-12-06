@@ -165,3 +165,12 @@ export interface LostItem {
     returned_date?: string; // ISO Date
     returned_by_employee_id?: string;
 }
+
+export interface MonthlySignature {
+    signature_id: string;
+    employee_id: string;
+    month: number;
+    year: number;
+    signature_url: string; // Base64
+    signed_at: string;
+}

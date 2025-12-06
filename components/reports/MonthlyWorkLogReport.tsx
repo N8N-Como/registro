@@ -1,12 +1,15 @@
 
-import React, { useState, useEffect } from 'react';
-import { getEmployees, getTimeEntriesForEmployee } from '../../services/mockApi';
-import { Employee, TimeEntry } from '../../types';
+import React, { useState, useEffect, useContext } from 'react';
+import { getEmployees, getTimeEntriesForEmployee, getMonthlySignature, saveMonthlySignature } from '../../services/mockApi';
+import { Employee, MonthlySignature } from '../../types';
+import { AuthContext } from '../../App';
 import Button from '../shared/Button';
 import Spinner from '../shared/Spinner';
 import Card from '../shared/Card';
-import { formatDuration, formatTime, getDaysInMonth } from '../../utils/helpers';
+import Modal from '../shared/Modal';
+import { formatTime, getDaysInMonth } from '../../utils/helpers';
 import PrintableMonthlyLog from './PrintableMonthlyLog';
+import SignaturePad from '../shared/SignaturePad';
 
 interface DailyLog {
     day: number;
@@ -19,15 +22,21 @@ interface EmployeeReportData {
     employee: Employee;
     dailyLogs: DailyLog[];
     monthlyTotal: number;
+    signature?: MonthlySignature | null;
 }
 
 const MonthlyWorkLogReport: React.FC = () => {
+    const auth = useContext(AuthContext);
     const [employees, setEmployees] = useState<Employee[]>([]);
     const [selectedMonth, setSelectedMonth] = useState('10');
     const [selectedYear, setSelectedYear] = useState('2025');
     const [reportData, setReportData] = useState<EmployeeReportData[] | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isGenerating, setIsGenerating] = useState(false);
+    
+    // Signature State
+    const [isSigningModalOpen, setIsSigningModalOpen] = useState(false);
+    const [isSavingSignature, setIsSavingSignature] = useState(false);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -46,7 +55,9 @@ const MonthlyWorkLogReport: React.FC = () => {
     // Auto-generate report on initial load with test data
     useEffect(() => {
         if (!isLoading) {
-            handleGenerateReport();
+            const today = new Date();
+            setSelectedMonth((today.getMonth() + 1).toString());
+            setSelectedYear(today.getFullYear().toString());
         }
     }, [isLoading]);
 
@@ -59,15 +70,24 @@ const MonthlyWorkLogReport: React.FC = () => {
 
             const allEmployeeReports: EmployeeReportData[] = [];
 
-            for (const employee of employees) {
-                const timeEntries = await getTimeEntriesForEmployee(employee.employee_id);
+            // If user is admin, generate for all. If employee, only for themselves.
+            const targetEmployees = (auth?.role?.role_id === 'admin') 
+                ? employees 
+                : employees.filter(e => e.employee_id === auth?.employee?.employee_id);
+
+            for (const employee of targetEmployees) {
+                const [timeEntries, signature] = await Promise.all([
+                    getTimeEntriesForEmployee(employee.employee_id),
+                    getMonthlySignature(employee.employee_id, month, year)
+                ]);
                 
                 const filteredEntries = timeEntries.filter(entry => {
                     const entryDate = new Date(entry.clock_in_time);
                     return entryDate.getFullYear() === year && entryDate.getMonth() === month - 1 && entry.status === 'completed' && entry.clock_out_time;
                 });
 
-                if (filteredEntries.length === 0) continue;
+                // If admin, skip empty reports. If employee, show even if empty (to sign zero hours?)
+                if (filteredEntries.length === 0 && auth?.role?.role_id === 'admin') continue;
 
                 const daysOfMonth = getDaysInMonth(month, year);
                 let monthlyTotalMs = 0;
@@ -100,7 +120,8 @@ const MonthlyWorkLogReport: React.FC = () => {
                 allEmployeeReports.push({
                     employee,
                     dailyLogs,
-                    monthlyTotal: monthlyTotalMs
+                    monthlyTotal: monthlyTotalMs,
+                    signature
                 });
             }
             
@@ -113,6 +134,23 @@ const MonthlyWorkLogReport: React.FC = () => {
         }
     };
     
+    const handleSaveSignature = async (signatureUrl: string) => {
+        if (!auth?.employee) return;
+        setIsSavingSignature(true);
+        try {
+            const month = parseInt(selectedMonth, 10);
+            const year = parseInt(selectedYear, 10);
+            await saveMonthlySignature(auth.employee.employee_id, month, year, signatureUrl);
+            setIsSigningModalOpen(false);
+            handleGenerateReport(); // Refresh data to show signature
+        } catch (error) {
+            console.error("Failed to save signature", error);
+            alert("Error al guardar la firma.");
+        } finally {
+            setIsSavingSignature(false);
+        }
+    };
+    
     if (isLoading) return <Spinner />;
     
     const years = [2025, 2024, 2023];
@@ -120,6 +158,10 @@ const MonthlyWorkLogReport: React.FC = () => {
         value: (i + 1).toString(),
         name: new Date(0, i).toLocaleString('es-ES', { month: 'long' })
     }));
+
+    // Check if the current user needs to sign their report
+    const myReport = reportData?.find(r => r.employee.employee_id === auth?.employee?.employee_id);
+    const needsSignature = myReport && !myReport.signature;
 
     return (
         <Card title="Generar Registro Mensual de Jornada">
@@ -139,12 +181,34 @@ const MonthlyWorkLogReport: React.FC = () => {
                 <Button onClick={handleGenerateReport} isLoading={isGenerating}>Generar Informe</Button>
             </div>
             
+            {/* Signature Call to Action */}
+            {needsSignature && !isGenerating && (
+                <div className="mb-6 p-4 bg-orange-50 border-l-4 border-orange-500 flex justify-between items-center no-print">
+                    <div>
+                        <h3 className="text-lg font-bold text-orange-800">Acción Requerida</h3>
+                        <p className="text-sm text-orange-700">Aún no has firmado digitalmente tu registro de jornada para este mes.</p>
+                    </div>
+                    <Button onClick={() => setIsSigningModalOpen(true)} variant="primary">Firmar Ahora</Button>
+                </div>
+            )}
+            
             {isGenerating && <Spinner/>}
 
             {reportData && (
                 reportData.length > 0
                 ? <PrintableMonthlyLog data={reportData} month={parseInt(selectedMonth)} year={parseInt(selectedYear)} />
                 : <p className="text-center p-4">No se encontraron datos de fichaje para los criterios seleccionados.</p>
+            )}
+
+            {isSigningModalOpen && (
+                <Modal isOpen={isSigningModalOpen} onClose={() => setIsSigningModalOpen(false)} title="Firmar Registro de Jornada">
+                    {isSavingSignature ? <Spinner/> : (
+                        <SignaturePad 
+                            onSave={handleSaveSignature}
+                            onClear={() => {}} 
+                        />
+                    )}
+                </Modal>
             )}
         </Card>
     );
