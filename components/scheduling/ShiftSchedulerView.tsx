@@ -1,0 +1,245 @@
+
+import React, { useState, useEffect, useContext, useMemo } from 'react';
+import { AuthContext } from '../../App';
+import { getEmployees, getLocations, getWorkShifts, createWorkShift, updateWorkShift, deleteWorkShift } from '../../services/mockApi';
+import { Employee, Location, WorkShift } from '../../types';
+import Card from '../shared/Card';
+import Spinner from '../shared/Spinner';
+import Button from '../shared/Button';
+import ShiftFormModal from './ShiftFormModal';
+import { CalendarIcon } from '../icons';
+
+const ShiftSchedulerView: React.FC = () => {
+    const auth = useContext(AuthContext);
+    const [currentWeekStart, setCurrentWeekStart] = useState(new Date());
+    const [shifts, setShifts] = useState<WorkShift[]>([]);
+    const [employees, setEmployees] = useState<Employee[]>([]);
+    const [locations, setLocations] = useState<Location[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    
+    // Modal State
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [selectedShift, setSelectedShift] = useState<WorkShift | null>(null);
+    const [modalContext, setModalContext] = useState<{ employeeId: string, date: Date } | null>(null);
+
+    // Helpers to manage dates
+    const getStartOfWeek = (date: Date) => {
+        const d = new Date(date);
+        const day = d.getDay();
+        const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is sunday
+        d.setDate(diff);
+        d.setHours(0,0,0,0);
+        return d;
+    };
+
+    const weekStart = useMemo(() => getStartOfWeek(currentWeekStart), [currentWeekStart]);
+    
+    const weekDays = useMemo(() => {
+        const days = [];
+        for (let i = 0; i < 7; i++) {
+            const d = new Date(weekStart);
+            d.setDate(weekStart.getDate() + i);
+            days.push(d);
+        }
+        return days;
+    }, [weekStart]);
+
+    useEffect(() => {
+        const fetchSchedulerData = async () => {
+            setIsLoading(true);
+            try {
+                const [emps, locs] = await Promise.all([getEmployees(), getLocations()]);
+                setEmployees(emps);
+                setLocations(locs);
+                
+                // Fetch shifts for the current week range
+                const startStr = weekDays[0].toISOString();
+                const endStr = weekDays[6].toISOString().replace(/T.*/, 'T23:59:59');
+                
+                const weekShifts = await getWorkShifts(startStr, endStr);
+                setShifts(weekShifts);
+
+            } catch (error) {
+                console.error("Failed to fetch scheduler data", error);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        fetchSchedulerData();
+    }, [weekStart]); // Refetch when week changes
+
+    const handlePreviousWeek = () => {
+        const newDate = new Date(currentWeekStart);
+        newDate.setDate(newDate.getDate() - 7);
+        setCurrentWeekStart(newDate);
+    };
+
+    const handleNextWeek = () => {
+        const newDate = new Date(currentWeekStart);
+        newDate.setDate(newDate.getDate() + 7);
+        setCurrentWeekStart(newDate);
+    };
+    
+    const handleToday = () => {
+        setCurrentWeekStart(new Date());
+    };
+
+    // Interaction Handlers
+    const canEdit = auth?.role?.role_id === 'admin' || auth?.role?.role_id === 'gobernanta' || auth?.role?.role_id === 'receptionist';
+
+    const handleCellClick = (employeeId: string, date: Date) => {
+        if (!canEdit) return;
+        setModalContext({ employeeId, date });
+        setSelectedShift(null);
+        setIsModalOpen(true);
+    };
+
+    const handleShiftClick = (e: React.MouseEvent, shift: WorkShift) => {
+        e.stopPropagation(); // Prevent cell click
+        if (!canEdit) return;
+        setSelectedShift(shift);
+        // Context needed for modal props, though shift data overrides it
+        setModalContext({ employeeId: shift.employee_id, date: new Date(shift.start_time) });
+        setIsModalOpen(true);
+    };
+
+    const handleSaveShift = async (shiftData: WorkShift | Omit<WorkShift, 'shift_id'>) => {
+        try {
+            if ('shift_id' in shiftData) {
+                await updateWorkShift(shiftData);
+            } else {
+                await createWorkShift(shiftData);
+            }
+            // Refresh data simply by triggering effect (could be optimized)
+            const startStr = weekDays[0].toISOString();
+            const endStr = weekDays[6].toISOString().replace(/T.*/, 'T23:59:59');
+            const weekShifts = await getWorkShifts(startStr, endStr);
+            setShifts(weekShifts);
+            setIsModalOpen(false);
+        } catch (error) {
+            alert("Error al guardar el turno");
+        }
+    };
+
+    const handleDeleteShift = async (shiftId: string) => {
+        try {
+            await deleteWorkShift(shiftId);
+            setShifts(prev => prev.filter(s => s.shift_id !== shiftId));
+            setIsModalOpen(false);
+        } catch (error) {
+            alert("Error al eliminar");
+        }
+    };
+
+    if (isLoading && employees.length === 0) return <Spinner />;
+
+    return (
+        <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row justify-between items-center bg-white p-4 rounded-lg shadow-sm">
+                <div className="flex items-center space-x-2 mb-4 sm:mb-0">
+                    <CalendarIcon className="w-6 h-6 text-primary" />
+                    <h2 className="text-xl font-bold text-gray-800">Cuadrante de Turnos</h2>
+                </div>
+                
+                <div className="flex items-center space-x-2">
+                    <Button variant="secondary" onClick={handlePreviousWeek}>&lt;</Button>
+                    <Button variant="secondary" onClick={handleToday}>Hoy</Button>
+                    <span className="font-semibold text-gray-700 w-32 text-center">
+                        {weekDays[0].toLocaleDateString('es-ES', { month: 'short', day: 'numeric' })} - {weekDays[6].toLocaleDateString('es-ES', { month: 'short', day: 'numeric' })}
+                    </span>
+                    <Button variant="secondary" onClick={handleNextWeek}>&gt;</Button>
+                </div>
+            </div>
+
+            <Card className="overflow-hidden p-0">
+                <div className="overflow-x-auto">
+                    <table className="w-full border-collapse min-w-[800px]">
+                        <thead>
+                            <tr className="bg-gray-50 border-b">
+                                <th className="p-4 text-left font-bold text-gray-600 w-48 sticky left-0 bg-gray-50 z-10 border-r">Empleado</th>
+                                {weekDays.map(day => (
+                                    <th key={day.toISOString()} className="p-2 text-center border-r min-w-[120px]">
+                                        <div className="text-xs font-bold text-gray-500 uppercase">{day.toLocaleDateString('es-ES', { weekday: 'short' })}</div>
+                                        <div className={`font-bold text-lg ${day.toDateString() === new Date().toDateString() ? 'text-blue-600' : 'text-gray-800'}`}>
+                                            {day.getDate()}
+                                        </div>
+                                    </th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {employees.map(emp => (
+                                <tr key={emp.employee_id} className="border-b hover:bg-gray-50 transition-colors">
+                                    <td className="p-3 border-r font-medium text-gray-800 sticky left-0 bg-white z-10 flex items-center space-x-2">
+                                        <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-xs font-bold">
+                                            {emp.first_name.charAt(0)}{emp.last_name.charAt(0)}
+                                        </div>
+                                        <span>{emp.first_name} {emp.last_name}</span>
+                                    </td>
+                                    {weekDays.map(day => {
+                                        // Find shifts for this employee on this day
+                                        const dayShifts = shifts.filter(s => 
+                                            s.employee_id === emp.employee_id && 
+                                            new Date(s.start_time).toDateString() === day.toDateString()
+                                        );
+
+                                        return (
+                                            <td 
+                                                key={day.toISOString()} 
+                                                className="p-1 border-r align-top h-24 relative cursor-pointer hover:bg-gray-100"
+                                                onClick={() => handleCellClick(emp.employee_id, day)}
+                                            >
+                                                {dayShifts.map(shift => {
+                                                    const startTime = new Date(shift.start_time).toLocaleTimeString('es-ES', {hour: '2-digit', minute:'2-digit'});
+                                                    const endTime = new Date(shift.end_time).toLocaleTimeString('es-ES', {hour: '2-digit', minute:'2-digit'});
+                                                    
+                                                    return (
+                                                        <div 
+                                                            key={shift.shift_id}
+                                                            onClick={(e) => handleShiftClick(e, shift)}
+                                                            className="mb-1 p-1 rounded text-xs text-white shadow-sm overflow-hidden"
+                                                            style={{ backgroundColor: shift.color }}
+                                                            title={shift.notes}
+                                                        >
+                                                            <div className="font-bold">{startTime} - {endTime}</div>
+                                                            {shift.location_id && (
+                                                                <div className="truncate opacity-90 text-[10px]">
+                                                                    {locations.find(l => l.location_id === shift.location_id)?.name}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    )
+                                                })}
+                                                {dayShifts.length === 0 && canEdit && (
+                                                    <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 text-gray-400 text-2xl font-light">
+                                                        +
+                                                    </div>
+                                                )}
+                                            </td>
+                                        );
+                                    })}
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </Card>
+
+            {isModalOpen && modalContext && (
+                <ShiftFormModal 
+                    isOpen={isModalOpen}
+                    onClose={() => setIsModalOpen(false)}
+                    onSave={handleSaveShift}
+                    onDelete={handleDeleteShift}
+                    shift={selectedShift}
+                    employeeId={modalContext.employeeId}
+                    date={modalContext.date}
+                    locations={locations}
+                    employees={employees}
+                />
+            )}
+        </div>
+    );
+};
+
+export default ShiftSchedulerView;

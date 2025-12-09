@@ -9,6 +9,7 @@ import Spinner from './components/shared/Spinner';
 import AnnouncementModal from './components/shared/AnnouncementModal';
 import OnboardingGuide from './components/guides/OnboardingGuide';
 import Button from './components/shared/Button';
+import NetworkStatus from './components/shared/NetworkStatus';
 
 interface AuthContextType {
   employee: Employee | null;
@@ -187,6 +188,7 @@ const App: React.FC = () => {
   return (
     <AuthContext.Provider value={{ employee: currentUser, role: userRole, logout: handleLogout, updateCurrentUser: handleUpdateCurrentUser }}>
       <Layout />
+      <NetworkStatus />
     </AuthContext.Provider>
   );
 };

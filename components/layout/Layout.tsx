@@ -1,8 +1,9 @@
 
+
 import React, { useState, useContext, useMemo } from 'react';
 import { AuthContext } from '../../App';
 import { Permission } from '../../types';
-import { DashboardIcon, TimesheetIcon, AdminIcon, IncidentIcon, ReportIcon, LogoutIcon, BroomIcon, BookOpenIcon, PencilIcon, MegaphoneIcon, CalendarIcon, MenuIcon, ArchiveBoxIcon } from '../icons';
+import { DashboardIcon, TimesheetIcon, AdminIcon, IncidentIcon, ReportIcon, LogoutIcon, BroomIcon, BookOpenIcon, PencilIcon, MegaphoneIcon, CalendarIcon, MenuIcon, ArchiveBoxIcon, SunIcon } from '../icons';
 import DashboardView from '../dashboard/DashboardView';
 import TimesheetsView from '../timesheets/TimesheetsView';
 import AdminView from '../admin/AdminView';
@@ -15,6 +16,8 @@ import LostFoundView from '../lostandfound/LostFoundView';
 import { COMPANY_NAME } from '../../constants';
 import ProfileEditModal from '../user/ProfileEditModal';
 import AnnouncementsView from '../announcements/AnnouncementsView';
+import TimeOffView from '../timeoff/TimeOffView';
+import ShiftSchedulerView from '../scheduling/ShiftSchedulerView';
 
 
 type NavItem = {
@@ -28,6 +31,8 @@ type NavItem = {
 const navItems: NavItem[] = [
     { name: 'Panel', view: 'dashboard', icon: DashboardIcon },
     { name: 'Fichajes', view: 'timesheets', icon: TimesheetIcon },
+    { name: 'Cuadrantes', view: 'scheduler_shifts', icon: CalendarIcon },
+    { name: 'Ausencias', view: 'time_off', icon: SunIcon },
     { name: 'Tareas Limpieza', view: 'cleaning', icon: BroomIcon, role_id: 'cleaner' },
     { name: 'Planificador Tareas', view: 'scheduler', icon: CalendarIcon, requiredPermission: 'schedule_tasks' },
     { name: 'Incidencias', view: 'incidents', icon: IncidentIcon },
@@ -58,6 +63,8 @@ const Layout: React.FC = () => {
         switch (activeView) {
             case 'dashboard': return <DashboardView />;
             case 'timesheets': return <TimesheetsView />;
+            case 'scheduler_shifts': return <ShiftSchedulerView />;
+            case 'time_off': return <TimeOffView />;
             case 'admin': return <AdminView />;
             case 'incidents': return <IncidentsView />;
             case 'reports': return <ReportsView />;

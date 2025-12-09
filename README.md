@@ -1,52 +1,74 @@
 
 # Como en Casa - Sistema de Gestión de Personal
 
-Aplicación web para la gestión integral de horarios, tareas de limpieza, incidencias y comunicados internos de **Como en Casa Alojamientos Turísticos SL**.
+Aplicación web progresiva (PWA) para la gestión integral de horarios, tareas de limpieza, incidencias y comunicados internos de **Como en Casa Alojamientos Turísticos SL**.
 
-## 🚀 Características Principales
+Esta aplicación ha sido diseñada para cumplir con la **Normativa de Control Horario**, la **Ley de Protección de Datos (LOPD)** y las necesidades operativas de la hostelería.
 
-*   **Control Horario (Fichajes):** Registro de entrada/salida con geolocalización y PIN.
-*   **Gestión de Limpieza:** Planificador semanal y estado de habitaciones.
-*   **Mantenimiento:** Reporte y seguimiento de incidencias.
+## 🚀 Características Implementadas
+
+### 1. Control Horario y Normativa (Fase 1)
+*   **Fichaje Legal:** Registro de entrada/salida con geolocalización (GPS) y verificación de identidad mediante **Selfie**.
+*   **Gestión de Pausas:** Registro de descansos (café, comida) para cálculo de tiempo efectivo de trabajo.
+*   **Firma Digital:** Los empleados pueden firmar sus informes mensuales directamente en pantalla (dedo o ratón).
+*   **Auditoría:** Registro inmutable de cambios para inspecciones laborales.
+
+### 2. Gestión de Ausencias (Fase 2)
+*   **Solicitudes:** Los empleados pueden solicitar vacaciones, bajas o días de asuntos propios.
+*   **Aprobación:** Flujo de aprobación para administradores y gobernanta.
+
+### 3. Planificador de Turnos (Fase 3)
+*   **Cuadrante Visual:** Calendario semanal para asignar turnos a empleados por ubicación.
+*   **Gestión de Horarios:** Define hora de entrada, salida y ubicación prevista.
+
+### 4. Robustez y Modo Offline (Fase 4)
+*   **Funcionamiento sin Internet:** La App permite fichar, completar tareas y reportar incidencias incluso en sótanos o ascensores sin cobertura.
+*   **Sincronización Automática:** Los datos se guardan localmente y se envían al servidor en cuanto se recupera la conexión.
+
+### 5. Operaciones Diarias
+*   **Limpieza:** Planificador de tareas por habitación y establecimiento.
+*   **Mantenimiento:** Reporte de incidencias con fotos.
 *   **Comunicación:** Libro de turno digital y tablón de anuncios.
+*   **Objetos Perdidos:** Registro fotográfico de objetos encontrados.
 
-## 📦 Guía de Despliegue
+## 📦 Guía de Instalación y Despliegue
 
-Este proyecto está configurado para ser desplegado en **Vercel** o **Netlify** usando **Vite**.
+### 1. Requisitos Previos
+*   Node.js (versión 18 o superior)
+*   Cuenta en Supabase (Base de datos gratuita)
 
-### 1. Base de Datos (Supabase) - ¡IMPORTANTE!
-Para que la aplicación funcione, necesitas crear las tablas en Supabase:
+### 2. Configuración de Base de Datos (Supabase)
+Es necesario ejecutar el script SQL proporcionado en la documentación del proyecto para crear las tablas:
+*   `employees` (Empleados)
+*   `time_entries`, `break_logs` (Fichajes)
+*   `tasks`, `incidents` (Operaciones)
+*   `work_shifts` (Turnos)
+*   `monthly_signatures` (Firmas)
 
-1.  Ve a tu proyecto en [Supabase](https://supabase.com).
-2.  Entra en el **SQL Editor** (icono de terminal en la barra lateral).
-3.  Abre el archivo `supabase_schema.sql` incluido en este proyecto.
-4.  Copia todo su contenido y pégalo en el editor de Supabase.
-5.  Pulsa **Run**.
-6.  ¡Listo! Ya tienes el usuario administrador creado.
-    *   **PIN Admin:** `1234`
+### 3. Instalación Local
+```bash
+# 1. Instalar dependencias
+npm install
 
-### 2. Subida del Código
-Si la sincronización automática falla, sigue estos pasos:
+# 2. Iniciar servidor de desarrollo
+npm run dev
+```
 
-1.  **Descargar:** Descarga este proyecto como un archivo `.ZIP` y descomprímelo en tu ordenador.
-2.  **GitHub:**
-    *   Crea un nuevo repositorio en [GitHub.com](https://github.com/new).
-    *   Selecciona la opción "uploading an existing file" (subir un archivo existente).
-    *   Arrastra todos los archivos de la carpeta descomprimida a GitHub y guarda los cambios ("Commit changes").
-3.  **Vercel:**
-    *   Ve a [Vercel](https://vercel.com) e inicia sesión.
-    *   Pulsa "Add New Project".
-    *   Selecciona el repositorio que acabas de crear en GitHub.
-    *   Pulsa **Deploy**.
+### 4. Compilación para Producción
+Para subir a un hosting (Vercel, Netlify, cPanel):
+```bash
+npm run build
+```
+Esto generará una carpeta `dist` con los archivos optimizados listos para subir.
 
-### 3. Configuración de Dominio
-Para añadir tu dominio (ej: `app.comoencasa.com`):
-1. Ve a tu proyecto en Vercel -> Settings -> Domains.
-2. Añade tu dominio.
-3. Configura los DNS en tu proveedor de dominio según las instrucciones que te dé Vercel.
+## 🔑 Credenciales por Defecto
+Al iniciar la base de datos, se crea un usuario administrador:
+*   **Usuario:** Admin Sistema
+*   **PIN:** `1234`
 
 ## 🛠️ Tecnologías
 *   React 18 + TypeScript
 *   Vite (Build Tool)
-*   Tailwind CSS (vía CDN para simplicidad)
-*   Supabase (Base de datos)
+*   Tailwind CSS (Estilos)
+*   Supabase (Base de datos & Auth)
+*   Google Gemini AI (Asistente inteligente)

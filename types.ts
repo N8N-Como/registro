@@ -1,4 +1,5 @@
 
+
 export type Permission = 
   | 'manage_employees'
   | 'manage_locations'
@@ -173,4 +174,31 @@ export interface MonthlySignature {
     year: number;
     signature_url: string; // Base64
     signed_at: string;
+}
+
+export type TimeOffType = 'vacation' | 'sick_leave' | 'personal' | 'compensatory';
+export type TimeOffStatus = 'pending' | 'approved' | 'rejected';
+
+export interface TimeOffRequest {
+    request_id: string;
+    employee_id: string;
+    start_date: string; // YYYY-MM-DD
+    end_date: string; // YYYY-MM-DD
+    type: TimeOffType;
+    status: TimeOffStatus;
+    reason?: string;
+    created_at: string;
+    reviewed_by?: string;
+    reviewed_at?: string;
+    rejection_reason?: string;
+}
+
+export interface WorkShift {
+    shift_id: string;
+    employee_id: string;
+    location_id?: string;
+    start_time: string; // ISO DateTime
+    end_time: string; // ISO DateTime
+    color: string;
+    notes?: string;
 }

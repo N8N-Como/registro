@@ -1,5 +1,5 @@
 {
-  "name": "Como en Casa - Time Tracking",
+  "name": "Copy of Como en Casa - Time Tracking",
   "description": "A comprehensive time tracking application for 'Como en Casa' employees, featuring geo-fenced clock-in/out, selfie verification, timesheet management, and administrative tools. This app is designed to replicate the core functionalities of Jibble.",
   "requestFramePermissions": [
     "geolocation",
