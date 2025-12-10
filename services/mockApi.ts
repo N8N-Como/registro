@@ -166,27 +166,23 @@ export const clockIn = async (
     }
 };
 
-export const clockOut = async (entryId: string, locationId?: string, isSyncing = false): Promise<TimeEntry> => {
+export const clockOut = async (entryId: string, locationId?: string, isSyncing = false, customEndTime?: string): Promise<TimeEntry> => {
+    const endTime = customEndTime || new Date().toISOString();
+
     if (!isSyncing && !navigator.onLine) {
-        addToQueue('CLOCK_OUT', { entryId, locationId });
-        return { entry_id: entryId, status: 'completed', clock_out_time: new Date().toISOString() } as TimeEntry;
+        addToQueue('CLOCK_OUT', { entryId, locationId, customEndTime });
+        return { entry_id: entryId, status: 'completed', clock_out_time: endTime } as TimeEntry;
     }
 
     try {
-        // If we are syncing and the entryId is fake (offline-...), we can't update a non-existent row.
-        // In a complex real app, we would link the previous offline clock-in id to the real one.
-        // For this demo, if ID is offline, we skip update or insert a corrective record.
         if (entryId.startsWith('offline-')) {
             console.warn("Attempting to clock out an offline entry directly to server. Sync logic limitation.");
-            // In a robust system, the queue processes sequentially, so the Clock In would happen first, getting a real ID.
-            // But we don't have the real ID yet here.
-            // Simplified approach: Just log it or skip if it causes foreign key error.
         }
 
         const { data, error } = await supabase
             .from('time_entries')
             .update({
-                clock_out_time: new Date().toISOString(),
+                clock_out_time: endTime,
                 clock_out_location_id: locationId || null,
                 status: 'completed'
             })
@@ -198,8 +194,8 @@ export const clockOut = async (entryId: string, locationId?: string, isSyncing =
         return data;
     } catch (e) {
         if (!isSyncing) {
-            addToQueue('CLOCK_OUT', { entryId, locationId });
-            return { entry_id: entryId, status: 'completed', clock_out_time: new Date().toISOString() } as TimeEntry;
+            addToQueue('CLOCK_OUT', { entryId, locationId, customEndTime });
+            return { entry_id: entryId, status: 'completed', clock_out_time: endTime } as TimeEntry;
         }
         throw e;
     }
