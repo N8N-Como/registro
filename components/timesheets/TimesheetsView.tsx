@@ -2,14 +2,15 @@
 import React, { useState, useEffect, useContext, useMemo, useCallback } from 'react';
 import { AuthContext } from '../../App';
 import { useGeolocation } from '../../hooks/useGeolocation';
-import { getLocations, getTimeEntriesForEmployee, clockIn, clockOut, getActivityLogsForTimeEntry, checkInToLocation, checkOutOfLocation, logAccessAttempt, getBreaksForTimeEntry, startBreak, endBreak } from '../../services/mockApi';
+import { getLocations, getTimeEntriesForEmployee, clockIn, clockOut, getActivityLogsForTimeEntry, checkInToLocation, checkOutOfLocation, logAccessAttempt, getBreaksForTimeEntry, startBreak, endBreak, getWorkShifts } from '../../services/mockApi';
 import { getDistanceFromLatLonInMeters, formatDuration, formatTime } from '../../utils/helpers';
-import { TimeEntry, Location as OfficeLocation, ActivityLog, BreakLog, WorkType, WorkMode } from '../../types';
+import { TimeEntry, Location as OfficeLocation, ActivityLog, BreakLog, WorkType, WorkMode, WorkShift } from '../../types';
 import Button from '../shared/Button';
 import Spinner from '../shared/Spinner';
 import Card from '../shared/Card';
 import { LocationIcon, CarIcon, BuildingIcon, FlagIcon, DotIcon } from '../icons';
 import ClockInModal from './ClockInModal';
+import ClockOutModal from './ClockOutModal';
 
 type TimelineItem = 
     | { type: 'WORKDAY_START', time: Date, entry: TimeEntry }
@@ -36,7 +37,10 @@ const TimesheetsView: React.FC = () => {
   
   // Modal State
   const [isClockInModalOpen, setIsClockInModalOpen] = useState(false);
+  const [isClockOutModalOpen, setIsClockOutModalOpen] = useState(false);
+  const [isForgottenClockOut, setIsForgottenClockOut] = useState(false);
   const [isOnBreak, setIsOnBreak] = useState(false);
+  const [suggestedEndTime, setSuggestedEndTime] = useState<Date | undefined>(undefined);
 
   const runningWorkday = useMemo(() => timeEntries.find(t => t.status === 'running'), [timeEntries]);
   const currentActivity = useMemo(() => activityLogs.find(a => !a.check_out_time), [activityLogs]);
@@ -62,6 +66,9 @@ const TimesheetsView: React.FC = () => {
         setActivityLogs(logs.sort((a,b) => new Date(a.check_in_time).getTime() - new Date(b.check_in_time).getTime()));
         setBreakLogs(breaks);
         setIsOnBreak(breaks.some(b => !b.end_time));
+
+        // Check for Forgotten Clock Out
+        checkForForgottenClockOut(currentRunningWorkday);
       } else {
         setActivityLogs([]);
         setBreakLogs([]);
@@ -77,6 +84,45 @@ const TimesheetsView: React.FC = () => {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+  
+  // Logic to detect if user forgot to clock out based on Shift Schedule
+  const checkForForgottenClockOut = async (entry: TimeEntry) => {
+      // 1. Get today's shift
+      const today = new Date();
+      const startOfDay = new Date(today); startOfDay.setHours(0,0,0,0);
+      const endOfDay = new Date(today); endOfDay.setHours(23,59,59,999);
+      
+      try {
+          const shifts = await getWorkShifts(startOfDay.toISOString(), endOfDay.toISOString());
+          const myShift = shifts.find(s => s.employee_id === auth?.employee?.employee_id);
+          
+          if (myShift) {
+              const shiftEnd = new Date(myShift.end_time);
+              const now = new Date();
+              const diffMs = now.getTime() - shiftEnd.getTime();
+              const diffMinutes = diffMs / (1000 * 60);
+
+              // If more than 30 mins passed since shift end
+              if (diffMinutes > 30) {
+                  setIsForgottenClockOut(true);
+                  setSuggestedEndTime(shiftEnd);
+                  setIsClockOutModalOpen(true);
+              }
+          } else {
+               // Fallback: If working > 12 hours, assume forgotten
+               const start = new Date(entry.clock_in_time);
+               const now = new Date();
+               const hours = (now.getTime() - start.getTime()) / (1000 * 60 * 60);
+               if (hours > 12) {
+                   setIsForgottenClockOut(true);
+                   setSuggestedEndTime(now);
+                   setIsClockOutModalOpen(true);
+               }
+          }
+      } catch (e) {
+          console.error("Error checking shifts", e);
+      }
+  };
   
   // Timer Logic: Calculate Effective Time (Total - Breaks)
   useEffect(() => {
@@ -134,8 +180,8 @@ const TimesheetsView: React.FC = () => {
     } finally { setIsSubmitting(false); }
   };
 
-  const handleClockOut = async () => {
-    if (!auth?.employee || !runningWorkday) return;
+  const handleOpenClockOutModal = () => {
+    if (!runningWorkday) return;
     
     // Safety check: Close active activities/breaks before clocking out
     if (currentActivity) {
@@ -146,11 +192,23 @@ const TimesheetsView: React.FC = () => {
         alert("Debes reanudar el trabajo (finalizar pausa) antes de terminar el día.");
         return;
     }
+    
+    setIsForgottenClockOut(false);
+    setSuggestedEndTime(undefined);
+    setIsClockOutModalOpen(true);
+  };
+
+  const handleClockOutConfirm = async (customTime?: string) => {
+    if (!auth?.employee || !runningWorkday) return;
 
     setIsSubmitting('workday-out');
     try {
-      await clockOut(runningWorkday.entry_id);
+      await clockOut(runningWorkday.entry_id, undefined, false, customTime);
+      setIsClockOutModalOpen(false);
       fetchData();
+    } catch(e) {
+        alert("Error al registrar salida.");
+        console.error(e);
     } finally { setIsSubmitting(false); }
   };
   
@@ -373,7 +431,7 @@ const TimesheetsView: React.FC = () => {
                         </Button>
                     </>
                   )}
-                  <Button onClick={handleClockOut} variant="danger" isLoading={isSubmitting === 'workday-out'}>
+                  <Button onClick={handleOpenClockOutModal} variant="danger" isLoading={isSubmitting === 'workday-out'}>
                     Finalizar Jornada
                   </Button>
               </div>
@@ -452,6 +510,18 @@ const TimesheetsView: React.FC = () => {
             onClose={() => setIsClockInModalOpen(false)}
             onConfirm={handleClockInConfirm}
             isLoading={isSubmitting === 'workday-in'}
+          />
+      )}
+
+      {/* Clock Out Modal (Standard & Forgotten) */}
+      {isClockOutModalOpen && (
+          <ClockOutModal
+            isOpen={isClockOutModalOpen}
+            onClose={() => setIsClockOutModalOpen(false)}
+            onConfirm={handleClockOutConfirm}
+            isLoading={isSubmitting === 'workday-out'}
+            defaultTime={suggestedEndTime}
+            isForgotten={isForgottenClockOut}
           />
       )}
     </div>
