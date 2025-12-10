@@ -36,23 +36,26 @@ const LocationFormModal: React.FC<LocationFormModalProps> = ({ isOpen, onClose, 
     const { name, value, type } = e.target;
     
     if (name === 'latitude' || name === 'longitude') {
-        // Permitimos escribir libremente sin bloquear al usuario
-        // Guardamos el valor tal cual lo escribe (con comas o puntos) en el estado temporal
+        // Permitimos escribir libremente
         setFormData(prev => ({ 
             ...prev, 
             [name === 'latitude' ? 'latStr' : 'lonStr']: value 
         }));
+    } else if (type === 'number') {
+        // Evitamos NaN si el usuario borra todo el campo
+        const val = value === '' ? 0 : parseFloat(value);
+        setFormData(prev => ({ ...prev, [name]: val }));
     } else {
-        setFormData(prev => ({ ...prev, [name]: type === 'number' ? parseFloat(value) : value }));
+        setFormData(prev => ({ ...prev, [name]: value }));
     }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Al guardar, normalizamos: cambiamos comas por puntos y convertimos a número
-    const latRaw = formData.latStr || '0';
-    const lonRaw = formData.lonStr || '0';
+    // 1. Normalizar coordenadas (comas a puntos)
+    const latRaw = String(formData.latStr || '0');
+    const lonRaw = String(formData.lonStr || '0');
 
     const lat = parseFloat(latRaw.replace(',', '.'));
     const lon = parseFloat(lonRaw.replace(',', '.'));
@@ -62,8 +65,12 @@ const LocationFormModal: React.FC<LocationFormModalProps> = ({ isOpen, onClose, 
         return;
     }
 
+    // 2. LIMPIEZA CRÍTICA: Extraer latStr y lonStr para NO enviarlos a la API/BD
+    // Si enviamos campos que no existen en la BD, Supabase devolverá error y bloqueará el guardado.
+    const { latStr, lonStr, ...cleanData } = formData;
+
     const finalLocation: Location = {
-        ...formData as Location,
+        ...cleanData as Location, // TypeScript casting seguro tras limpieza
         latitude: lat,
         longitude: lon
     };
@@ -128,7 +135,7 @@ const LocationFormModal: React.FC<LocationFormModalProps> = ({ isOpen, onClose, 
                 type="text" 
                 name="latitude"
                 inputMode="decimal"
-                value={formData.latStr || ''}
+                value={formData.latStr !== undefined ? formData.latStr : ''}
                 onChange={handleChange}
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm"
                 required
@@ -141,7 +148,7 @@ const LocationFormModal: React.FC<LocationFormModalProps> = ({ isOpen, onClose, 
                 type="text"
                 name="longitude"
                 inputMode="decimal"
-                value={formData.lonStr || ''}
+                value={formData.lonStr !== undefined ? formData.lonStr : ''}
                 onChange={handleChange}
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm"
                 required

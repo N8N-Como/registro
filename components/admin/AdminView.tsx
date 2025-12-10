@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { getEmployees, getLocations, getRoles, addEmployee, updateEmployee, addLocation, updateLocation, getRooms, addRoom, updateRoom, updateRole } from '../../services/mockApi';
 import { Employee, Location, Role, Room, Permission } from '../../types';
@@ -21,6 +22,7 @@ const allPermissions: { id: Permission; label: string }[] = [
     { id: 'manage_tasks', label: 'Gestionar Tareas (rol específico)' },
     { id: 'access_shift_log', label: 'Acceder a Registro de Turno' },
     { id: 'schedule_tasks', label: 'Planificar Tareas' },
+    { id: 'audit_records', label: 'Auditar Registros' },
 ];
 
 
@@ -72,13 +74,17 @@ const AdminView: React.FC = () => {
     setIsEmployeeModalOpen(true);
   };
   const handleSaveEmployee = async (employeeData: Omit<Employee, 'employee_id'> | Employee) => {
-    if ('employee_id' in employeeData) {
-        await updateEmployee(employeeData);
-    } else {
-        await addEmployee(employeeData);
+    try {
+        if ('employee_id' in employeeData) {
+            await updateEmployee(employeeData);
+        } else {
+            await addEmployee(employeeData);
+        }
+        fetchData();
+        setIsEmployeeModalOpen(false);
+    } catch (e) {
+        alert("Error al guardar empleado: " + (e as any).message);
     }
-    fetchData();
-    setIsEmployeeModalOpen(false);
   };
 
   // Location Handlers
@@ -91,13 +97,18 @@ const AdminView: React.FC = () => {
       setIsLocationModalOpen(true);
   }
   const handleSaveLocation = async (locationData: Location) => {
-    if (locationData.location_id) {
-        await updateLocation(locationData);
-    } else {
-        await addLocation(locationData);
+    try {
+        if (locationData.location_id) {
+            await updateLocation(locationData);
+        } else {
+            await addLocation(locationData);
+        }
+        fetchData();
+        setIsLocationModalOpen(false);
+    } catch (e) {
+        console.error(e);
+        alert("Error al guardar ubicación. Comprueba que los datos sean correctos.");
     }
-    fetchData();
-    setIsLocationModalOpen(false);
   };
 
   // Room Handlers
@@ -110,13 +121,17 @@ const AdminView: React.FC = () => {
     setIsRoomModalOpen(true);
   };
   const handleSaveRoom = async (roomData: Room) => {
-    if (roomData.room_id) {
-      await updateRoom(roomData);
-    } else {
-      await addRoom(roomData);
+    try {
+        if (roomData.room_id) {
+          await updateRoom(roomData);
+        } else {
+          await addRoom(roomData);
+        }
+        fetchData();
+        setIsRoomModalOpen(false);
+    } catch (e) {
+        alert("Error al guardar habitación/zona.");
     }
-    fetchData();
-    setIsRoomModalOpen(false);
   };
 
   // Role Handlers
@@ -125,9 +140,13 @@ const AdminView: React.FC = () => {
     setIsRoleModalOpen(true);
   };
   const handleSaveRole = async (roleData: Role) => {
-    await updateRole(roleData);
-    fetchData();
-    setIsRoleModalOpen(false);
+    try {
+        await updateRole(roleData);
+        fetchData();
+        setIsRoleModalOpen(false);
+    } catch (e) {
+        alert("Error al guardar rol.");
+    }
   };
 
 
