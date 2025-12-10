@@ -13,7 +13,7 @@ interface LocationFormModalProps {
 }
 
 const LocationFormModal: React.FC<LocationFormModalProps> = ({ isOpen, onClose, onSave, location }) => {
-  // Usamos strings para los inputs numéricos para controlar mejor el input decimal (puntos vs comas)
+  // Usamos strings para los inputs de coordenadas para permitir edición libre
   const [formData, setFormData] = useState<Partial<Location> & { latStr?: string, lonStr?: string }>({});
 
   useEffect(() => {
@@ -36,14 +36,11 @@ const LocationFormModal: React.FC<LocationFormModalProps> = ({ isOpen, onClose, 
     const { name, value, type } = e.target;
     
     if (name === 'latitude' || name === 'longitude') {
-        // Reemplazar comas por puntos automáticamente
-        const sanitizedValue = value.replace(',', '.');
-        // Solo permitir números, punto y signo menos
-        if (!/^-?\d*\.?\d*$/.test(sanitizedValue)) return;
-        
+        // Permitimos escribir libremente sin bloquear al usuario
+        // Guardamos el valor tal cual lo escribe (con comas o puntos) en el estado temporal
         setFormData(prev => ({ 
             ...prev, 
-            [name === 'latitude' ? 'latStr' : 'lonStr']: sanitizedValue 
+            [name === 'latitude' ? 'latStr' : 'lonStr']: value 
         }));
     } else {
         setFormData(prev => ({ ...prev, [name]: type === 'number' ? parseFloat(value) : value }));
@@ -53,12 +50,15 @@ const LocationFormModal: React.FC<LocationFormModalProps> = ({ isOpen, onClose, 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    // Convertir strings a números finales
-    const lat = parseFloat(formData.latStr || '0');
-    const lon = parseFloat(formData.lonStr || '0');
+    // Al guardar, normalizamos: cambiamos comas por puntos y convertimos a número
+    const latRaw = formData.latStr || '0';
+    const lonRaw = formData.lonStr || '0';
+
+    const lat = parseFloat(latRaw.replace(',', '.'));
+    const lon = parseFloat(lonRaw.replace(',', '.'));
 
     if (isNaN(lat) || isNaN(lon)) {
-        alert("Las coordenadas no son válidas.");
+        alert("Las coordenadas introducidas no son válidas. Asegúrate de usar números.");
         return;
     }
 
@@ -132,7 +132,7 @@ const LocationFormModal: React.FC<LocationFormModalProps> = ({ isOpen, onClose, 
                 onChange={handleChange}
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm"
                 required
-                placeholder="42.8805 (usa punto)"
+                placeholder="42.8805"
               />
             </div>
             <div>
@@ -145,7 +145,7 @@ const LocationFormModal: React.FC<LocationFormModalProps> = ({ isOpen, onClose, 
                 onChange={handleChange}
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm"
                 required
-                placeholder="-8.5456 (usa punto)"
+                placeholder="-8.5456"
               />
             </div>
         </div>
