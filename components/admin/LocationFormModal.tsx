@@ -13,24 +13,62 @@ interface LocationFormModalProps {
 }
 
 const LocationFormModal: React.FC<LocationFormModalProps> = ({ isOpen, onClose, onSave, location }) => {
-  const [formData, setFormData] = useState<Partial<Location>>({});
+  // Usamos strings para los inputs numéricos para controlar mejor el input decimal (puntos vs comas)
+  const [formData, setFormData] = useState<Partial<Location> & { latStr?: string, lonStr?: string }>({});
 
   useEffect(() => {
     if (location) {
-      setFormData(location);
+      setFormData({
+          ...location,
+          latStr: location.latitude.toString(),
+          lonStr: location.longitude.toString()
+      });
     } else {
-      setFormData({ radius_meters: 100 });
+      setFormData({ 
+          radius_meters: 100,
+          latStr: '',
+          lonStr: ''
+      });
     }
   }, [location, isOpen]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type } = e.target;
-    setFormData(prev => ({ ...prev, [name]: type === 'number' ? parseFloat(value) : value }));
+    
+    if (name === 'latitude' || name === 'longitude') {
+        // Reemplazar comas por puntos automáticamente
+        const sanitizedValue = value.replace(',', '.');
+        // Solo permitir números, punto y signo menos
+        if (!/^-?\d*\.?\d*$/.test(sanitizedValue)) return;
+        
+        setFormData(prev => ({ 
+            ...prev, 
+            [name === 'latitude' ? 'latStr' : 'lonStr']: sanitizedValue 
+        }));
+    } else {
+        setFormData(prev => ({ ...prev, [name]: type === 'number' ? parseFloat(value) : value }));
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave(formData as Location);
+    
+    // Convertir strings a números finales
+    const lat = parseFloat(formData.latStr || '0');
+    const lon = parseFloat(formData.lonStr || '0');
+
+    if (isNaN(lat) || isNaN(lon)) {
+        alert("Las coordenadas no son válidas.");
+        return;
+    }
+
+    const finalLocation: Location = {
+        ...formData as Location,
+        latitude: lat,
+        longitude: lon
+    };
+
+    onSave(finalLocation);
   };
   
   const handleSearchOnMap = () => {
@@ -87,27 +125,27 @@ const LocationFormModal: React.FC<LocationFormModalProps> = ({ isOpen, onClose, 
             <div>
               <label className="block text-sm font-medium text-gray-700">Latitud</label>
               <input
-                type="number"
+                type="text" 
                 name="latitude"
-                step="any"
-                value={formData.latitude || ''}
+                inputMode="decimal"
+                value={formData.latStr || ''}
                 onChange={handleChange}
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm"
                 required
-                placeholder="Ej: 42.8805"
+                placeholder="42.8805 (usa punto)"
               />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">Longitud</label>
               <input
-                type="number"
+                type="text"
                 name="longitude"
-                step="any"
-                value={formData.longitude || ''}
+                inputMode="decimal"
+                value={formData.lonStr || ''}
                 onChange={handleChange}
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm"
                 required
-                placeholder="Ej: -8.5456"
+                placeholder="-8.5456 (usa punto)"
               />
             </div>
         </div>
