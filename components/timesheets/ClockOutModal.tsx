@@ -14,20 +14,33 @@ interface ClockOutModalProps {
 
 const ClockOutModal: React.FC<ClockOutModalProps> = ({ isOpen, onClose, onConfirm, isLoading, defaultTime, isForgotten }) => {
     const [useNow, setUseNow] = useState(!isForgotten);
+    
+    // Calcular el string actual para el input datetime-local y para el atributo max
+    const getLocalISOString = (date: Date) => {
+        const offset = date.getTimezoneOffset() * 60000;
+        return new Date(date.getTime() - offset).toISOString().slice(0, 16);
+    };
+
     const [customTime, setCustomTime] = useState<string>(() => {
-        // Default custom time to expected end time or now
         const d = defaultTime || new Date();
-        // Adjust for local timezone for input[type="datetime-local"]
-        const offset = d.getTimezoneOffset() * 60000;
-        return new Date(d.getTime() - offset).toISOString().slice(0, 16);
+        return getLocalISOString(d);
     });
+
+    const maxTimeStr = getLocalISOString(new Date());
 
     const handleConfirm = () => {
         if (useNow) {
             onConfirm(undefined);
         } else {
-            // Convert back to ISO
             const date = new Date(customTime);
+            const now = new Date();
+            
+            // Validación: No permitir horas futuras
+            if (date > now) {
+                alert("La hora de salida no puede ser posterior al momento actual.");
+                return;
+            }
+
             onConfirm(date.toISOString());
         }
     };
@@ -72,9 +85,10 @@ const ClockOutModal: React.FC<ClockOutModalProps> = ({ isOpen, onClose, onConfir
                             type="datetime-local" 
                             value={customTime}
                             onChange={(e) => setCustomTime(e.target.value)}
+                            max={maxTimeStr} // Impide seleccionar fechas futuras en el calendario nativo
                             className="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary"
                         />
-                         <p className="text-xs text-gray-500 mt-1">Indica fecha y hora exacta de tu salida.</p>
+                         <p className="text-xs text-gray-500 mt-1">Indica fecha y hora exacta de tu salida (no puede ser futura).</p>
                     </div>
                 )}
 
