@@ -138,8 +138,10 @@ const ClockInModal: React.FC<ClockInModalProps> = ({ isOpen, onClose, onConfirm,
                 </div>
             ) : (
                 <div className="space-y-4 text-center">
-                    <p className="text-sm text-gray-600">Por favor, toma una foto para verificar tu identidad.</p>
-                    
+                    <div className="bg-blue-50 border border-blue-200 p-2 rounded text-[10px] text-blue-800 text-left mb-2">
+                        <strong>Información LOPD:</strong> De conformidad con el Art. 20.3 del Estatuto de los Trabajadores, se capturará su imagen y geolocalización únicamente para verificar la identidad y el lugar de inicio de la jornada laboral. Estos datos no se usarán para fines biométricos automatizados.
+                    </div>
+
                     {!photoUrl ? (
                         <div className="relative w-full bg-black rounded-lg overflow-hidden aspect-[4/3]">
                             <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover transform scale-x-[-1]" />
@@ -155,12 +157,12 @@ const ClockInModal: React.FC<ClockInModalProps> = ({ isOpen, onClose, onConfirm,
                         {!photoUrl ? (
                             <>
                                 <Button variant="secondary" onClick={() => setStep('details')}>Atrás</Button>
-                                <Button onClick={capturePhoto}>📸 Tomar Foto</Button>
+                                <Button onClick={capturePhoto}>📸 Fichar</Button>
                             </>
                         ) : (
                             <>
                                 <Button variant="secondary" onClick={() => { setPhotoUrl(null); startCamera(); }}>Repetir</Button>
-                                <Button onClick={handleConfirm} isLoading={isLoading} variant="success">Confirmar Entrada</Button>
+                                <Button onClick={handleConfirm} isLoading={isLoading} variant="success">Confirmar</Button>
                             </>
                         )}
                     </div>

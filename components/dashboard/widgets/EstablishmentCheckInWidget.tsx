@@ -1,17 +1,15 @@
 
 import React, { useState, useEffect } from 'react';
-import { getTimeEntriesForEmployee, getEmployees, getLocations } from '../../../services/mockApi';
+import { getTimeEntriesForEmployee, getEmployees, getLocations, getCurrentEstablishmentStatus } from '../../../services/mockApi';
 import { Employee, Location } from '../../../types';
 import Card from '../../shared/Card';
 import Spinner from '../../shared/Spinner';
+import { LocationIcon, CarIcon } from '../../icons';
 
 interface ClockedInEmployee extends Employee {
     locationName: string;
     location?: Location;
-    clockInCoords?: {
-        lat: number;
-        lon: number;
-    }
+    statusType: 'establishment' | 'travel';
 }
 
 const EstablishmentCheckInWidget: React.FC = () => {
@@ -21,10 +19,13 @@ const EstablishmentCheckInWidget: React.FC = () => {
     useEffect(() => {
         const fetchCheckIns = async () => {
             try {
-                const [employees, locations] = await Promise.all([
+                const [employees, locations, activeActivities] = await Promise.all([
                     getEmployees(),
                     getLocations(),
+                    getCurrentEstablishmentStatus()
                 ]);
+
+                // Get all running time entries concurrently
                 const allTimeEntries = (await Promise.all(
                     employees.map(e => getTimeEntriesForEmployee(e.employee_id))
                 )).flat();
@@ -39,18 +40,29 @@ const EstablishmentCheckInWidget: React.FC = () => {
                     const employee = employees.find(e => e.employee_id === entry.employee_id);
                     if (!employee) continue;
 
-                    const location = locations.find(l => l.location_id === entry.clock_in_location_id);
+                    // 1. Check if they are actively inside a location (Activity Log)
+                    const activeActivity = activeActivities.find(a => a.employee_id === entry.employee_id && !a.check_out_time);
                     
-                    const clockInCoords = entry.clock_in_latitude && entry.clock_in_longitude
-                        ? { lat: entry.clock_in_latitude, lon: entry.clock_in_longitude }
-                        : undefined;
-
-                    checkedInMap.set(employee.employee_id, {
-                        ...employee,
-                        locationName: location?.name || 'Ubicación desconocida',
-                        location: location,
-                        clockInCoords: clockInCoords,
-                    });
+                    if (activeActivity) {
+                        const loc = locations.find(l => l.location_id === activeActivity.location_id);
+                        checkedInMap.set(employee.employee_id, {
+                            ...employee,
+                            locationName: loc?.name || 'Ubicación Desconocida',
+                            location: loc,
+                            statusType: 'establishment'
+                        });
+                    } else {
+                        // 2. If not in a specific location log, they are in "Travel" / "General" mode
+                        // We can check the clock_in location as a fallback, but usually this means 'En tránsito'
+                        const initialLoc = locations.find(l => l.location_id === entry.clock_in_location_id);
+                        
+                        checkedInMap.set(employee.employee_id, {
+                            ...employee,
+                            locationName: initialLoc ? `${initialLoc.name} (Entrada)` : 'En Desplazamiento / Teletrabajo',
+                            location: initialLoc,
+                            statusType: 'travel'
+                        });
+                    }
                 }
                 
                 setCheckedIn(Array.from(checkedInMap.values()));
@@ -75,21 +87,21 @@ const EstablishmentCheckInWidget: React.FC = () => {
                 <ul className="divide-y divide-gray-200 max-h-60 overflow-y-auto">
                     {checkedIn.map(emp => {
                         let mapsUrl: string | undefined;
-
-                        if (emp.clockInCoords?.lat && emp.clockInCoords?.lon) {
-                            mapsUrl = `https://www.google.com/maps/search/?api=1&query=${emp.clockInCoords.lat},${emp.clockInCoords.lon}`;
-                        } else if (emp.location) {
+                        if (emp.location) {
                             mapsUrl = `https://www.google.com/maps/search/?api=1&query=${emp.location.latitude},${emp.location.longitude}`;
                         }
                         
                         const content = (
                            <div className="flex items-center space-x-3">
-                                <div className="w-10 h-10 rounded-full bg-secondary text-white flex items-center justify-center font-bold flex-shrink-0">
+                                <div className={`w-10 h-10 rounded-full text-white flex items-center justify-center font-bold flex-shrink-0 ${emp.statusType === 'establishment' ? 'bg-primary' : 'bg-orange-400'}`}>
                                    {emp.first_name.charAt(0)}{emp.last_name.charAt(0)}
                                </div>
-                               <div>
-                                <p className="font-medium text-gray-800">{emp.first_name} {emp.last_name}</p>
-                                <p className="text-sm text-gray-500">{emp.locationName}</p>
+                               <div className="flex-1 min-w-0">
+                                <p className="font-medium text-gray-800 truncate">{emp.first_name} {emp.last_name}</p>
+                                <div className="flex items-center text-sm text-gray-500">
+                                    {emp.statusType === 'establishment' ? <LocationIcon className="w-3 h-3 mr-1"/> : <CarIcon className="w-3 h-3 mr-1"/>}
+                                    <span className="truncate">{emp.locationName}</span>
+                                </div>
                                </div>
                            </div>
                         );
@@ -101,14 +113,16 @@ const EstablishmentCheckInWidget: React.FC = () => {
                                         {content}
                                     </a>
                                ) : (
-                                    <div className="p-3">{content}</div>
+                                    <div className="p-3 -m-3">{content}</div>
                                )}
                             </li>
                         );
                     })}
                 </ul>
             ) : (
-                <p className="text-gray-500">No hay nadie fichado en este momento.</p>
+                <div className="text-center py-6 text-gray-500">
+                    <p>No hay nadie fichado en este momento.</p>
+                </div>
             )}
         </Card>
     );

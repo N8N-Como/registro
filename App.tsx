@@ -16,6 +16,7 @@ interface AuthContextType {
   role: Role | null;
   logout: () => void;
   updateCurrentUser: (updatedData: Partial<Employee>) => void;
+  showOnboarding: () => void; // New function exposed to children
 }
 
 export const AuthContext = createContext<AuthContextType | null>(null);
@@ -28,7 +29,7 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [activeAnnouncement, setActiveAnnouncement] = useState<Announcement | null>(null);
   const [showAnnouncement, setShowAnnouncement] = useState(false);
-  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [isOnboardingVisible, setIsOnboardingVisible] = useState(false);
 
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -56,31 +57,39 @@ const App: React.FC = () => {
     fetchInitialData();
   }, []);
 
+  const checkOnboardingStatus = (employeeId: string) => {
+      const completed = localStorage.getItem(`onboarding_completed_${employeeId}`);
+      if (!completed) {
+          setIsOnboardingVisible(true);
+      } else {
+          checkAnnouncements(employeeId);
+      }
+  };
+
+  const checkAnnouncements = async (employeeId: string) => {
+      const announcement = await getActiveAnnouncement();
+      if (announcement) {
+          const seenAnnouncements = JSON.parse(localStorage.getItem('seenAnnouncements') || '[]');
+          if (!seenAnnouncements.includes(announcement.announcement_id)) {
+              setActiveAnnouncement(announcement);
+              setShowAnnouncement(true);
+          }
+      }
+  };
+
   const handleLogin = async (employeeId: string) => {
     const user = employees.find(e => e.employee_id === employeeId);
     if (user) {
       setCurrentUser(user);
       if (user.policy_accepted) {
-        const onboardingKey = `onboarding_completed_${user.employee_id}`;
-        if (!localStorage.getItem(onboardingKey)) {
-            setShowOnboarding(true);
-        } else {
-             // Only check for announcements if onboarding is done
-            const announcement = await getActiveAnnouncement();
-            if (announcement) {
-              const seenAnnouncements = JSON.parse(localStorage.getItem('seenAnnouncements') || '[]');
-              if (!seenAnnouncements.includes(announcement.announcement_id)) {
-                setActiveAnnouncement(announcement);
-                setShowAnnouncement(true);
-              }
-            }
-        }
+          checkOnboardingStatus(user.employee_id);
       }
     }
   };
   
   const handleLogout = () => {
     setCurrentUser(null);
+    setIsOnboardingVisible(false);
   };
   
   const handleAcceptPolicy = async () => {
@@ -93,36 +102,21 @@ const App: React.FC = () => {
               prevEmployees.map(e => e.employee_id === currentUser.employee_id ? updatedUser : e)
           );
           
-          const onboardingKey = `onboarding_completed_${currentUser.employee_id}`;
-          if (!localStorage.getItem(onboardingKey)) {
-            setShowOnboarding(true);
-          } else {
-            const announcement = await getActiveAnnouncement();
-            if (announcement) {
-                setActiveAnnouncement(announcement);
-                setShowAnnouncement(true);
-            }
-          }
+          checkOnboardingStatus(currentUser.employee_id);
       }
   }
 
-  const handleDismissOnboarding = async () => {
-      if (currentUser) {
+  const handleFinishOnboarding = (dontShowAgain: boolean) => {
+      if (currentUser && dontShowAgain) {
           localStorage.setItem(`onboarding_completed_${currentUser.employee_id}`, 'true');
       }
-      setShowOnboarding(false);
-
-      // Check for announcements now that onboarding is done
-      const announcement = await getActiveAnnouncement();
-      if (announcement) {
-          const seenAnnouncements = JSON.parse(localStorage.getItem('seenAnnouncements') || '[]');
-          if (!seenAnnouncements.includes(announcement.announcement_id)) {
-              setActiveAnnouncement(announcement);
-              setShowAnnouncement(true);
-          }
-      }
+      setIsOnboardingVisible(false);
+      if (currentUser) checkAnnouncements(currentUser.employee_id);
   };
 
+  const triggerOnboardingManually = () => {
+      setIsOnboardingVisible(true);
+  };
 
   const handleDismissAnnouncement = () => {
     if (activeAnnouncement) {
@@ -142,7 +136,7 @@ const App: React.FC = () => {
         const updatedEmployees = employees.map(e => e.employee_id === updatedUser.employee_id ? updatedUser : e);
         setEmployees(updatedEmployees);
     }
-};
+  };
 
   const userRole = currentUser ? roles.find(r => r.role_id === currentUser.role_id) || null : null;
 
@@ -177,17 +171,21 @@ const App: React.FC = () => {
       return <PolicyAcceptanceScreen employeeName={currentUser.first_name} onAccept={handleAcceptPolicy} onDecline={handleLogout} />
   }
 
-  if (showOnboarding) {
-      return <OnboardingGuide role={userRole} onDismiss={handleDismissOnboarding} />;
-  }
-
-  if (showAnnouncement && activeAnnouncement) {
-    return <AnnouncementModal announcement={activeAnnouncement} onClose={handleDismissAnnouncement} />;
-  }
-
   return (
-    <AuthContext.Provider value={{ employee: currentUser, role: userRole, logout: handleLogout, updateCurrentUser: handleUpdateCurrentUser }}>
+    <AuthContext.Provider value={{ 
+        employee: currentUser, 
+        role: userRole, 
+        logout: handleLogout, 
+        updateCurrentUser: handleUpdateCurrentUser,
+        showOnboarding: triggerOnboardingManually
+    }}>
       <Layout />
+      {isOnboardingVisible && (
+          <OnboardingGuide role={userRole} onFinish={handleFinishOnboarding} />
+      )}
+      {showAnnouncement && activeAnnouncement && (
+        <AnnouncementModal announcement={activeAnnouncement} onClose={handleDismissAnnouncement} />
+      )}
       <NetworkStatus />
     </AuthContext.Provider>
   );

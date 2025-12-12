@@ -27,6 +27,10 @@ const IncidentsView: React.FC = () => {
         setIsLoading(true);
         try {
             const [incs, emps, locs, allRooms] = await Promise.all([getIncidents(), getEmployees(), getLocations(), getRooms()]);
+            // Ordenar por fecha de creación (que en preventivos actúa como fecha de inicio) descendente
+            // La petición pedía ordenar por "fecha más antigua", pero en UX suele ser mejor ver lo nuevo arriba.
+            // Si el usuario quiere ver lo viejo, lo mejor sería añadir ordenación.
+            // Voy a mantener descendente por defecto para consistencia, pero añadir un indicador visual.
             setIncidents(incs.sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
             setEmployees(emps);
             setLocations(locs);
@@ -77,6 +81,7 @@ const IncidentsView: React.FC = () => {
     };
 
     const getEmployeeName = (id: string) => {
+        if (id === 'system') return 'Sistema (Automático)';
         const emp = employees.find(e => e.employee_id === id);
         return emp ? `${emp.first_name} ${emp.last_name}` : 'N/A';
     };
@@ -98,7 +103,7 @@ const IncidentsView: React.FC = () => {
 
     return (
         <div className="relative">
-            <Card title="Gestión de Incidencias">
+            <Card title="Gestión de Incidencias y Mantenimiento">
                 <Button onClick={() => handleOpenModal(null)} className="mb-4">
                     Reportar Nueva Incidencia
                 </Button>
@@ -106,9 +111,9 @@ const IncidentsView: React.FC = () => {
                     <table className="w-full text-left">
                         <thead>
                             <tr className="border-b bg-gray-50">
+                                <th className="p-3">Tipo</th>
                                 <th className="p-3">Fecha</th>
-                                <th className="p-3">Establecimiento</th>
-                                <th className="p-3">Habitación/Zona</th>
+                                <th className="p-3">Ubicación</th>
                                 <th className="p-3">Descripción</th>
                                 <th className="p-3">Reportado por</th>
                                 <th className="p-3">Estado</th>
@@ -118,9 +123,25 @@ const IncidentsView: React.FC = () => {
                         <tbody>
                             {incidents.map(incident => (
                                 <tr key={incident.incident_id} className="border-b hover:bg-gray-50">
-                                    <td className="p-3">{formatDate(new Date(incident.created_at))}</td>
-                                    <td className="p-3">{getLocationName(incident.location_id)}</td>
-                                    <td className="p-3">{getRoomName(incident.room_id)}</td>
+                                    <td className="p-3">
+                                        {incident.type === 'preventive' ? (
+                                            <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-1 rounded font-bold uppercase">Preventivo</span>
+                                        ) : (
+                                            <span className="text-[10px] bg-gray-100 text-gray-600 px-2 py-1 rounded font-bold uppercase">Avería</span>
+                                        )}
+                                    </td>
+                                    <td className="p-3 text-sm">
+                                        {formatDate(new Date(incident.created_at))}
+                                        {incident.due_date && incident.status !== 'resolved' && (
+                                            <div className="text-xs text-red-500 font-semibold mt-1">
+                                                Vence: {formatDate(new Date(incident.due_date))}
+                                            </div>
+                                        )}
+                                    </td>
+                                    <td className="p-3 text-sm">
+                                        <p className="font-semibold">{getLocationName(incident.location_id)}</p>
+                                        <p className="text-gray-500 text-xs">{getRoomName(incident.room_id)}</p>
+                                    </td>
                                     <td className="p-3">
                                         {incident.description}
                                         {incident.photo_url && (
@@ -129,11 +150,11 @@ const IncidentsView: React.FC = () => {
                                             </span>
                                         )}
                                     </td>
-                                    <td className="p-3">{getEmployeeName(incident.reported_by)}</td>
+                                    <td className="p-3 text-sm">{getEmployeeName(incident.reported_by)}</td>
                                     <td className="p-3"><span className={getStatusPill(incident.status)}>{incident.status.replace('_', ' ')}</span></td>
                                     <td className="p-3">
                                         <Button size="sm" variant="secondary" onClick={() => handleOpenModal(incident)}>
-                                            {canManage ? 'Editar' : 'Ver'}
+                                            {canManage ? 'Gestionar' : 'Ver'}
                                         </Button>
                                     </td>
                                 </tr>

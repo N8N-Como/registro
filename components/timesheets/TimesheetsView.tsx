@@ -163,7 +163,7 @@ const TimesheetsView: React.FC = () => {
     if (!auth?.employee) return;
     setIsSubmitting('workday-in');
     try {
-      await clockIn(
+      const entry = await clockIn(
           auth.employee.employee_id, 
           undefined, 
           position?.coords.latitude, 
@@ -172,6 +172,32 @@ const TimesheetsView: React.FC = () => {
           data.workMode,
           data.photoUrl
       );
+
+      // --- AUTO CHECK-IN LOGIC ---
+      // If presencial and < 150m from a location, auto check-in to that location
+      if (data.workMode === 'presencial' && position) {
+          const closest = sortedLocations[0];
+          if (closest) {
+              const dist = getDistanceFromLatLonInMeters(
+                  position.coords.latitude, position.coords.longitude,
+                  closest.latitude, closest.longitude
+              );
+              
+              if (dist <= 150) {
+                  // Auto check-in!
+                  console.log("Auto-checking in to", closest.name);
+                  await checkInToLocation(
+                      entry.entry_id,
+                      auth.employee.employee_id,
+                      closest.location_id,
+                      position.coords.latitude,
+                      position.coords.longitude
+                  );
+              }
+          }
+      }
+      // ---------------------------
+
       setIsClockInModalOpen(false);
       fetchData();
     } catch (e) {

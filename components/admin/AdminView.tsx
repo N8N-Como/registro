@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { getEmployees, getLocations, getRoles, addEmployee, updateEmployee, addLocation, updateLocation, getRooms, addRoom, updateRoom, updateRole } from '../../services/mockApi';
-import { Employee, Location, Role, Room, Permission } from '../../types';
+import { getEmployees, getLocations, getRoles, addEmployee, updateEmployee, addLocation, updateLocation, getRooms, addRoom, updateRoom, updateRole, getShiftConfigs, addShiftConfig, updateShiftConfig, deleteShiftConfig } from '../../services/mockApi';
+import { Employee, Location, Role, Room, Permission, ShiftConfig } from '../../types';
 import Button from '../shared/Button';
 import Card from '../shared/Card';
 import Spinner from '../shared/Spinner';
@@ -9,9 +9,10 @@ import EmployeeFormModal from './EmployeeFormModal';
 import LocationFormModal from './LocationFormModal';
 import RoomFormModal from './RoomFormModal'; 
 import RoleFormModal from './RoleFormModal';
-import { DoorOpenIcon, KeyIcon } from '../icons';
+import ShiftConfigFormModal from './ShiftConfigFormModal';
+import { DoorOpenIcon, KeyIcon, CalendarIcon } from '../icons';
 
-type AdminTab = 'employees' | 'locations' | 'rooms' | 'roles';
+type AdminTab = 'employees' | 'locations' | 'rooms' | 'roles' | 'shift_configs';
 
 const allPermissions: { id: Permission; label: string }[] = [
     { id: 'manage_employees', label: 'Gestionar Empleados' },
@@ -31,28 +32,34 @@ const AdminView: React.FC = () => {
   const [locations, setLocations] = useState<Location[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
+  const [shiftConfigs, setShiftConfigs] = useState<ShiftConfig[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   
   const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState(false);
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
   const [isRoomModalOpen, setIsRoomModalOpen] = useState(false);
   const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
+  const [isShiftConfigModalOpen, setIsShiftConfigModalOpen] = useState(false);
 
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
   const [selectedRole, setSelectedRole] = useState<Role | null>(null);
+  const [selectedShiftConfig, setSelectedShiftConfig] = useState<ShiftConfig | null>(null);
 
   const [activeTab, setActiveTab] = useState<AdminTab>('employees');
 
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const [emps, locs, rols, rms] = await Promise.all([getEmployees(), getLocations(), getRoles(), getRooms()]);
+      const [emps, locs, rols, rms, shifts] = await Promise.all([
+          getEmployees(), getLocations(), getRoles(), getRooms(), getShiftConfigs()
+      ]);
       setEmployees(emps);
       setLocations(locs);
       setRoles(rols);
       setRooms(rms);
+      setShiftConfigs(shifts);
     } catch (error) {
       console.error("Failed to fetch admin data", error);
     } finally {
@@ -148,6 +155,38 @@ const AdminView: React.FC = () => {
         alert("Error al guardar rol.");
     }
   };
+  
+  // Shift Config Handlers
+  const handleEditShiftConfig = (config: ShiftConfig) => {
+      setSelectedShiftConfig(config);
+      setIsShiftConfigModalOpen(true);
+  }
+  const handleAddNewShiftConfig = () => {
+      setSelectedShiftConfig(null);
+      setIsShiftConfigModalOpen(true);
+  }
+  const handleSaveShiftConfig = async (data: any) => {
+      try {
+          if ('config_id' in data) {
+              await updateShiftConfig(data);
+          } else {
+              await addShiftConfig(data);
+          }
+          fetchData();
+          setIsShiftConfigModalOpen(false);
+      } catch (e) {
+          alert("Error al guardar configuración de turno.");
+      }
+  }
+  const handleDeleteShiftConfig = async (id: string) => {
+      try {
+          await deleteShiftConfig(id);
+          fetchData();
+          setIsShiftConfigModalOpen(false);
+      } catch (e) {
+          alert("Error al eliminar.");
+      }
+  }
 
 
   if (isLoading) return <Spinner />;
@@ -165,7 +204,7 @@ const AdminView: React.FC = () => {
   return (
     <div className="space-y-6">
         <div className="border-b border-gray-200">
-            <nav className="-mb-px flex space-x-1 sm:space-x-2" aria-label="Tabs">
+            <nav className="-mb-px flex space-x-1 sm:space-x-2 overflow-x-auto" aria-label="Tabs">
                 <button onClick={() => setActiveTab('employees')} className={tabClasses('employees')}>
                     <span>Empleados</span>
                 </button>
@@ -178,7 +217,11 @@ const AdminView: React.FC = () => {
                 </button>
                  <button onClick={() => setActiveTab('roles')} className={tabClasses('roles')}>
                     <KeyIcon className="w-5 h-5" />
-                    <span>Roles y Permisos</span>
+                    <span>Roles</span>
+                </button>
+                <button onClick={() => setActiveTab('shift_configs')} className={tabClasses('shift_configs')}>
+                    <CalendarIcon className="w-5 h-5" />
+                    <span>Tipos de Turno</span>
                 </button>
             </nav>
         </div>
@@ -297,6 +340,42 @@ const AdminView: React.FC = () => {
                 </div>
             </Card>
         )}
+
+        {activeTab === 'shift_configs' && (
+             <Card>
+                <Button onClick={handleAddNewShiftConfig} className="mb-4">Crear Nuevo Tipo de Turno</Button>
+                <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                    <thead>
+                    <tr className="border-b bg-gray-50">
+                        <th className="p-3">Código</th>
+                        <th className="p-3">Nombre</th>
+                        <th className="p-3">Horario</th>
+                        <th className="p-3">Ubicación</th>
+                        <th className="p-3">Color</th>
+                        <th className="p-3">Acciones</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    {shiftConfigs.map(config => (
+                        <tr key={config.config_id} className="border-b hover:bg-gray-50">
+                        <td className="p-3 font-bold">{config.code}</td>
+                        <td className="p-3">{config.name}</td>
+                        <td className="p-3">{config.start_time} - {config.end_time}</td>
+                        <td className="p-3">{getLocationName(config.location_id || '')}</td>
+                        <td className="p-3">
+                            <div className="w-6 h-6 rounded-full" style={{backgroundColor: config.color}}></div>
+                        </td>
+                        <td className="p-3">
+                            <Button variant="secondary" size="sm" onClick={() => handleEditShiftConfig(config)}>Editar</Button>
+                        </td>
+                        </tr>
+                    ))}
+                    </tbody>
+                </table>
+                </div>
+            </Card>
+        )}
       
       {isEmployeeModalOpen && (
         <EmployeeFormModal
@@ -331,6 +410,16 @@ const AdminView: React.FC = () => {
             onSave={handleSaveRole}
             role={selectedRole}
             availablePermissions={allPermissions}
+          />
+      )}
+      {isShiftConfigModalOpen && (
+          <ShiftConfigFormModal 
+            isOpen={isShiftConfigModalOpen}
+            onClose={() => setIsShiftConfigModalOpen(false)}
+            onSave={handleSaveShiftConfig}
+            onDelete={handleDeleteShiftConfig}
+            config={selectedShiftConfig}
+            locations={locations}
           />
       )}
     </div>

@@ -1,7 +1,9 @@
+
 import React, { useState, useEffect } from 'react';
 import { Task, Location, Room, Employee } from '../../types';
 import Modal from '../shared/Modal';
 import Button from '../shared/Button';
+import { getWorkShifts } from '../../services/mockApi';
 
 interface TaskFormModalProps {
   isOpen: boolean;
@@ -13,17 +15,17 @@ interface TaskFormModalProps {
   task: Task | null;
 }
 
-// FIX: Define a type for the form data that includes `location_id` for UI logic.
 type TaskFormData = Partial<Task> & { location_id?: string };
 
 const TaskFormModal: React.FC<TaskFormModalProps> = ({ isOpen, onClose, onSave, locations, rooms, employees, task }) => {
-  // FIX: Use the new TaskFormData type for the state.
   const [formData, setFormData] = useState<TaskFormData>({});
+  const [availabilityWarning, setAvailabilityWarning] = useState<string | null>(null);
+  const [isValidating, setIsValidating] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
+        setAvailabilityWarning(null);
         if (task) {
-            // FIX: When editing a task, find its location from the associated room.
             const room = rooms.find(r => r.room_id === task.room_id);
             setFormData({
                 ...task,
@@ -42,6 +44,43 @@ const TaskFormModal: React.FC<TaskFormModalProps> = ({ isOpen, onClose, onSave, 
     }
   }, [isOpen, task, locations, rooms, employees]);
 
+  // Validate Schedule whenever employee or date changes
+  useEffect(() => {
+    const checkAvailability = async () => {
+        if (!formData.assigned_to || !formData.due_date || formData.assigned_to === 'all_cleaners') {
+            setAvailabilityWarning(null);
+            return;
+        }
+
+        setIsValidating(true);
+        try {
+            // Fetch shifts for that specific day
+            const start = new Date(formData.due_date);
+            start.setHours(0,0,0,0);
+            const end = new Date(formData.due_date);
+            end.setHours(23,59,59,999);
+
+            const shifts = await getWorkShifts(start.toISOString(), end.toISOString());
+            const hasShift = shifts.some(s => s.employee_id === formData.assigned_to);
+
+            if (!hasShift) {
+                const empName = employees.find(e => e.employee_id === formData.assigned_to)?.first_name;
+                setAvailabilityWarning(`⚠️ ${empName} marca como LIBRE en el cuadrante para este día.`);
+            } else {
+                setAvailabilityWarning(null);
+            }
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setIsValidating(false);
+        }
+    };
+
+    const timer = setTimeout(checkAvailability, 500); // Debounce
+    return () => clearTimeout(timer);
+  }, [formData.assigned_to, formData.due_date, employees]);
+
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
       const { name, value } = e.target;
       setFormData(prev => ({ ...prev, [name]: value}));
@@ -53,14 +92,19 @@ const TaskFormModal: React.FC<TaskFormModalProps> = ({ isOpen, onClose, onSave, 
         alert('Por favor, rellena todos los campos.');
         return;
     }
-    // FIX: The parent component expects location_id and strips it, so we cast to 'any' to pass it through.
+    
+    if (availabilityWarning) {
+        if (!window.confirm(`${availabilityWarning}\n¿Deseas asignar la tarea de todas formas?`)) {
+            return;
+        }
+    }
+
     onSave(formData as any);
   };
   
   const filteredRooms = rooms.filter(r => r.location_id === formData.location_id);
   
   useEffect(() => {
-      // If the selected room is no longer valid after a location change, reset it.
       if (formData.location_id && formData.room_id && formData.room_id !== 'all_rooms') {
           if (!filteredRooms.some(r => r.room_id === formData.room_id)) {
               setFormData(prev => ({...prev, room_id: ''}));
@@ -104,30 +148,42 @@ const TaskFormModal: React.FC<TaskFormModalProps> = ({ isOpen, onClose, onSave, 
             {filteredRooms.map(room => <option key={room.room_id} value={room.room_id}>{room.name}</option>)}
           </select>
         </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Asignar a</label>
-          <select name="assigned_to" value={formData.assigned_to || ''} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm" required>
-            <option value="">Selecciona un empleado</option>
-            <option value="all_cleaners">Todos</option>
-            {employees.map(emp => <option key={emp.employee_id} value={emp.employee_id}>{emp.first_name} {emp.last_name}</option>)}
-          </select>
+        
+        <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Asignar a</label>
+              <select name="assigned_to" value={formData.assigned_to || ''} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm" required>
+                <option value="">Selecciona un empleado</option>
+                <option value="all_cleaners">Todos</option>
+                {employees.map(emp => <option key={emp.employee_id} value={emp.employee_id}>{emp.first_name} {emp.last_name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Fecha Límite</label>
+              <input 
+                type="date" 
+                name="due_date"
+                value={formData.due_date || ''} 
+                onChange={handleChange} 
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm" 
+                required 
+                min={today}
+                max={maxDateStr}
+              />
+            </div>
         </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Fecha Límite</label>
-          <input 
-            type="date" 
-            name="due_date"
-            value={formData.due_date || ''} 
-            onChange={handleChange} 
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm" 
-            required 
-            min={today}
-            max={maxDateStr}
-          />
-        </div>
+
+        {/* Warning Section */}
+        {isValidating && <p className="text-xs text-blue-500">Verificando cuadrante...</p>}
+        {availabilityWarning && (
+            <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-md text-sm animate-pulse">
+                {availabilityWarning}
+            </div>
+        )}
+
         <div className="pt-4 flex justify-end space-x-2">
             <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
-            <Button type="submit">Guardar Tarea</Button>
+            <Button type="submit" disabled={isValidating}>Guardar Tarea</Button>
         </div>
       </form>
     </Modal>

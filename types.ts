@@ -1,5 +1,4 @@
 
-
 export type Permission = 
   | 'manage_employees'
   | 'manage_locations'
@@ -9,7 +8,9 @@ export type Permission =
   | 'manage_tasks'
   | 'access_shift_log'
   | 'schedule_tasks'
-  | 'audit_records'; // New permission for inspection
+  | 'audit_records'
+  | 'manage_documents'
+  | 'manage_maintenance'; // New permission
 
 export interface Role {
   role_id: string;
@@ -26,6 +27,13 @@ export interface Employee {
   status: 'active' | 'inactive';
   policy_accepted: boolean;
   photo_url: string;
+  // Nuevos campos para normativa y cuadrantes
+  province?: 'coruna' | 'pontevedra' | 'other';
+  annual_hours_contract?: number; // Ejemplo: 1784 horas
+  default_location_id?: string;
+  // Horario predefinido
+  default_start_time?: string; // HH:mm
+  default_end_time?: string; // HH:mm
 }
 
 export interface Location {
@@ -142,6 +150,11 @@ export interface Incident {
     priority: 'low' | 'medium' | 'high';
     assigned_to?: string; // employee_id
     photo_url?: string;
+    
+    // New fields for Maintenance Plans
+    type?: 'corrective' | 'preventive'; // Default corrective
+    maintenance_plan_id?: string; // If generated from a plan
+    due_date?: string; // Optional due date for the incident
 }
 
 export interface ShiftLogEntry {
@@ -193,6 +206,18 @@ export interface TimeOffRequest {
     rejection_reason?: string;
 }
 
+export type ShiftType = 'work' | 'off' | 'vacation' | 'sick' | 'permission';
+
+export interface ShiftConfig {
+    config_id: string;
+    code: string; // e.g., "M", "T", "N"
+    name: string; // e.g., "Mañana FyF"
+    start_time: string; // HH:mm
+    end_time: string; // HH:mm
+    color: string;
+    location_id?: string; // Default location for this shift type
+}
+
 export interface WorkShift {
     shift_id: string;
     employee_id: string;
@@ -201,4 +226,48 @@ export interface WorkShift {
     end_time: string; // ISO DateTime
     color: string;
     notes?: string;
+    
+    // New fields
+    type: ShiftType; // 'work' by default
+    shift_config_id?: string; // Link to the config used (e.g., "M")
+}
+
+// --- NEW TYPES FOR DOCUMENTS ---
+
+export type DocumentType = 'file' | 'link';
+
+export interface CompanyDocument {
+    document_id: string;
+    title: string;
+    description?: string;
+    type: DocumentType;
+    content_url: string; // URL link or Base64/Storage URL for file
+    created_at: string;
+    created_by: string; // employee_id
+    requires_signature: boolean;
+}
+
+export interface DocumentSignature {
+    id: string;
+    document_id: string;
+    employee_id: string;
+    status: 'pending' | 'signed' | 'viewed'; // 'viewed' if signature not required
+    signed_at?: string;
+    signature_url?: string;
+    viewed_at?: string;
+}
+
+// --- NEW TYPES FOR MAINTENANCE PLANS ---
+
+export type Frequency = 'monthly' | 'quarterly' | 'semestral' | 'annual';
+
+export interface MaintenancePlan {
+    plan_id: string;
+    title: string;
+    description: string;
+    location_id: string;
+    frequency: Frequency;
+    next_due_date: string; // YYYY-MM-DD
+    created_by: string;
+    active: boolean;
 }

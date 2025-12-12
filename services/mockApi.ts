@@ -1,6 +1,6 @@
 
 import { createClient } from '@supabase/supabase-js';
-import { Role, Employee, Location, TimeEntry, Policy, Announcement, Room, Task, TaskTimeLog, Incident, ShiftLogEntry, ActivityLog, LostItem, AccessLog, BreakLog, WorkType, WorkMode, MonthlySignature, TimeOffRequest, WorkShift } from '../types';
+import { Role, Employee, Location, TimeEntry, Policy, Announcement, Room, Task, TaskTimeLog, Incident, ShiftLogEntry, ActivityLog, LostItem, AccessLog, BreakLog, WorkType, WorkMode, MonthlySignature, TimeOffRequest, WorkShift, ShiftConfig, CompanyDocument, DocumentSignature, MaintenancePlan } from '../types';
 import { addToQueue } from './offlineManager';
 
 // --- Supabase Configuration ---
@@ -9,12 +9,18 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+// Helper to throw readable errors
+const handleSupabaseError = (error: any, context: string) => {
+    console.error(`Error in ${context}:`, error);
+    throw new Error(error.message || `An error occurred in ${context}`);
+};
+
 // --- API Functions ---
 
 // Roles
 export const getRoles = async (): Promise<Role[]> => {
     const { data, error } = await supabase.from('roles').select('*');
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'getRoles');
     return data || [];
 };
 
@@ -29,14 +35,14 @@ export const updateRole = async (roleData: Role): Promise<Role> => {
         .select()
         .single();
     
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'updateRole');
     return data;
 };
 
 // Employees
 export const getEmployees = async (): Promise<Employee[]> => {
     const { data, error } = await supabase.from('employees').select('*');
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'getEmployees');
     return data || [];
 };
 
@@ -47,7 +53,7 @@ export const addEmployee = async (employeeData: Omit<Employee, 'employee_id'>): 
         .select()
         .single();
         
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'addEmployee');
     return data;
 };
 
@@ -59,7 +65,7 @@ export const updateEmployee = async (employeeData: Employee): Promise<Employee> 
         .select()
         .single();
 
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'updateEmployee');
     return data;
 };
 
@@ -69,13 +75,13 @@ export const acceptPolicy = async (employeeId: string): Promise<void> => {
         .update({ policy_accepted: true })
         .eq('employee_id', employeeId);
         
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'acceptPolicy');
 };
 
 // Locations
 export const getLocations = async (): Promise<Location[]> => {
     const { data, error } = await supabase.from('locations').select('*');
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'getLocations');
     return data || [];
 };
 
@@ -86,7 +92,7 @@ export const addLocation = async (locationData: Omit<Location, 'location_id'>): 
         .select()
         .single();
         
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'addLocation');
     return data;
 };
 
@@ -98,7 +104,7 @@ export const updateLocation = async (locationData: Location): Promise<Location> 
         .select()
         .single();
         
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'updateLocation');
     return data;
 };
 
@@ -110,7 +116,7 @@ export const getTimeEntriesForEmployee = async (employeeId: string): Promise<Tim
         .eq('employee_id', employeeId)
         .order('clock_in_time', { ascending: false });
         
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'getTimeEntriesForEmployee');
     return data || [];
 };
 
@@ -154,15 +160,15 @@ export const clockIn = async (
             .select()
             .single();
             
-        if (error) throw error;
+        if (error) handleSupabaseError(error, 'clockIn');
         return data;
-    } catch (e) {
+    } catch (e: any) {
         // If network error during request, add to queue
         if (!isSyncing) {
              addToQueue('CLOCK_IN', { employeeId, locationId, latitude, longitude, workType, workMode, photoUrl });
              return { ...newEntry, entry_id: 'offline-' + Date.now(), status: 'running' } as TimeEntry;
         }
-        throw e;
+        throw new Error(e.message || 'Error creating time entry');
     }
 };
 
@@ -190,14 +196,14 @@ export const clockOut = async (entryId: string, locationId?: string, isSyncing =
             .select()
             .single();
             
-        if (error) throw error;
+        if (error) handleSupabaseError(error, 'clockOut');
         return data;
-    } catch (e) {
+    } catch (e: any) {
         if (!isSyncing) {
             addToQueue('CLOCK_OUT', { entryId, locationId, customEndTime });
             return { entry_id: entryId, status: 'completed', clock_out_time: endTime } as TimeEntry;
         }
-        throw e;
+        throw new Error(e.message || 'Error clocking out');
     }
 };
 
@@ -235,7 +241,7 @@ export const startBreak = async (timeEntryId: string, breakType: string): Promis
         .select()
         .single();
 
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'startBreak');
     return data;
 };
 
@@ -247,7 +253,7 @@ export const endBreak = async (breakId: string): Promise<BreakLog> => {
         .select()
         .single();
 
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'endBreak');
     return data;
 };
 
@@ -261,7 +267,7 @@ export const getActivityLogsForTimeEntry = async (timeEntryId: string): Promise<
         .select('*')
         .eq('time_entry_id', timeEntryId);
         
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'getActivityLogsForTimeEntry');
     return data || [];
 };
 
@@ -297,14 +303,14 @@ export const checkInToLocation = async (timeEntryId: string, employeeId: string,
             .select()
             .single();
             
-        if (error) throw error;
+        if (error) handleSupabaseError(error, 'checkInToLocation');
         return data;
-    } catch(e) {
+    } catch(e: any) {
         if (!isSyncing) {
             addToQueue('CHECK_IN_LOCATION', { timeEntryId, employeeId, locationId, latitude, longitude });
             return { ...newLog, activity_id: 'offline-' + Date.now() } as ActivityLog;
         }
-        throw e;
+        throw new Error(e.message || 'Error checking in to location');
     }
 };
 
@@ -324,14 +330,14 @@ export const checkOutOfLocation = async (activityId: string, isSyncing = false):
             .select()
             .single();
 
-        if (error) throw error;
+        if (error) handleSupabaseError(error, 'checkOutOfLocation');
         return data;
-    } catch (e) {
+    } catch (e: any) {
         if (!isSyncing) {
             addToQueue('CHECK_OUT_LOCATION', { activityId });
             return { activity_id: activityId, check_out_time: new Date().toISOString() } as unknown as ActivityLog;
         }
-        throw e;
+        throw new Error(e.message || 'Error checking out of location');
     }
 };
 
@@ -359,7 +365,7 @@ export const logAccessAttempt = async (data: Omit<AccessLog, 'log_id' | 'attempt
 // Policies
 export const getPolicies = async (): Promise<Policy[]> => {
     const { data, error } = await supabase.from('policies').select('*');
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'getPolicies');
     return data || [];
 };
 
@@ -369,7 +375,7 @@ export const getAnnouncements = async (): Promise<Announcement[]> => {
         .from('announcements')
         .select('*')
         .order('created_at', { ascending: false });
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'getAnnouncements');
     return data || [];
 };
 
@@ -400,7 +406,7 @@ export const addAnnouncement = async (data: Omit<Announcement, 'announcement_id'
         .select()
         .single();
         
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'addAnnouncement');
     return created;
 };
 
@@ -412,14 +418,14 @@ export const updateAnnouncement = async (data: Announcement): Promise<Announceme
         .select()
         .single();
         
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'updateAnnouncement');
     return updated;
 };
 
 // Rooms
 export const getRooms = async (): Promise<Room[]> => {
     const { data, error } = await supabase.from('rooms').select('*');
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'getRooms');
     return data || [];
 };
 
@@ -435,7 +441,7 @@ export const addRoom = async (data: Omit<Room, 'room_id' | 'status'>): Promise<R
         .select()
         .single();
         
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'addRoom');
     return created;
 };
 
@@ -447,14 +453,14 @@ export const updateRoom = async (data: Room): Promise<Room> => {
         .select()
         .single();
         
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'updateRoom');
     return updated;
 };
 
 // Tasks
 export const getTasks = async (): Promise<Task[]> => {
     const { data, error } = await supabase.from('tasks').select('*');
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'getTasks');
     return data || [];
 };
 
@@ -470,7 +476,7 @@ export const addTask = async (data: Omit<Task, 'task_id' | 'created_at' | 'compl
         .select()
         .single();
         
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'addTask');
     return created;
 };
 
@@ -482,14 +488,14 @@ export const updateTask = async (data: Task): Promise<Task> => {
         .select()
         .single();
         
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'updateTask');
     return updated;
 };
 
 // Task Time Logs
 export const getTaskTimeLogs = async (): Promise<TaskTimeLog[]> => {
     const { data, error } = await supabase.from('task_time_logs').select('*');
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'getTaskTimeLogs');
     return data || [];
 };
 
@@ -501,7 +507,7 @@ export const getActiveTaskLogForEmployee = async (employeeId: string): Promise<T
         .is('end_time', null)
         .maybeSingle();
         
-    if (error && error.code !== 'PGRST116') throw error; 
+    if (error && error.code !== 'PGRST116') handleSupabaseError(error, 'getActiveTaskLogForEmployee'); 
     return data;
 };
 
@@ -526,7 +532,7 @@ export const startTask = async (taskId: string, employeeId: string, locationId: 
         .select()
         .single();
         
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'startTask');
     return data;
 };
 
@@ -548,20 +554,21 @@ export const finishTask = async (logId: string, taskId: string): Promise<TaskTim
         .select()
         .single();
         
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'finishTask');
     return data;
 };
 
 // Incidents
 export const getIncidents = async (): Promise<Incident[]> => {
     const { data, error } = await supabase.from('incidents').select('*');
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'getIncidents');
     return data || [];
 };
 
 export const addIncident = async (data: Omit<Incident, 'incident_id' | 'created_at'>): Promise<Incident> => {
     const newIncident = {
         ...data,
+        type: data.type || 'corrective',
         created_at: new Date().toISOString()
     };
     
@@ -571,7 +578,7 @@ export const addIncident = async (data: Omit<Incident, 'incident_id' | 'created_
         .select()
         .single();
         
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'addIncident');
     return created;
 };
 
@@ -583,7 +590,7 @@ export const updateIncident = async (data: Incident): Promise<Incident> => {
         .select()
         .single();
         
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'updateIncident');
     return updated;
 };
 
@@ -594,7 +601,7 @@ export const getShiftLog = async (): Promise<ShiftLogEntry[]> => {
         .select('*')
         .order('created_at', { ascending: false });
         
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'getShiftLog');
     return data || [];
 };
 
@@ -611,7 +618,7 @@ export const addShiftLogEntry = async (data: Omit<ShiftLogEntry, 'log_id' | 'cre
         .select()
         .single();
         
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'addShiftLogEntry');
     return created;
 };
 
@@ -623,7 +630,7 @@ export const updateShiftLogEntry = async (data: ShiftLogEntry): Promise<ShiftLog
         .select()
         .single();
         
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'updateShiftLogEntry');
     return updated;
 };
 
@@ -633,7 +640,7 @@ export const getLostItems = async (): Promise<LostItem[]> => {
         .from('lost_items')
         .select('*')
         .order('found_date', { ascending: false });
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'getLostItems');
     return data || [];
 };
 
@@ -649,7 +656,7 @@ export const addLostItem = async (data: Omit<LostItem, 'item_id' | 'found_date' 
         .insert([newItem])
         .select()
         .single();
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'addLostItem');
     return created;
 };
 
@@ -660,7 +667,7 @@ export const updateLostItem = async (data: LostItem): Promise<LostItem> => {
         .eq('item_id', data.item_id)
         .select()
         .single();
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'updateLostItem');
     return updated;
 };
 
@@ -697,7 +704,7 @@ export const saveMonthlySignature = async (employeeId: string, month: number, ye
         .select()
         .single();
 
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'saveMonthlySignature');
     return data;
 };
 
@@ -709,7 +716,7 @@ export const getTimeOffRequests = async (): Promise<TimeOffRequest[]> => {
         .select('*')
         .order('created_at', { ascending: false });
         
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'getTimeOffRequests');
     return data || [];
 };
 
@@ -726,7 +733,7 @@ export const createTimeOffRequest = async (data: Omit<TimeOffRequest, 'request_i
         .select()
         .single();
 
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'createTimeOffRequest');
     return created;
 };
 
@@ -748,7 +755,7 @@ export const updateTimeOffRequestStatus = async (
         .select()
         .single();
 
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'updateTimeOffRequestStatus');
     return data;
 };
 
@@ -761,7 +768,10 @@ export const getWorkShifts = async (startDate: string, endDate: string): Promise
         .gte('start_time', startDate)
         .lte('end_time', endDate);
         
-    if (error) throw error;
+    if (error) {
+         console.warn("Error fetching work shifts (Table might be missing):", error);
+         return [];
+    }
     return data || [];
 };
 
@@ -772,7 +782,7 @@ export const createWorkShift = async (data: Omit<WorkShift, 'shift_id'>): Promis
         .select()
         .single();
 
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'createWorkShift');
     return created;
 };
 
@@ -784,7 +794,7 @@ export const updateWorkShift = async (data: WorkShift): Promise<WorkShift> => {
         .select()
         .single();
 
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'updateWorkShift');
     return updated;
 };
 
@@ -794,5 +804,248 @@ export const deleteWorkShift = async (shiftId: string): Promise<void> => {
         .delete()
         .eq('shift_id', shiftId);
 
-    if (error) throw error;
+    if (error) handleSupabaseError(error, 'deleteWorkShift');
+};
+
+// --- SHIFT CONFIGURATIONS (New) ---
+
+export const getShiftConfigs = async (): Promise<ShiftConfig[]> => {
+    const { data, error } = await supabase.from('shift_configs').select('*');
+    if (error) {
+        console.warn("getShiftConfigs failed (table likely missing):", error);
+        return [];
+    }
+    return data || [];
+};
+
+export const addShiftConfig = async (data: Omit<ShiftConfig, 'config_id'>): Promise<ShiftConfig> => {
+    const { data: created, error } = await supabase
+        .from('shift_configs')
+        .insert([data])
+        .select()
+        .single();
+
+    if (error) handleSupabaseError(error, 'addShiftConfig');
+    return created;
+};
+
+export const updateShiftConfig = async (data: ShiftConfig): Promise<ShiftConfig> => {
+    const { data: updated, error } = await supabase
+        .from('shift_configs')
+        .update(data)
+        .eq('config_id', data.config_id)
+        .select()
+        .single();
+
+    if (error) handleSupabaseError(error, 'updateShiftConfig');
+    return updated;
+};
+
+export const deleteShiftConfig = async (configId: string): Promise<void> => {
+    const { error } = await supabase
+        .from('shift_configs')
+        .delete()
+        .eq('config_id', configId);
+
+    if (error) handleSupabaseError(error, 'deleteShiftConfig');
+};
+
+// --- DOCUMENT MANAGEMENT (New) ---
+
+export const getDocuments = async (): Promise<CompanyDocument[]> => {
+    const { data, error } = await supabase
+        .from('documents')
+        .select('*')
+        .order('created_at', { ascending: false });
+        
+    if (error) {
+        console.warn("getDocuments failed:", error);
+        return [];
+    }
+    return data || [];
+};
+
+export const createDocument = async (
+    documentData: Omit<CompanyDocument, 'document_id' | 'created_at'>, 
+    targetEmployeeIds: string[]
+): Promise<CompanyDocument> => {
+    // 1. Create the document
+    const { data: doc, error } = await supabase
+        .from('documents')
+        .insert([{...documentData, created_at: new Date().toISOString()}])
+        .select()
+        .single();
+
+    if (error) handleSupabaseError(error, 'createDocument');
+
+    // 2. Create signature/status entries for each target employee
+    const signaturesData = targetEmployeeIds.map(empId => ({
+        document_id: doc.document_id,
+        employee_id: empId,
+        status: 'pending'
+    }));
+
+    if (signaturesData.length > 0) {
+        const { error: sigError } = await supabase
+            .from('document_signatures')
+            .insert(signaturesData);
+            
+        if (sigError) console.error("Error creating signature entries", sigError);
+    }
+
+    return doc;
+};
+
+export const getEmployeeDocuments = async (employeeId: string): Promise<(DocumentSignature & { document: CompanyDocument })[]> => {
+    const { data, error } = await supabase
+        .from('document_signatures')
+        .select(`
+            *,
+            document:documents(*)
+        `)
+        .eq('employee_id', employeeId);
+
+    if (error) {
+        console.warn("getEmployeeDocuments failed:", error);
+        return [];
+    }
+    return data || [];
+};
+
+export const getDocumentSignatures = async (documentId: string): Promise<DocumentSignature[]> => {
+    const { data, error } = await supabase
+        .from('document_signatures')
+        .select('*')
+        .eq('document_id', documentId);
+        
+    if (error) return [];
+    return data || [];
+};
+
+export const signDocument = async (signatureId: string, signatureUrl?: string): Promise<void> => {
+    const updates: Partial<DocumentSignature> = {
+        status: 'signed',
+        signed_at: new Date().toISOString(),
+        viewed_at: new Date().toISOString()
+    };
+    
+    if (signatureUrl) {
+        updates.signature_url = signatureUrl;
+    }
+
+    const { error } = await supabase
+        .from('document_signatures')
+        .update(updates)
+        .eq('id', signatureId);
+
+    if (error) handleSupabaseError(error, 'signDocument');
+};
+
+export const markDocumentAsViewed = async (signatureId: string): Promise<void> => {
+    // Only update if not already signed/viewed
+    const { error } = await supabase
+        .from('document_signatures')
+        .update({
+            status: 'viewed',
+            viewed_at: new Date().toISOString()
+        })
+        .eq('id', signatureId)
+        .eq('status', 'pending'); // Safety check
+
+    if (error) handleSupabaseError(error, 'markDocumentAsViewed');
+};
+
+// --- MAINTENANCE PLANS (New) ---
+
+export const getMaintenancePlans = async (): Promise<MaintenancePlan[]> => {
+    const { data, error } = await supabase.from('maintenance_plans').select('*');
+    if (error) {
+        // Assume table doesn't exist in mock env, return empty
+        console.warn("Table maintenance_plans likely missing", error);
+        return [];
+    }
+    return data || [];
+};
+
+export const addMaintenancePlan = async (planData: Omit<MaintenancePlan, 'plan_id'>): Promise<MaintenancePlan> => {
+    const { data, error } = await supabase
+        .from('maintenance_plans')
+        .insert([planData])
+        .select()
+        .single();
+    
+    if (error) handleSupabaseError(error, 'addMaintenancePlan');
+    return data;
+};
+
+export const updateMaintenancePlan = async (planData: MaintenancePlan): Promise<MaintenancePlan> => {
+    const { data, error } = await supabase
+        .from('maintenance_plans')
+        .update(planData)
+        .eq('plan_id', planData.plan_id)
+        .select()
+        .single();
+        
+    if (error) handleSupabaseError(error, 'updateMaintenancePlan');
+    return data;
+};
+
+export const deleteMaintenancePlan = async (planId: string): Promise<void> => {
+    const { error } = await supabase
+        .from('maintenance_plans')
+        .delete()
+        .eq('plan_id', planId);
+    
+    if (error) handleSupabaseError(error, 'deleteMaintenancePlan');
+};
+
+// Logic to generate tasks from plans
+export const checkAndGenerateMaintenanceTasks = async (): Promise<void> => {
+    const plans = await getMaintenancePlans();
+    const today = new Date();
+    today.setHours(0,0,0,0);
+
+    for (const plan of plans) {
+        if (!plan.active) continue;
+
+        const dueDate = new Date(plan.next_due_date);
+        dueDate.setHours(0,0,0,0);
+        
+        // Calculate difference in days
+        const diffTime = dueDate.getTime() - today.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+        // Generate if due within 7 days or overdue
+        if (diffDays <= 7) {
+            // Check if incident already exists for this plan and date (mock check)
+            // Ideally Supabase constraint would handle duplicates
+            
+            // Create Incident
+            await addIncident({
+                description: `[MANTENIMIENTO] ${plan.title}: ${plan.description}`,
+                location_id: plan.location_id,
+                room_id: '',
+                priority: 'medium',
+                status: 'open',
+                reported_by: 'system',
+                type: 'preventive',
+                maintenance_plan_id: plan.plan_id,
+                due_date: plan.next_due_date
+            } as any);
+
+            // Update Next Due Date
+            let nextDate = new Date(dueDate);
+            switch (plan.frequency) {
+                case 'monthly': nextDate.setMonth(nextDate.getMonth() + 1); break;
+                case 'quarterly': nextDate.setMonth(nextDate.getMonth() + 3); break;
+                case 'semestral': nextDate.setMonth(nextDate.getMonth() + 6); break;
+                case 'annual': nextDate.setFullYear(nextDate.getFullYear() + 1); break;
+            }
+            
+            await updateMaintenancePlan({
+                ...plan,
+                next_due_date: nextDate.toISOString().split('T')[0]
+            });
+        }
+    }
 };
