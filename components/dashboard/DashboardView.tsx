@@ -1,3 +1,4 @@
+
 import React, { useContext } from 'react';
 import { AuthContext } from '../../App';
 import AdminDashboard from './widgets/AdminDashboard';
@@ -32,19 +33,19 @@ const DashboardView: React.FC = () => {
     return (
         <div className="space-y-8">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-1">
+                <div className="lg:col-span-1" id="widget-my-status">
                     <EmployeeStatusWidget />
                 </div>
-                <div className="lg:col-span-2">
+                <div className="lg:col-span-2" id="widget-team-status">
                    <EstablishmentCheckInWidget />
                 </div>
             </div>
             
-            <div>
+            <div id="widget-shift-log">
                 <ShiftLogWidget />
             </div>
             
-            <div>
+            <div id="widget-role-specific">
                 {renderRoleSpecificDashboard()}
             </div>
         </div>

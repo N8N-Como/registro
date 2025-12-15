@@ -13,31 +13,56 @@ interface TimeCorrectionModalProps {
 }
 
 const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({ isOpen, onClose, employeeId, existingEntryId, defaultDate }) => {
-    const [type, setType] = useState<'create_entry' | 'fix_time'>(existingEntryId ? 'fix_time' : 'create_entry');
+    const [errorType, setErrorType] = useState<'entry' | 'exit' | 'break'>('entry');
     const [date, setDate] = useState(defaultDate || new Date().toISOString().split('T')[0]);
-    const [clockIn, setClockIn] = useState('');
-    const [clockOut, setClockOut] = useState('');
+    
+    // Inputs
+    const [time, setTime] = useState('');
     const [reason, setReason] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
+    // Helpers to handle logic mapping
+    const getCorrectionType = () => {
+        if (errorType === 'entry') return existingEntryId ? 'fix_time' : 'create_entry';
+        if (errorType === 'exit') return 'fix_time';
+        return 'fix_time'; // Breaks are handled as generic fixes for now in mock
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!reason || !clockIn) {
-            alert("Debes indicar al menos la hora de entrada y el motivo.");
+        if (!reason || !time) {
+            alert("Debes indicar la hora correcta y el motivo.");
             return;
         }
 
         setIsSubmitting(true);
         try {
-            await createTimeCorrectionRequest({
+            // Construct payload based on type
+            const payload: any = {
                 employee_id: employeeId,
                 original_entry_id: existingEntryId,
-                correction_type: type,
+                correction_type: getCorrectionType(),
                 requested_date: date,
-                requested_clock_in: clockIn,
-                requested_clock_out: clockOut || undefined,
-                reason: reason
-            });
+                reason: `[${errorType.toUpperCase()}] ${reason}`
+            };
+
+            if (errorType === 'entry') {
+                payload.requested_clock_in = time;
+            } else if (errorType === 'exit') {
+                payload.requested_clock_out = time;
+                // Need to send existing clock_in if possible, but backend handles merge or we assume partial update.
+                // For simplified mock, we send requested_clock_in as a dummy or handle in backend logic.
+                // To keep it simple: we send the specific time in 'requested_clock_in' field but tag it in reason, 
+                // or we use the flexible structure.
+                // Let's use the 'reason' to carry the specific instruction for the Admin in this version.
+            } else if (errorType === 'break') {
+                // For breaks, we just send a request description
+                payload.correction_type = 'fix_time'; 
+                payload.requested_clock_in = '00:00'; // Dummy
+                payload.reason = `[PAUSA INCORRECTA] Hora correcta: ${time}. Detalle: ${reason}`;
+            }
+
+            await createTimeCorrectionRequest(payload);
             alert("Solicitud enviada al administrador.");
             onClose();
         } catch (error) {
@@ -51,24 +76,38 @@ const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({ isOpen, onClo
         <Modal isOpen={isOpen} onClose={onClose} title="Solicitar Corrección de Horario">
             <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="bg-yellow-50 p-3 rounded-lg border border-yellow-200 text-sm text-yellow-800">
-                    <p>Las correcciones deben ser aprobadas por un administrador. Los cambios aparecerán marcados en rojo en los informes oficiales.</p>
+                    <p>Las correcciones deben ser aprobadas por un administrador. Indica claramente qué hora es la correcta.</p>
                 </div>
 
                 <div>
-                    <label className="block text-sm font-medium text-gray-700">Tipo de Incidencia</label>
-                    <select 
-                        value={type} 
-                        onChange={(e) => setType(e.target.value as any)}
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm"
-                        disabled={!!existingEntryId}
-                    >
-                        <option value="create_entry">Olvidé fichar (Crear entrada)</option>
-                        <option value="fix_time">Hora incorrecta (Modificar existente)</option>
-                    </select>
+                    <label className="block text-sm font-medium text-gray-700">Tipo de Error</label>
+                    <div className="mt-1 grid grid-cols-3 gap-2">
+                        <button
+                            type="button"
+                            onClick={() => setErrorType('entry')}
+                            className={`py-2 px-1 text-xs sm:text-sm font-medium rounded border ${errorType === 'entry' ? 'bg-primary text-white border-primary' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                        >
+                            Entrada
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setErrorType('exit')}
+                            className={`py-2 px-1 text-xs sm:text-sm font-medium rounded border ${errorType === 'exit' ? 'bg-primary text-white border-primary' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                        >
+                            Salida
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setErrorType('break')}
+                            className={`py-2 px-1 text-xs sm:text-sm font-medium rounded border ${errorType === 'break' ? 'bg-primary text-white border-primary' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                        >
+                            Pausa / Comida
+                        </button>
+                    </div>
                 </div>
 
                 <div>
-                    <label className="block text-sm font-medium text-gray-700">Fecha</label>
+                    <label className="block text-sm font-medium text-gray-700">Fecha del Incidente</label>
                     <input 
                         type="date" 
                         value={date} 
@@ -78,36 +117,28 @@ const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({ isOpen, onClo
                     />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700">Hora Entrada Real</label>
-                        <input 
-                            type="time" 
-                            value={clockIn} 
-                            onChange={(e) => setClockIn(e.target.value)}
-                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm"
-                            required
-                        />
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700">Hora Salida Real</label>
-                        <input 
-                            type="time" 
-                            value={clockOut} 
-                            onChange={(e) => setClockOut(e.target.value)}
-                            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm"
-                        />
-                    </div>
+                <div>
+                    <label className="block text-sm font-medium text-gray-700">
+                        {errorType === 'break' ? 'Hora Inicio/Fin Real de la Pausa' : `Hora Real de ${errorType === 'entry' ? 'Entrada' : 'Salida'}`}
+                    </label>
+                    <input 
+                        type="time" 
+                        value={time} 
+                        onChange={(e) => setTime(e.target.value)}
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm"
+                        required
+                    />
+                    {errorType === 'break' && <p className="text-xs text-gray-500 mt-1">Si hubo error en inicio y fin, indícalo en el motivo.</p>}
                 </div>
 
                 <div>
-                    <label className="block text-sm font-medium text-gray-700">Motivo del Error (Obligatorio)</label>
+                    <label className="block text-sm font-medium text-gray-700">Motivo y Detalles (Obligatorio)</label>
                     <textarea 
                         value={reason} 
                         onChange={(e) => setReason(e.target.value)}
                         className="mt-1 block w-full rounded-md border-gray-300 shadow-sm"
                         rows={3}
-                        placeholder="Ej: Se me olvidó el móvil en el coche, fichaje tardío..."
+                        placeholder={errorType === 'break' ? "Ej: Fichada de comida marcada a las 14:00 pero salí a las 14:30." : "Ej: Se me olvidó el móvil en el coche..."}
                         required
                     />
                 </div>

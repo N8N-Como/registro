@@ -1,7 +1,15 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Button from '../shared/Button';
 import { Role } from '../../types';
+import { 
+    SparklesIcon, 
+    MenuIcon, 
+    LocationIcon, 
+    TimesheetIcon, 
+    BellIcon, 
+    CheckIcon 
+} from '../icons';
 
 interface OnboardingGuideProps {
   role: Role;
@@ -9,81 +17,105 @@ interface OnboardingGuideProps {
 }
 
 interface TourStep {
-    targetId?: string; // ID of the DOM element to highlight. If undefined, it's a centered modal.
+    targetId?: string; // Si es undefined, es un modal central
     title: string;
     description: string;
+    icon: React.ReactNode;
     position?: 'bottom' | 'top' | 'left' | 'right';
 }
-
-const getRoleSpecificMessage = (roleId: string) => {
-    switch (roleId) {
-        case 'cleaner': return "Verás tus tareas asignadas y podrás marcar las habitaciones como limpias.";
-        case 'gobernanta': return "Podrás planificar turnos, asignar tareas y supervisar el estado de las habitaciones.";
-        case 'admin': return "Tienes control total sobre empleados, ubicaciones y configuración del sistema.";
-        default: return "Registra tu jornada, consulta el cuadrante y comunícate con tu equipo.";
-    }
-};
 
 const OnboardingGuide: React.FC<OnboardingGuideProps> = ({ role, onFinish }) => {
     const [currentStepIndex, setCurrentStepIndex] = useState(0);
     const [dontShowAgain, setDontShowAgain] = useState(false);
     const [rect, setRect] = useState<DOMRect | null>(null);
-    
-    // Steps Definition
-    const steps: TourStep[] = [
-        {
-            title: `¡Bienvenido/a, ${role.name}!`,
-            description: "Esta es la nueva aplicación de gestión de Como en Casa. Vamos a hacer un recorrido rápido para enseñarte lo más importante.",
-            targetId: undefined // Center screen
-        },
-        {
-            title: "Menú Principal",
-            description: "Aquí arriba a la izquierda (las 3 rayitas en móvil) encontrarás el menú principal. Desde aquí accedes a Fichajes, Cuadrantes, Incidencias y más.",
-            targetId: 'mobile-menu-btn', // Mobile logic first
-            position: 'bottom'
-        },
-        {
-            title: "Panel Lateral",
-            description: "En pantallas grandes, el menú estará siempre visible aquí a la izquierda para un acceso rápido.",
-            targetId: 'sidebar-menu', // Desktop logic
-            position: 'right'
-        },
-        {
-            title: "Tu Perfil",
-            description: "Aquí puedes cambiar tu foto (importante para los cuadrantes), ver tus documentos firmados y consultar la política de privacidad.",
-            targetId: 'user-profile-btn',
-            position: 'bottom'
-        },
-        {
-            title: "Área de Trabajo",
-            description: `Esta es tu zona principal. ${getRoleSpecificMessage(role.role_id)}`,
-            targetId: 'main-content-area',
-            position: 'top'
-        },
-        {
-            title: "¡Todo listo!",
-            description: "Ya puedes empezar a usar la aplicación. Recuerda fichar siempre al entrar y salir.",
-            targetId: undefined
-        }
-    ];
+    const [isVisible, setIsVisible] = useState(false); // Para animación de entrada
 
-    // Filter steps based on visibility (e.g., skip mobile menu step on desktop)
-    const activeSteps = steps.filter(step => {
-        if (!step.targetId) return true;
-        const el = document.getElementById(step.targetId);
-        // Only include if element exists and is visible
-        return el && el.offsetParent !== null; 
-    });
+    useEffect(() => {
+        // Animación de entrada
+        setTimeout(() => setIsVisible(true), 100);
+    }, []);
+
+    // --- Definición del Contenido del Tour ---
+    const steps = useMemo((): TourStep[] => {
+        const roleMessage = role.role_id === 'admin' 
+            ? "Como Administrador, tienes acceso total a la configuración y gestión."
+            : role.role_id === 'gobernanta'
+            ? "Como Gobernanta, gestionarás las tareas de limpieza y supervisión."
+            : "Aquí podrás gestionar tu día a día de forma sencilla.";
+
+        return [
+            {
+                title: `¡Hola, ${role.name}!`,
+                description: `Bienvenido a la nueva plataforma de gestión de Como en Casa. ${roleMessage} Vamos a enseñarte lo más importante en menos de 1 minuto.`,
+                icon: <div className="text-4xl">👋</div>,
+                targetId: undefined // Modal central
+            },
+            {
+                title: "Tu Estado Actual",
+                description: "Este es el panel más importante. Aquí verás si estás 'Dentro' o 'Fuera' y el tiempo que llevas trabajando. Si olvidas fichar, te avisará.",
+                icon: <TimesheetIcon className="w-10 h-10 text-blue-500" />,
+                targetId: 'widget-my-status',
+                position: 'bottom'
+            },
+            {
+                title: "Equipo en Tiempo Real",
+                description: "Consulta quién está trabajando ahora mismo y en qué ubicación se encuentran. Útil para saber con quién cuentas en cada momento.",
+                icon: <LocationIcon className="w-10 h-10 text-orange-500" />,
+                targetId: 'widget-team-status',
+                position: 'bottom'
+            },
+            {
+                title: "Libro de Novedades",
+                description: "La comunicación es clave. Aquí aparecerán notas importantes dejadas por el turno anterior o comunicados de dirección.",
+                icon: <BellIcon className="w-10 h-10 text-purple-500" />,
+                targetId: 'widget-shift-log',
+                position: 'top'
+            },
+            {
+                title: "Tu Panel de Control",
+                description: `Esta sección cambia según tu rol (${role.name}). Aquí tienes tus herramientas específicas: incidencias, tareas de limpieza o estadísticas.`,
+                icon: <SparklesIcon className="w-10 h-10 text-yellow-500" />,
+                targetId: 'widget-role-specific',
+                position: 'top'
+            },
+            {
+                title: "Navegación Principal",
+                description: "Usa el menú lateral (o el botón de hamburguesa en móvil) para acceder a Fichajes, Cuadrantes, Petición de Vacaciones y más.",
+                icon: <MenuIcon className="w-10 h-10 text-gray-700" />,
+                targetId: window.innerWidth >= 1024 ? 'sidebar-menu' : 'mobile-menu-btn',
+                position: window.innerWidth >= 1024 ? 'right' : 'bottom'
+            },
+            {
+                title: "¡Todo Listo!",
+                description: "Recuerda: lo más importante es fichar al entrar y salir. ¡Que tengas un buen día!",
+                icon: <CheckIcon className="w-12 h-12 text-green-500" />,
+                targetId: undefined
+            }
+        ];
+    }, [role]);
+
+    // Filtrar pasos cuyos elementos no existen en el DOM actual
+    const activeSteps = useMemo(() => {
+        return steps.filter(step => {
+            if (!step.targetId) return true;
+            const el = document.getElementById(step.targetId);
+            return el && el.offsetParent !== null; // Existe y es visible
+        });
+    }, [steps]);
 
     const currentStep = activeSteps[currentStepIndex];
 
-    // Calculate position of the highlighter and tooltip
+    // --- Cálculo de Posición (Spotlight) ---
     useEffect(() => {
         const updatePosition = () => {
             if (currentStep?.targetId) {
                 const element = document.getElementById(currentStep.targetId);
                 if (element) {
                     const r = element.getBoundingClientRect();
+                    // Ajuste para móviles si el elemento está medio fuera
+                    if (r.top < 0 || r.bottom > window.innerHeight) {
+                        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
                     setRect(r);
                 }
             } else {
@@ -91,17 +123,14 @@ const OnboardingGuide: React.FC<OnboardingGuideProps> = ({ role, onFinish }) => 
             }
         };
 
-        updatePosition();
+        // Pequeño delay para asegurar renderizado
+        setTimeout(updatePosition, 150); 
         window.addEventListener('resize', updatePosition);
         window.addEventListener('scroll', updatePosition);
         
-        // Slight delay to ensure DOM is ready/rendered
-        const timeout = setTimeout(updatePosition, 100);
-
         return () => {
             window.removeEventListener('resize', updatePosition);
             window.removeEventListener('scroll', updatePosition);
-            clearTimeout(timeout);
         };
     }, [currentStepIndex, currentStep]);
 
@@ -119,139 +148,159 @@ const OnboardingGuide: React.FC<OnboardingGuideProps> = ({ role, onFinish }) => 
         }
     };
 
-    // Calculate Tooltip Position with Edge Detection
+    // Estilos dinámicos para la tarjeta
     const getTooltipStyle = () => {
-        if (!rect) return { top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }; // Center if no target
+        if (!rect) return { 
+            top: '50%', 
+            left: '50%', 
+            transform: 'translate(-50%, -50%)',
+            maxWidth: '450px',
+            width: '90%'
+        }; 
 
-        const gap = 15;
-        const margin = 16; // Minimum distance from screen edge
+        const gap = 20;
+        const margin = 20;
         const windowWidth = window.innerWidth;
-        
-        // Calculate estimated width based on CSS classes (w-[90%] max-w-sm)
-        // max-w-sm is 24rem = 384px
-        const estimatedWidth = Math.min(windowWidth * 0.9, 384);
-        const halfWidth = estimatedWidth / 2;
+        const width = Math.min(windowWidth - 40, 380); // Max width of tooltip
         
         let top = 0;
         let left = 0;
-        let transform = '';
-
-        switch (currentStep.position) {
-            case 'bottom':
-                top = rect.bottom + gap;
-                left = rect.left + (rect.width / 2);
-                transform = 'translate(-50%, 0)';
-                break;
-            case 'top':
-                top = rect.top - gap;
-                left = rect.left + (rect.width / 2);
-                transform = 'translate(-50%, -100%)';
-                break;
-            case 'right':
-                top = rect.top + (rect.height / 2);
-                left = rect.right + gap;
-                transform = 'translate(0, -50%)';
-                break;
-            case 'left':
-                top = rect.top + (rect.height / 2);
-                left = rect.left - gap;
-                transform = 'translate(-100%, -50%)';
-                break;
-            default: // Center / Fallback
-                return { top: '50%', left: '50%', transform: 'translate(-50%, -50%)' };
+        
+        // Lógica posicional básica
+        if (currentStep.position === 'bottom') {
+            top = rect.bottom + gap;
+            left = rect.left + (rect.width / 2) - (width / 2);
+        } else if (currentStep.position === 'top') {
+            top = rect.top - gap - 250; // Aproximar altura tooltip
+            left = rect.left + (rect.width / 2) - (width / 2);
+        } else if (currentStep.position === 'right') {
+            top = rect.top;
+            left = rect.right + gap;
+        } else { // left
+            top = rect.top;
+            left = rect.left - width - gap;
         }
 
-        // --- Intelligent Boundary Clamping ---
-
-        // 1. Horizontal Clamping for Centered Tooltips (translate(-50%))
-        // Used for 'top' and 'bottom' positions
-        if (transform.includes('translate(-50%')) {
-            // Check Right Edge Overflow
-            if (left + halfWidth > windowWidth - margin) {
-                // Force the center point to shift left so the right edge fits
-                left = windowWidth - margin - halfWidth;
-            }
-            // Check Left Edge Overflow
-            if (left - halfWidth < margin) {
-                // Force the center point to shift right
-                left = margin + halfWidth;
-            }
-        } 
-        
-        // 2. Vertical Clamping
+        // Clamping (evitar que se salga de pantalla)
+        if (left < margin) left = margin;
+        if (left + width > windowWidth - margin) left = windowWidth - margin - width;
         if (top < margin) top = margin;
-        
-        // Ensure no negative values
-        if (left < 0) left = 0;
 
-        return { top, left, transform, position: 'absolute' as const };
+        return { 
+            top: `${top}px`, 
+            left: `${left}px`, 
+            width: `${width}px`,
+            position: 'absolute' as const 
+        };
     };
 
-    return (
-        <div className="fixed inset-0 z-[100] overflow-hidden">
-            {/* Dark Overlay */}
-            <div className="absolute inset-0 bg-black bg-opacity-70 transition-all duration-300"></div>
+    const progress = ((currentStepIndex + 1) / activeSteps.length) * 100;
 
-            {/* Highlighter Box (The Spot) */}
-            {rect && (
+    return (
+        <div className={`fixed inset-0 z-[100] transition-opacity duration-500 ${isVisible ? 'opacity-100' : 'opacity-0'}`}>
+            
+            {/* 1. Backdrop Oscuro con recorte (Spotlight) */}
+            {/* Usamos un div gigante con clip-path o borders para simular el recorte sería complejo.
+                Mejor usar box-shadow gigante invertido sobre el elemento resaltado. */}
+            
+            {rect ? (
+                // Spotlight Mode
                 <div 
-                    className="absolute border-4 border-white rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.7)] transition-all duration-300 ease-in-out pointer-events-none"
+                    className="absolute rounded-lg transition-all duration-500 ease-in-out pointer-events-none"
                     style={{
                         top: rect.top - 5,
                         left: rect.left - 5,
                         width: rect.width + 10,
                         height: rect.height + 10,
+                        boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.75)', // El truco del "agujero"
+                        zIndex: 101
                     }}
-                ></div>
+                >
+                    {/* Borde animado pulsante */}
+                    <div className="absolute inset-0 rounded-lg ring-4 ring-white/50 animate-pulse"></div>
+                </div>
+            ) : (
+                // Modal Mode (Full Overlay)
+                <div className="absolute inset-0 bg-black/80 backdrop-blur-sm z-[101]"></div>
             )}
 
-            {/* Tooltip Card */}
+            {/* 2. Tarjeta del Tutorial */}
             <div 
-                className="fixed bg-white rounded-xl shadow-2xl p-6 w-[90%] max-w-sm transition-all duration-300 ease-out z-[101]"
+                className="fixed bg-white rounded-2xl shadow-2xl overflow-hidden transition-all duration-500 ease-out z-[102] flex flex-col"
                 style={getTooltipStyle()}
             >
-                <div className="flex flex-col h-full">
-                    <div className="flex-1">
-                        <div className="flex justify-between items-center mb-2">
-                            <h3 className="text-xl font-bold text-gray-800">{currentStep.title}</h3>
-                            <span className="text-xs font-semibold text-gray-400 bg-gray-100 px-2 py-1 rounded-full">
-                                {currentStepIndex + 1} / {activeSteps.length}
-                            </span>
+                {/* Barra de Progreso */}
+                <div className="h-1.5 w-full bg-gray-100">
+                    <div 
+                        className="h-full bg-gradient-to-r from-primary to-secondary transition-all duration-500" 
+                        style={{ width: `${progress}%` }}
+                    ></div>
+                </div>
+
+                <div className="p-6 md:p-8 flex flex-col h-full relative">
+                    
+                    {/* Header Multimedia */}
+                    <div className="flex flex-col items-center text-center mb-6">
+                        <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-4 shadow-inner ring-8 ring-gray-50/50">
+                            {currentStep.icon}
                         </div>
-                        <p className="text-gray-600 mb-6 text-sm leading-relaxed">{currentStep.description}</p>
+                        <h3 className="text-2xl font-bold text-gray-800 leading-tight">
+                            {currentStep.title}
+                        </h3>
                     </div>
 
-                    {/* Checkbox only on last step */}
+                    {/* Contenido */}
+                    <div className="flex-1 text-center">
+                        <p className="text-gray-600 text-sm md:text-base leading-relaxed">
+                            {currentStep.description}
+                        </p>
+                    </div>
+
+                    {/* Checkbox (Solo al final) */}
                     {currentStepIndex === activeSteps.length - 1 && (
-                        <div className="mb-4 pt-2 border-t">
-                            <label className="flex items-center space-x-2 cursor-pointer">
+                        <div className="mt-6 pt-4 border-t border-gray-100 flex justify-center">
+                            <label className="flex items-center space-x-2 cursor-pointer group">
+                                <div className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${dontShowAgain ? 'bg-primary border-primary' : 'border-gray-300 bg-white'}`}>
+                                    {dontShowAgain && <CheckIcon className="w-3 h-3 text-white" />}
+                                </div>
                                 <input 
                                     type="checkbox" 
                                     checked={dontShowAgain}
                                     onChange={(e) => setDontShowAgain(e.target.checked)}
-                                    className="rounded text-primary focus:ring-primary h-4 w-4"
+                                    className="hidden"
                                 />
-                                <span className="text-sm text-gray-600">No volver a mostrar este tutorial</span>
+                                <span className="text-xs text-gray-500 group-hover:text-gray-700 select-none">
+                                    No mostrar de nuevo
+                                </span>
                             </label>
                         </div>
                     )}
 
-                    <div className="flex justify-between items-center mt-auto">
-                        <Button 
-                            variant="secondary" 
-                            size="sm" 
-                            onClick={handleBack} 
+                    {/* Footer Nav */}
+                    <div className="flex items-center justify-between mt-8 gap-4">
+                        <button 
+                            onClick={handleBack}
                             disabled={currentStepIndex === 0}
-                            className="opacity-80 hover:opacity-100"
+                            className={`text-sm font-medium px-4 py-2 rounded-lg transition-colors ${
+                                currentStepIndex === 0 
+                                    ? 'text-gray-300 cursor-not-allowed' 
+                                    : 'text-gray-500 hover:bg-gray-100'
+                            }`}
                         >
-                            Anterior
-                        </Button>
-                        <Button 
-                            onClick={handleNext} 
-                            size="sm"
-                            className="shadow-lg"
-                        >
-                            {currentStepIndex === activeSteps.length - 1 ? '¡Entendido!' : 'Siguiente'}
+                            Atrás
+                        </button>
+                        
+                        <div className="flex space-x-1.5">
+                            {activeSteps.map((_, idx) => (
+                                <div 
+                                    key={idx} 
+                                    className={`w-2 h-2 rounded-full transition-colors ${idx === currentStepIndex ? 'bg-primary' : 'bg-gray-200'}`}
+                                ></div>
+                            ))}
+                        </div>
+
+                        <Button onClick={handleNext} className="shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 transition-all">
+                            {currentStepIndex === activeSteps.length - 1 ? 'Empezar' : 'Siguiente'}
                         </Button>
                     </div>
                 </div>

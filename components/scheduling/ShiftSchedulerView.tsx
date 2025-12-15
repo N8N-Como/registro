@@ -1,92 +1,144 @@
 
 import React, { useState, useEffect, useContext, useMemo } from 'react';
 import { AuthContext } from '../../App';
-import { getEmployees, getLocations, getWorkShifts, createWorkShift, updateWorkShift, deleteWorkShift, getShiftConfigs } from '../../services/mockApi';
+import { 
+    getEmployees, 
+    getLocations, 
+    getWorkShifts, 
+    createWorkShift, 
+    updateWorkShift, 
+    deleteWorkShift, 
+    getShiftConfigs,
+    addShiftConfig,
+    updateShiftConfig,
+    deleteShiftConfig
+} from '../../services/mockApi';
 import { Employee, Location, WorkShift, ShiftConfig } from '../../types';
 import Card from '../shared/Card';
 import Spinner from '../shared/Spinner';
 import Button from '../shared/Button';
 import ShiftFormModal from './ShiftFormModal';
+import ShiftConfigFormModal from '../admin/ShiftConfigFormModal';
 import ExcelImportModal from './ExcelImportModal';
 import { CalendarIcon, DocumentIcon } from '../icons';
+import AIAssistant, { InputMode } from '../shared/AIAssistant';
+import { AIResponse } from '../../services/geminiService';
+
+// Lista ordenada por NOMBRE para asegurar coincidencia con la imagen
+const NAME_SORT_ORDER = [
+    'noelia', 'lydia', 'begoña', 'maureen', 'marisa', 
+    'anxo', 'oscar', 'isabel', 'stephany', 'yessica', 
+    'nisley', 'mari', 'diana', 'andres', 'itagu',
+    'doris', 'silvia', 'laura', 'yurima'
+];
 
 const ShiftSchedulerView: React.FC = () => {
     const auth = useContext(AuthContext);
-    const [currentWeekStart, setCurrentWeekStart] = useState(new Date());
+    const [currentWeekStart, setCurrentWeekStart] = useState(new Date(2025, 0, 1)); // Default to Jan 2025 for demo
     const [shifts, setShifts] = useState<WorkShift[]>([]);
-    const [yearShifts, setYearShifts] = useState<WorkShift[]>([]); // For annual calculation
+    const [yearShifts, setYearShifts] = useState<WorkShift[]>([]); 
     const [employees, setEmployees] = useState<Employee[]>([]);
     const [locations, setLocations] = useState<Location[]>([]);
     const [shiftConfigs, setShiftConfigs] = useState<ShiftConfig[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     
-    // Modal State
+    // Shift Modal State
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [selectedShift, setSelectedShift] = useState<WorkShift | null>(null);
     const [modalContext, setModalContext] = useState<{ employeeId: string, date: Date } | null>(null);
 
-    // Helpers to manage dates
-    const getStartOfWeek = (date: Date) => {
-        const d = new Date(date);
-        const day = d.getDay();
-        const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is sunday
-        d.setDate(diff);
-        d.setHours(0,0,0,0);
-        return d;
-    };
+    // Config Modal State (Legend Editing)
+    const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+    const [selectedConfig, setSelectedConfig] = useState<ShiftConfig | null>(null);
 
-    const weekStart = useMemo(() => getStartOfWeek(currentWeekStart), [currentWeekStart]);
+    // Helpers to manage dates (Now 31 days view instead of week to be more "Quadrant")
+    const daysInView = 31;
     
-    const weekDays = useMemo(() => {
+    // PERMISSIONS LOGIC
+    // Roles that can VIEW ALL and EDIT: Admin, Receptionist, Gobernanta, Revenue
+    const canManage = useMemo(() => {
+        const role = auth?.role?.role_id || '';
+        return ['admin', 'receptionist', 'gobernanta', 'revenue', 'administracion'].includes(role);
+    }, [auth?.role]);
+
+    const viewDays = useMemo(() => {
         const days = [];
-        for (let i = 0; i < 7; i++) {
-            const d = new Date(weekStart);
-            d.setDate(weekStart.getDate() + i);
-            days.push(d);
+        const start = new Date(currentWeekStart.getFullYear(), currentWeekStart.getMonth(), 1);
+        
+        for (let i = 0; i < daysInView; i++) {
+            const d = new Date(start);
+            d.setDate(start.getDate() + i);
+            if (d.getMonth() === start.getMonth()) {
+                days.push(d);
+            }
         }
         return days;
-    }, [weekStart]);
+    }, [currentWeekStart]);
+
+    // Helper function to find sort index based on name match
+    const getSortIndex = (employee: Employee) => {
+        const fullName = `${employee.first_name} ${employee.last_name}`.toLowerCase();
+        if (fullName.includes('dolores') && fullName.includes('varela')) return NAME_SORT_ORDER.indexOf('mari'); 
+        if (fullName.includes('dolores') && fullName.includes('escalante')) return NAME_SORT_ORDER.indexOf('doris');
+        if (fullName.includes('laura')) return NAME_SORT_ORDER.indexOf('laura');
+        const index = NAME_SORT_ORDER.findIndex(key => fullName.includes(key));
+        return index !== -1 ? index : 999; 
+    };
 
     const fetchSchedulerData = async () => {
         setIsLoading(true);
         setError(null);
         try {
-            // Fetch base data
             try {
                 const [emps, locs] = await Promise.all([getEmployees(), getLocations()]);
-                setEmployees(emps);
+                
+                let operationalStaff = emps.filter(e => 
+                    e.role_id !== 'admin' && 
+                    !e.first_name.toLowerCase().includes('admin') &&
+                    !e.first_name.toLowerCase().includes('victor')
+                );
+
+                // --- FILTER LOGIC FOR NON-MANAGERS ---
+                if (!canManage && auth?.employee) {
+                    operationalStaff = operationalStaff.filter(e => e.employee_id === auth.employee!.employee_id);
+                }
+                // -------------------------------------
+
+                operationalStaff.sort((a, b) => {
+                    const indexA = getSortIndex(a);
+                    const indexB = getSortIndex(b);
+                    return indexA - indexB;
+                });
+                setEmployees(operationalStaff);
                 setLocations(locs);
             } catch (e: any) {
                 console.error("Critical error fetching employees/locations:", e);
                 setError(e.message || "Error cargando empleados o ubicaciones.");
-                return; // Stop if critical data fails
+                return; 
             }
 
-            // Try fetching shift configs, default to empty if fails
             try {
                 const configs = await getShiftConfigs();
                 setShiftConfigs(configs);
             } catch (e) {
-                console.warn("Shift configs not available", e);
                 setShiftConfigs([]);
             }
             
-            // Fetch shifts for the current week
-            const startStr = weekDays[0].toISOString();
-            const endStr = weekDays[6].toISOString().replace(/T.*/, 'T23:59:59');
-            try {
-                const weekShifts = await getWorkShifts(startStr, endStr);
-                setShifts(weekShifts);
-            } catch (e) {
-                console.warn("Week shifts not available", e);
-                setShifts([]);
+            if (viewDays.length > 0) {
+                const startStr = viewDays[0].toISOString();
+                const endStr = viewDays[viewDays.length - 1].toISOString().replace(/T.*/, 'T23:59:59');
+                try {
+                    const weekShifts = await getWorkShifts(startStr, endStr);
+                    setShifts(weekShifts);
+                } catch (e) {
+                    setShifts([]);
+                }
             }
 
-            // Fetch shifts for the whole year
-            const yearStart = new Date(new Date().getFullYear(), 0, 1).toISOString();
-            const yearEnd = new Date(new Date().getFullYear(), 11, 31).toISOString();
+            const yearStart = new Date(currentWeekStart.getFullYear(), 0, 1).toISOString();
+            const yearEnd = new Date(currentWeekStart.getFullYear(), 11, 31).toISOString();
             try {
                 const allShifts = await getWorkShifts(yearStart, yearEnd);
                 setYearShifts(allShifts);
@@ -104,29 +156,28 @@ const ShiftSchedulerView: React.FC = () => {
 
     useEffect(() => {
         fetchSchedulerData();
-    }, [weekStart]); 
+    }, [currentWeekStart, canManage]); // Refetch if permissions change
 
-    const handlePreviousWeek = () => {
+    const handlePreviousMonth = () => {
         const newDate = new Date(currentWeekStart);
-        newDate.setDate(newDate.getDate() - 7);
+        newDate.setMonth(newDate.getMonth() - 1);
         setCurrentWeekStart(newDate);
     };
 
-    const handleNextWeek = () => {
+    const handleNextMonth = () => {
         const newDate = new Date(currentWeekStart);
-        newDate.setDate(newDate.getDate() + 7);
+        newDate.setMonth(newDate.getMonth() + 1);
         setCurrentWeekStart(newDate);
     };
     
     const handleToday = () => {
-        setCurrentWeekStart(new Date());
+        const now = new Date();
+        setCurrentWeekStart(new Date(now.getFullYear(), now.getMonth(), 1));
     };
 
-    const canEdit = auth?.role?.role_id === 'admin' || auth?.role?.role_id === 'gobernanta' || auth?.role?.role_id === 'receptionist';
-    const isAdmin = auth?.role?.role_id === 'admin';
-
+    // Cell Actions
     const handleCellClick = (employeeId: string, date: Date) => {
-        if (!canEdit) return;
+        if (!canManage) return;
         setModalContext({ employeeId, date });
         setSelectedShift(null);
         setIsModalOpen(true);
@@ -134,7 +185,7 @@ const ShiftSchedulerView: React.FC = () => {
 
     const handleShiftClick = (e: React.MouseEvent, shift: WorkShift) => {
         e.stopPropagation();
-        if (!canEdit) return;
+        if (!canManage) return;
         setSelectedShift(shift);
         setModalContext({ employeeId: shift.employee_id, date: new Date(shift.start_time) });
         setIsModalOpen(true);
@@ -147,7 +198,7 @@ const ShiftSchedulerView: React.FC = () => {
             } else {
                 await createWorkShift(shiftData);
             }
-            fetchSchedulerData(); // Refresh all
+            fetchSchedulerData(); 
             setIsModalOpen(false);
         } catch (error) {
             alert("Error al guardar el turno");
@@ -164,16 +215,70 @@ const ShiftSchedulerView: React.FC = () => {
         }
     };
     
+    // Bulk Import
     const handleBulkImport = async (newShifts: Omit<WorkShift, 'shift_id'>[]) => {
-        // En un entorno real, esto debería ser un único endpoint de API.
-        // Aquí hacemos loop, lo cual es lento pero funcional para Mock.
         for (const shift of newShifts) {
             await createWorkShift(shift);
         }
         fetchSchedulerData();
     };
+
+    // Config Actions (Legend)
+    const handleEditConfig = (config: ShiftConfig | null) => {
+        if (!canManage) return;
+        setSelectedConfig(config);
+        setIsConfigModalOpen(true);
+    };
+
+    const handleSaveConfig = async (data: any) => {
+        try {
+            if ('config_id' in data) {
+                await updateShiftConfig(data);
+            } else {
+                await addShiftConfig(data);
+            }
+            fetchSchedulerData();
+            setIsConfigModalOpen(false);
+        } catch (e: any) {
+            alert("Error al guardar configuración: " + e.message);
+        }
+    };
+
+    const handleDeleteConfig = async (id: string) => {
+        try {
+            await deleteShiftConfig(id);
+            fetchSchedulerData();
+            setIsConfigModalOpen(false);
+        } catch (e) {
+            alert("Error al eliminar configuración.");
+        }
+    };
     
-    // Logic to calculate hours (Only counting Work Shifts)
+    // AI Integration
+    const handleAIAction = async (response: AIResponse) => {
+        if (response.action === 'createShift' && response.data) {
+            try {
+                await createWorkShift({
+                    employee_id: response.data.employee_id,
+                    start_time: response.data.start_time,
+                    end_time: response.data.end_time,
+                    type: response.data.type || 'work',
+                    location_id: response.data.location_id
+                });
+                fetchSchedulerData();
+            } catch (e) {
+                console.error("AI Create Shift Error", e);
+            }
+        }
+    };
+
+    // Determine AI Config based on Role
+    const role = auth?.role?.role_id;
+    let allowedAIInputs: InputMode[] | null = null;
+    if (['admin', 'receptionist', 'gobernanta', 'revenue', 'administracion'].includes(role || '')) {
+        allowedAIInputs = ['text', 'voice', 'image'];
+    }
+
     const calculateAnnualHours = (employeeId: string) => {
         const empShifts = yearShifts.filter(s => s.employee_id === employeeId && (!s.type || s.type === 'work'));
         let totalMs = 0;
@@ -197,149 +302,121 @@ const ShiftSchedulerView: React.FC = () => {
         );
     }
 
+    const monthName = currentWeekStart.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }).toUpperCase();
+
     return (
-        <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row justify-between items-center bg-white p-4 rounded-lg shadow-sm border border-gray-200 gap-4">
+        <div className="space-y-4 relative">
+            <div className="flex flex-col xl:flex-row justify-between items-center bg-white p-4 rounded-lg shadow-sm border border-gray-200 gap-4">
                 <div className="flex items-center space-x-2">
                     <CalendarIcon className="w-6 h-6 text-primary" />
-                    <h2 className="text-xl font-bold text-gray-800">Cuadrante de Turnos</h2>
+                    <h2 className="text-xl font-bold text-gray-800">Cuadrante {monthName}</h2>
                 </div>
                 
                 <div className="flex items-center space-x-2">
-                    <Button variant="secondary" size="sm" onClick={handlePreviousWeek}>&lt;</Button>
+                    <Button variant="secondary" size="sm" onClick={handlePreviousMonth}>&lt;</Button>
                     <Button variant="secondary" size="sm" onClick={handleToday}>Hoy</Button>
-                    <span className="font-semibold text-gray-700 w-36 text-center text-sm">
-                        {weekDays[0].toLocaleDateString('es-ES', { month: 'short', day: 'numeric' })} - {weekDays[6].toLocaleDateString('es-ES', { month: 'short', day: 'numeric' })}
-                    </span>
-                    <Button variant="secondary" size="sm" onClick={handleNextWeek}>&gt;</Button>
+                    <Button variant="secondary" size="sm" onClick={handleNextMonth}>&gt;</Button>
                 </div>
 
-                {isAdmin && (
-                    <Button 
-                        size="sm" 
-                        variant="success" 
-                        onClick={() => setIsImportModalOpen(true)}
-                        className="w-full sm:w-auto flex items-center justify-center gap-2"
-                    >
-                        <DocumentIcon className="w-4 h-4" />
-                        Importar Excel
-                    </Button>
+                {/* Import Buttons */}
+                {canManage && (
+                    <div className="flex gap-2">
+                        <Button 
+                            size="sm" 
+                            variant="success" 
+                            onClick={() => setIsImportModalOpen(true)}
+                            className="flex items-center justify-center gap-2"
+                        >
+                            <DocumentIcon className="w-4 h-4" />
+                            Importar Excel
+                        </Button>
+                    </div>
                 )}
             </div>
 
             <Card className="overflow-hidden p-0 border-0 shadow-lg">
                 <div className="overflow-x-auto">
-                    <table className="w-full border-collapse min-w-[900px]">
+                    <table className="w-full border-collapse">
                         <thead>
-                            <tr className="bg-gray-50 border-b">
-                                <th className="p-4 text-left font-bold text-gray-600 w-64 sticky left-0 bg-gray-50 z-20 border-r shadow-sm">
-                                    Empleado / Convenio
+                            <tr className="bg-blue-600 text-white border-b border-blue-700">
+                                <th className="p-2 text-left font-bold w-48 sticky left-0 bg-blue-600 z-20 border-r border-blue-500 shadow-md text-xs uppercase">
+                                    Empleado
                                 </th>
-                                {weekDays.map(day => {
+                                {viewDays.map(day => {
                                     const isToday = day.toDateString() === new Date().toDateString();
                                     return (
-                                        <th key={day.toISOString()} className={`p-2 text-center border-r min-w-[120px] ${isToday ? 'bg-blue-50' : ''}`}>
-                                            <div className="text-xs font-bold text-gray-500 uppercase">{day.toLocaleDateString('es-ES', { weekday: 'short' })}</div>
-                                            <div className={`font-bold text-lg ${isToday ? 'text-blue-600' : 'text-gray-800'}`}>
-                                                {day.getDate()}
-                                            </div>
+                                        <th key={day.toISOString()} className={`p-1 text-center border-r border-blue-500 min-w-[30px] ${isToday ? 'bg-blue-800' : ''}`}>
+                                            <div className="text-[10px] font-bold">{day.getDate()}</div>
+                                            <div className="text-[9px] opacity-75">{day.toLocaleDateString('es-ES', { weekday: 'narrow' })}</div>
                                         </th>
                                     );
                                 })}
                             </tr>
                         </thead>
                         <tbody>
-                            {employees.map(emp => {
+                            {employees.map((emp, idx) => {
                                 const annualHours = calculateAnnualHours(emp.employee_id);
                                 const limit = emp.annual_hours_contract || 1784;
-                                const percent = Math.min(100, (annualHours / limit) * 100);
-                                const isOverLimit = annualHours > limit;
+                                const isRowEven = idx % 2 === 0;
 
                                 return (
-                                <tr key={emp.employee_id} className="border-b hover:bg-gray-50 transition-colors group">
-                                    <td className="p-3 border-r font-medium text-gray-800 sticky left-0 bg-white z-10 group-hover:bg-gray-50">
-                                        <div className="flex items-center space-x-3 mb-2">
-                                            <div className="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center text-xs font-bold shadow-sm">
-                                                {emp.first_name.charAt(0)}{emp.last_name.charAt(0)}
-                                            </div>
-                                            <div>
-                                                <p className="leading-none">{emp.first_name} {emp.last_name}</p>
-                                                <p className="text-[10px] text-gray-400 mt-1 uppercase">{emp.province || 'General'}</p>
-                                            </div>
-                                        </div>
-                                        
-                                        {/* Barra de Progreso Horas Anuales */}
-                                        <div className="w-full bg-gray-100 rounded-full h-1.5 mt-1 overflow-hidden">
-                                            <div 
-                                                className={`h-1.5 rounded-full ${isOverLimit ? 'bg-red-500' : 'bg-green-500'}`} 
-                                                style={{ width: `${percent}%` }}
-                                            ></div>
-                                        </div>
-                                        <div className="flex justify-between text-[9px] text-gray-400 mt-0.5">
-                                            <span>{Math.round(annualHours)}h Planificadas</span>
-                                            <span>Límite: {limit}h</span>
+                                <tr key={emp.employee_id} className={`border-b border-gray-200 ${isRowEven ? 'bg-white' : 'bg-gray-50'} hover:bg-gray-100 transition-colors`}>
+                                    <td className={`p-2 border-r border-gray-200 font-medium text-gray-800 sticky left-0 z-10 shadow-sm text-xs ${isRowEven ? 'bg-white' : 'bg-gray-50'}`}>
+                                        <div className="flex justify-between items-center">
+                                            <span className="truncate max-w-[120px]" title={`${emp.first_name} ${emp.last_name}`}>{emp.first_name}</span>
+                                            <span className={`text-[9px] ${annualHours > limit ? 'text-red-500' : 'text-green-600'}`}>{Math.round(annualHours)}h</span>
                                         </div>
                                     </td>
-                                    {weekDays.map(day => {
+                                    {viewDays.map(day => {
                                         const dayShifts = shifts.filter(s => 
                                             s.employee_id === emp.employee_id && 
                                             new Date(s.start_time).toDateString() === day.toDateString()
                                         );
+                                        const isWeekend = day.getDay() === 0 || day.getDay() === 6;
 
                                         return (
                                             <td 
                                                 key={day.toISOString()} 
-                                                className={`p-1 border-r align-top h-24 relative cursor-pointer hover:bg-gray-100 ${day.toDateString() === new Date().toDateString() ? 'bg-blue-50/30' : ''}`}
+                                                className={`p-0 border-r border-gray-200 h-10 w-8 text-center align-middle relative cursor-pointer ${isWeekend ? 'bg-gray-100/50' : ''}`}
                                                 onClick={() => handleCellClick(emp.employee_id, day)}
                                             >
-                                                {dayShifts.map(shift => {
-                                                    const startTime = new Date(shift.start_time).toLocaleTimeString('es-ES', {hour: '2-digit', minute:'2-digit'});
-                                                    const endTime = new Date(shift.end_time).toLocaleTimeString('es-ES', {hour: '2-digit', minute:'2-digit'});
+                                                {dayShifts.map((shift, i) => {
+                                                    // Determine what to show
+                                                    let displayCode = '';
                                                     
-                                                    // Determine visual style based on type
-                                                    let bgColor = shift.color;
-                                                    let content = (
-                                                        <>
-                                                            <div className="font-bold">
-                                                                {shift.shift_config_id 
-                                                                    ? (shiftConfigs.find(c => c.config_id === shift.shift_config_id)?.code || startTime) 
-                                                                    : `${startTime} - ${endTime}`}
-                                                            </div>
-                                                            {shift.location_id && (
-                                                                <div className="truncate opacity-90 text-[10px] flex items-center mt-0.5">
-                                                                    <span className="mr-1">📍</span>
-                                                                    {locations.find(l => l.location_id === shift.location_id)?.name}
-                                                                </div>
-                                                            )}
-                                                        </>
-                                                    );
-
-                                                    if (shift.type && shift.type !== 'work') {
-                                                        if (shift.type === 'off') {
-                                                            content = <div className="font-bold text-center">LIBRE</div>;
-                                                        } else if (shift.type === 'vacation') {
-                                                            content = <div className="font-bold text-center text-[10px]">VACACIONES</div>;
-                                                        } else if (shift.type === 'sick') {
-                                                            content = <div className="font-bold text-center text-[10px]">BAJA</div>;
-                                                        } else if (shift.type === 'permission') {
-                                                            content = <div className="font-bold text-center text-[10px]">PERMISO</div>;
-                                                        }
+                                                    if (shift.shift_config_id) {
+                                                        const cfg = shiftConfigs.find(c => c.config_id === shift.shift_config_id);
+                                                        displayCode = cfg?.code || shift.notes || '?';
+                                                    } else if (shift.notes && shift.notes.length <= 4) {
+                                                        displayCode = shift.notes;
+                                                    } else if (shift.type === 'off') {
+                                                        displayCode = 'L';
+                                                    } else if (shift.type === 'vacation') {
+                                                        displayCode = 'V';
+                                                    } else if (shift.type === 'sick') {
+                                                        displayCode = 'B';
+                                                    } else {
+                                                        displayCode = new Date(shift.start_time).getHours().toString();
                                                     }
+
+                                                    if (i > 0) return null; 
 
                                                     return (
                                                         <div 
                                                             key={shift.shift_id}
                                                             onClick={(e) => handleShiftClick(e, shift)}
-                                                            className="mb-1 p-1.5 rounded-md text-xs text-white shadow-md overflow-hidden transform hover:scale-105 transition-transform min-h-[40px] flex flex-col justify-center"
-                                                            style={{ backgroundColor: bgColor }}
-                                                            title={shift.notes}
+                                                            className="w-full h-full flex items-center justify-center text-white font-bold text-xs shadow-inner"
+                                                            style={{ backgroundColor: shift.color || '#9ca3af' }}
+                                                            title={`${shift.notes || 'Turno'} (${new Date(shift.start_time).toLocaleTimeString()} - ${new Date(shift.end_time).toLocaleTimeString()})`}
                                                         >
-                                                            {content}
+                                                            {displayCode}
                                                         </div>
                                                     )
                                                 })}
-                                                {dayShifts.length === 0 && canEdit && (
-                                                    <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 text-gray-300 text-3xl font-light">
+                                                
+                                                {/* Hover Plus for Empty Cells */}
+                                                {dayShifts.length === 0 && canManage && (
+                                                    <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 text-gray-300 text-xl font-light hover:bg-gray-200">
                                                         +
                                                     </div>
                                                 )}
@@ -350,6 +427,47 @@ const ShiftSchedulerView: React.FC = () => {
                             )})}
                         </tbody>
                     </table>
+                </div>
+                
+                {/* Clickable Legend */}
+                <div className="p-2 bg-gray-50 border-t flex flex-wrap gap-4 text-[10px] text-gray-600 justify-center items-center">
+                    <p className="mr-2 font-bold text-gray-400 uppercase">Leyenda (Click para editar):</p>
+                    
+                    {shiftConfigs.map(cfg => (
+                        <div 
+                            key={cfg.config_id} 
+                            className="flex items-center space-x-1 cursor-pointer hover:bg-gray-200 p-1 rounded transition-colors"
+                            onClick={() => handleEditConfig(cfg)}
+                            title={`Editar turno ${cfg.name}`}
+                        >
+                            <div className="w-3 h-3 rounded-sm" style={{backgroundColor: cfg.color}}></div>
+                            <span>{cfg.code}: {cfg.name}</span>
+                        </div>
+                    ))}
+                    
+                    {canManage && (
+                        <div 
+                            className="flex items-center space-x-1 cursor-pointer hover:bg-blue-100 p-1 rounded transition-colors text-blue-600 font-bold border border-dashed border-blue-300"
+                            onClick={() => handleEditConfig(null)}
+                        >
+                            <span>+ Nuevo Turno</span>
+                        </div>
+                    )}
+
+                    <div className="border-l pl-4 flex gap-4">
+                        <div className="flex items-center space-x-1" title="Sistema (No editable)">
+                            <div className="w-3 h-3 rounded-sm bg-gray-200"></div>
+                            <span>L: Libre</span>
+                        </div>
+                        <div className="flex items-center space-x-1" title="Sistema (No editable)">
+                            <div className="w-3 h-3 rounded-sm bg-green-200"></div>
+                            <span>V: Vacaciones</span>
+                        </div>
+                        <div className="flex items-center space-x-1" title="Sistema (No editable)">
+                            <div className="w-3 h-3 rounded-sm bg-red-200"></div>
+                            <span>B: Baja</span>
+                        </div>
+                    </div>
                 </div>
             </Card>
 
@@ -367,6 +485,17 @@ const ShiftSchedulerView: React.FC = () => {
                 />
             )}
 
+            {isConfigModalOpen && (
+                <ShiftConfigFormModal 
+                    isOpen={isConfigModalOpen}
+                    onClose={() => setIsConfigModalOpen(false)}
+                    onSave={handleSaveConfig}
+                    onDelete={handleDeleteConfig}
+                    config={selectedConfig}
+                    locations={locations}
+                />
+            )}
+
             {isImportModalOpen && (
                 <ExcelImportModal
                     isOpen={isImportModalOpen}
@@ -374,6 +503,15 @@ const ShiftSchedulerView: React.FC = () => {
                     onImport={handleBulkImport}
                     employees={employees}
                     locations={locations}
+                />
+            )}
+
+            {/* AI Integration */}
+            {allowedAIInputs && (
+                <AIAssistant 
+                    context={{ employees, locations, currentUser: auth?.employee || undefined }} 
+                    onAction={handleAIAction}
+                    allowedInputs={allowedAIInputs}
                 />
             )}
         </div>

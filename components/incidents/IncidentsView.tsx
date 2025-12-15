@@ -8,7 +8,7 @@ import Button from '../shared/Button';
 import Spinner from '../shared/Spinner';
 import IncidentFormModal from './IncidentFormModal';
 import { formatDate } from '../../utils/helpers';
-import AIAssistant from '../shared/AIAssistant';
+import AIAssistant, { InputMode } from '../shared/AIAssistant';
 import { AIResponse } from '../../services/geminiService';
 
 const IncidentsView: React.FC = () => {
@@ -27,10 +27,6 @@ const IncidentsView: React.FC = () => {
         setIsLoading(true);
         try {
             const [incs, emps, locs, allRooms] = await Promise.all([getIncidents(), getEmployees(), getLocations(), getRooms()]);
-            // Ordenar por fecha de creación (que en preventivos actúa como fecha de inicio) descendente
-            // La petición pedía ordenar por "fecha más antigua", pero en UX suele ser mejor ver lo nuevo arriba.
-            // Si el usuario quiere ver lo viejo, lo mejor sería añadir ordenación.
-            // Voy a mantener descendente por defecto para consistencia, pero añadir un indicador visual.
             setIncidents(incs.sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
             setEmployees(emps);
             setLocations(locs);
@@ -98,6 +94,15 @@ const IncidentsView: React.FC = () => {
           default: return `${base} bg-gray-100 text-gray-800`;
         }
     };
+
+    // Determine AI Config based on Role
+    const role = auth?.role?.role_id;
+    let allowedAIInputs: InputMode[] | null = null;
+    if (['admin', 'receptionist', 'gobernanta', 'revenue', 'administracion'].includes(role || '')) {
+        allowedAIInputs = ['text', 'voice', 'image'];
+    } else if (['maintenance', 'cleaner'].includes(role || '')) {
+        allowedAIInputs = ['voice'];
+    }
     
     if (isLoading) return <Spinner />;
 
@@ -177,10 +182,13 @@ const IncidentsView: React.FC = () => {
             </Card>
 
             {/* AI Assistant Integration */}
-            <AIAssistant 
-                context={{ employees, rooms, locations, currentUser: auth?.employee || undefined }} 
-                onAction={handleAIAction}
-            />
+            {allowedAIInputs && (
+                <AIAssistant 
+                    context={{ employees, rooms, locations, currentUser: auth?.employee || undefined }} 
+                    onAction={handleAIAction}
+                    allowedInputs={allowedAIInputs}
+                />
+            )}
         </div>
     );
 };

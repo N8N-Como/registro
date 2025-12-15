@@ -1,13 +1,13 @@
 
 import React, { useState, useEffect, useContext } from 'react';
-import { getEmployees, getTimeEntriesForEmployee, getMonthlySignature, saveMonthlySignature } from '../../services/mockApi';
+import { getEmployees, getTimeEntriesForEmployee, getMonthlySignature, saveMonthlySignature, getBreaksForTimeEntries } from '../../services/mockApi';
 import { Employee, MonthlySignature } from '../../types';
 import { AuthContext } from '../../App';
 import Button from '../shared/Button';
 import Spinner from '../shared/Spinner';
 import Card from '../shared/Card';
 import Modal from '../shared/Modal';
-import { formatTime, getDaysInMonth } from '../../utils/helpers';
+import { formatTime, getDaysInMonth, formatDuration } from '../../utils/helpers';
 import PrintableMonthlyLog from './PrintableMonthlyLog';
 import SignaturePad from '../shared/SignaturePad';
 import * as XLSX from 'xlsx';
@@ -87,6 +87,10 @@ const MonthlyWorkLogReport: React.FC = () => {
                     return entryDate.getFullYear() === year && entryDate.getMonth() === month - 1 && entry.status === 'completed' && entry.clock_out_time;
                 });
 
+                // Optimization: Fetch all breaks for these entries at once
+                const entryIds = filteredEntries.map(e => e.entry_id);
+                const allBreaks = await getBreaksForTimeEntries(entryIds);
+
                 // If admin, skip empty reports. If employee, show even if empty (to sign zero hours?)
                 if (filteredEntries.length === 0 && auth?.role?.role_id === 'admin') continue;
 
@@ -99,12 +103,24 @@ const MonthlyWorkLogReport: React.FC = () => {
                     
                     let dailyTotalMs = 0;
                     const formattedEntries = entriesForDay.map(e => {
-                        const duration = new Date(e.clock_out_time!).getTime() - new Date(e.clock_in_time).getTime();
-                        dailyTotalMs += duration;
+                        const start = new Date(e.clock_in_time).getTime();
+                        const end = new Date(e.clock_out_time!).getTime();
+                        
+                        // Calculate Break Duration for this entry
+                        const entryBreaks = allBreaks.filter(b => b.time_entry_id === e.entry_id);
+                        const breakDuration = entryBreaks.reduce((acc, b) => {
+                            const bStart = new Date(b.start_time).getTime();
+                            const bEnd = b.end_time ? new Date(b.end_time).getTime() : bStart; // Ignore incomplete breaks in report calculation for safety
+                            return acc + (bEnd - bStart);
+                        }, 0);
+
+                        const effectiveDuration = (end - start) - breakDuration;
+                        dailyTotalMs += effectiveDuration;
+                        
                         return {
                             clockIn: formatTime(new Date(e.clock_in_time)),
                             clockOut: formatTime(new Date(e.clock_out_time!)),
-                            duration,
+                            duration: effectiveDuration,
                             isManual: !!e.is_manual
                         };
                     });

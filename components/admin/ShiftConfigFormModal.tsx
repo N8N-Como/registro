@@ -38,7 +38,14 @@ const ShiftConfigFormModal: React.FC<ShiftConfigFormModalProps> = ({ isOpen, onC
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        onSave(formData as ShiftConfig);
+        
+        // Critical Fix: Ensure location_id is null/undefined if empty string to avoid UUID error
+        const payload = { ...formData };
+        if (payload.location_id === '') {
+            payload.location_id = undefined;
+        }
+
+        onSave(payload as ShiftConfig);
     };
 
     const handleDelete = () => {
@@ -115,7 +122,7 @@ const ShiftConfigFormModal: React.FC<ShiftConfigFormModalProps> = ({ isOpen, onC
                         onChange={handleChange}
                         className="mt-1 block w-full rounded-md border-gray-300 shadow-sm"
                     >
-                        <option value="">-- Seleccionar --</option>
+                        <option value="">-- Sin ubicación específica --</option>
                         {locations.map(loc => (
                             <option key={loc.location_id} value={loc.location_id}>{loc.name}</option>
                         ))}
@@ -125,7 +132,7 @@ const ShiftConfigFormModal: React.FC<ShiftConfigFormModalProps> = ({ isOpen, onC
                  <div>
                     <label className="block text-sm font-medium text-gray-700">Color Visual</label>
                     <div className="flex space-x-2 mt-1">
-                        {['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#6366f1'].map(color => (
+                        {['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#6366f1', '#14b8a6'].map(color => (
                             <button
                                 key={color}
                                 type="button"

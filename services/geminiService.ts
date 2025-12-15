@@ -5,28 +5,32 @@ import { Employee, Room, Location, Task, Incident } from '../types';
 // Define interfaces for context
 export interface ContextData {
     employees: Employee[];
-    rooms: Room[];
-    locations: Location[];
+    rooms?: Room[];
+    locations?: Location[];
     currentUser?: Employee;
+    // Add generic data for other views
+    data?: any; 
 }
 
 export interface ChatMessage {
     role: 'user' | 'model';
     text: string;
+    image?: string; // Base64 string
 }
 
-// Function Declarations (Tools)
+// --- TOOL DEFINITIONS ---
+
 const createTaskTool: FunctionDeclaration = {
     name: 'createTask',
-    description: 'Create a new cleaning or maintenance task assigned to an employee. Use this when the user wants to add a job, chore, or to-do.',
+    description: 'Create a new cleaning or maintenance task assigned to an employee.',
     parameters: {
         type: Type.OBJECT,
         properties: {
             description: { type: Type.STRING, description: 'Description of the task' },
-            room_id: { type: Type.STRING, description: 'The UUID of the room. MANDATORY if a room is mentioned.' },
-            location_id: { type: Type.STRING, description: 'The UUID of the location/establishment. MANDATORY.' },
+            room_id: { type: Type.STRING, description: 'The UUID of the room. Optional.' },
+            location_id: { type: Type.STRING, description: 'The UUID of the location. Mandatory.' },
             assigned_to: { type: Type.STRING, description: 'The UUID of the employee' },
-            due_date: { type: Type.STRING, description: 'Due date in YYYY-MM-DD format. Default to today if not specified.' }
+            due_date: { type: Type.STRING, description: 'Due date in YYYY-MM-DD format.' }
         },
         required: ['description', 'location_id', 'assigned_to', 'due_date']
     }
@@ -34,28 +38,113 @@ const createTaskTool: FunctionDeclaration = {
 
 const createIncidentTool: FunctionDeclaration = {
     name: 'createIncident',
-    description: 'Report a new incident, damage, or issue in a location.',
+    description: 'Report a new incident or damage.',
     parameters: {
         type: Type.OBJECT,
         properties: {
             description: { type: Type.STRING, description: 'Description of the incident' },
             location_id: { type: Type.STRING, description: 'The UUID of the location' },
             room_id: { type: Type.STRING, description: 'The UUID of the room (optional)' },
-            priority: { type: Type.STRING, description: 'Priority level: low, medium, or high' },
+            priority: { type: Type.STRING, description: 'Priority: low, medium, high' },
         },
         required: ['description', 'location_id', 'priority']
     }
 };
 
+const createShiftTool: FunctionDeclaration = {
+    name: 'createShift',
+    description: 'Create a work shift for an employee in the scheduler.',
+    parameters: {
+        type: Type.OBJECT,
+        properties: {
+            employee_id: { type: Type.STRING, description: 'UUID of the employee' },
+            start_time: { type: Type.STRING, description: 'ISO String for start time' },
+            end_time: { type: Type.STRING, description: 'ISO String for end time' },
+            location_id: { type: Type.STRING, description: 'UUID of location' },
+            type: { type: Type.STRING, description: 'Type: work, off, vacation' }
+        },
+        required: ['employee_id', 'start_time', 'end_time', 'type']
+    }
+};
+
+const createDocumentTool: FunctionDeclaration = {
+    name: 'createDocument',
+    description: 'Create a new internal document or announcement.',
+    parameters: {
+        type: Type.OBJECT,
+        properties: {
+            title: { type: Type.STRING },
+            description: { type: Type.STRING },
+            requires_signature: { type: Type.BOOLEAN }
+        },
+        required: ['title', 'description']
+    }
+};
+
+const createMaintenancePlanTool: FunctionDeclaration = {
+    name: 'createMaintenancePlan',
+    description: 'Create a preventive maintenance plan.',
+    parameters: {
+        type: Type.OBJECT,
+        properties: {
+            title: { type: Type.STRING },
+            description: { type: Type.STRING },
+            frequency: { type: Type.STRING, description: 'monthly, quarterly, semestral, annual' },
+            location_id: { type: Type.STRING }
+        },
+        required: ['title', 'frequency', 'location_id']
+    }
+};
+
+const updateStockTool: FunctionDeclaration = {
+    name: 'updateStock',
+    description: 'Update inventory stock or create new item if name matches nothing.',
+    parameters: {
+        type: Type.OBJECT,
+        properties: {
+            item_name: { type: Type.STRING },
+            quantity_change: { type: Type.NUMBER, description: 'Positive to add, negative to remove' },
+            reason: { type: Type.STRING }
+        },
+        required: ['item_name', 'quantity_change']
+    }
+};
+
+const addLostItemTool: FunctionDeclaration = {
+    name: 'addLostItem',
+    description: 'Register a lost and found item.',
+    parameters: {
+        type: Type.OBJECT,
+        properties: {
+            description: { type: Type.STRING },
+            location_id: { type: Type.STRING },
+            room_id: { type: Type.STRING }
+        },
+        required: ['description', 'location_id']
+    }
+};
+
+const createShiftLogTool: FunctionDeclaration = {
+    name: 'createShiftLog',
+    description: 'Add an entry to the daily shift log.',
+    parameters: {
+        type: Type.OBJECT,
+        properties: {
+            message: { type: Type.STRING },
+            target_role: { type: Type.STRING, description: 'admin, cleaner, maintenance, etc. or all' }
+        },
+        required: ['message']
+    }
+};
+
 export interface AIResponse {
-    action: 'createTask' | 'createIncident' | 'none';
+    action: 'createTask' | 'createIncident' | 'createShift' | 'createDocument' | 'createMaintenancePlan' | 'updateStock' | 'addLostItem' | 'createShiftLog' | 'none';
     data?: any;
     message: string;
 }
 
 // Lazy initialization function
 const getAIClient = () => {
-    // Access process.env safely. In Vite with our config, this won't crash even if undefined.
     const apiKey = process.env.API_KEY;
     if (!apiKey) {
         throw new Error("API Key not configured");
@@ -71,71 +160,77 @@ export const processNaturalLanguageCommand = async (
     try {
         const ai = getAIClient();
         
-        // Prepare System Instruction with mapped IDs to help Gemini
+        // Prepare System Instruction
         const employeeList = context.employees.map(e => `${e.first_name} ${e.last_name} (ID: ${e.employee_id})`).join(', ');
-        const locationList = context.locations.map(l => `${l.name} (ID: ${l.location_id})`).join(', ');
+        const locationList = (context.locations || []).map(l => `${l.name} (ID: ${l.location_id})`).join(', ');
         
-        // Create a strict mapping for Room -> Location to prevent AI hallucinations
-        const roomMapping = context.rooms.map(r => {
-            const loc = context.locations.find(l => l.location_id === r.location_id);
-            return `Room "${r.name}" is inside Location ID "${r.location_id}" (RoomID: ${r.room_id})`;
-        }).join('\n');
-
         const systemInstruction = `
-        You are an efficient AI Assistant for "Como en Casa" hotel management.
-        Your capability is to CREATE TASKS and REPORT INCIDENTS based on user input.
+        You are an AI Assistant for "Como en Casa".
+        Current Date: ${new Date().toISOString()}
+        User ID: ${context.currentUser?.employee_id || 'unknown'}
 
-        Current Date: ${new Date().toISOString().split('T')[0]}
-        Current User ID: ${context.currentUser?.employee_id || 'unknown'}
+        CONTEXT:
+        Employees: ${employeeList}
+        Locations: ${locationList}
 
-        DATA CONTEXT:
-        - Employees: ${employeeList}
-        - Locations: ${locationList}
-        
-        CRITICAL - ROOM TO LOCATION MAPPING:
-        ${roomMapping}
-
-        RULES:
-        1. **Context Memory**: Use the chat history to understand references like "create another one" or "for the same room".
-        2. **Location Resolution**: If the user mentions a Room, you MUST look up the corresponding Location ID from the "ROOM TO LOCATION MAPPING" list above. Do not guess the location.
-        3. **Date Handling**: If "tomorrow" or "Monday" is mentioned, calculate YYYY-MM-DD based on Current Date.
-        4. **Self Assignment**: If assigned to "me" or "myself", use the Current User ID.
-        5. **Clarity**: If you trigger a function, reply with a short confirmation. If you cannot understand, ask for clarification.
+        Identify the user intent and call the appropriate tool.
+        If the user provides an image, analyze it to extract details (e.g., description of a lost item, text from a document, or damage for an incident).
         `;
 
         // Convert internal ChatMessage history to Gemini Content format
-        const contents = history.map(msg => ({
-            role: msg.role,
-            parts: [{ text: msg.text }]
-        }));
+        const contents = history.map(msg => {
+            const parts: any[] = [{ text: msg.text }];
+            if (msg.image) {
+                // Remove data:image/png;base64, prefix if present
+                const base64Data = msg.image.split(',')[1] || msg.image;
+                parts.push({
+                    inlineData: {
+                        mimeType: 'image/jpeg', // Assuming jpeg for simplicity
+                        data: base64Data
+                    }
+                });
+            }
+            return {
+                role: msg.role,
+                parts: parts
+            };
+        });
 
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
-            contents: contents, // Pass full history
+            contents: contents,
             config: {
                 systemInstruction: systemInstruction,
-                tools: [{ functionDeclarations: [createTaskTool, createIncidentTool] }],
+                tools: [{ 
+                    functionDeclarations: [
+                        createTaskTool, 
+                        createIncidentTool,
+                        createShiftTool,
+                        createDocumentTool,
+                        createMaintenancePlanTool,
+                        updateStockTool,
+                        addLostItemTool,
+                        createShiftLogTool
+                    ] 
+                }],
             }
         });
 
-        // Check for function calls
         const candidates = response.candidates;
         if (candidates && candidates.length > 0) {
             const parts = candidates[0].content.parts;
             
-            // Prioritize Function Calls
             for (const part of parts) {
                 if (part.functionCall) {
                     const fc = part.functionCall;
                     return {
-                        action: fc.name as 'createTask' | 'createIncident',
+                        action: fc.name as any,
                         data: fc.args,
-                        message: 'Entendido, procesando solicitud...' // Temporary message, UI will handle success
+                        message: 'Procesando solicitud...'
                     };
                 }
             }
             
-            // If no function call, return the text response
             if (parts[0].text) {
                 return {
                     action: 'none',
@@ -146,14 +241,14 @@ export const processNaturalLanguageCommand = async (
 
         return {
             action: 'none',
-            message: "No he entendido la orden. Por favor, intenta ser más específico."
+            message: "No he entendido la orden."
         };
 
     } catch (error) {
         console.error("Gemini API Error:", error);
         return {
             action: 'none',
-            message: "El asistente no está disponible en este momento (Falta API Key o error de conexión)."
+            message: "Error de conexión con el asistente."
         };
     }
 };
