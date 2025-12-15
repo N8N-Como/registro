@@ -14,7 +14,7 @@ import SignaturePad from '../shared/SignaturePad';
 interface DailyLog {
     day: number;
     date: string;
-    entries: { clockIn: string; clockOut: string; duration: number }[];
+    entries: { clockIn: string; clockOut: string; duration: number; isManual: boolean }[];
     totalDuration: number;
 }
 
@@ -104,6 +104,7 @@ const MonthlyWorkLogReport: React.FC = () => {
                             clockIn: formatTime(new Date(e.clock_in_time)),
                             clockOut: formatTime(new Date(e.clock_out_time!)),
                             duration,
+                            isManual: !!e.is_manual
                         };
                     });
 

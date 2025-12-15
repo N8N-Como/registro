@@ -7,7 +7,8 @@ import Card from '../shared/Card';
 import Spinner from '../shared/Spinner';
 import Button from '../shared/Button';
 import ShiftFormModal from './ShiftFormModal';
-import { CalendarIcon } from '../icons';
+import ExcelImportModal from './ExcelImportModal';
+import { CalendarIcon, DocumentIcon } from '../icons';
 
 const ShiftSchedulerView: React.FC = () => {
     const auth = useContext(AuthContext);
@@ -22,6 +23,7 @@ const ShiftSchedulerView: React.FC = () => {
     
     // Modal State
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [selectedShift, setSelectedShift] = useState<WorkShift | null>(null);
     const [modalContext, setModalContext] = useState<{ employeeId: string, date: Date } | null>(null);
 
@@ -47,59 +49,60 @@ const ShiftSchedulerView: React.FC = () => {
         return days;
     }, [weekStart]);
 
-    useEffect(() => {
-        const fetchSchedulerData = async () => {
-            setIsLoading(true);
-            setError(null);
+    const fetchSchedulerData = async () => {
+        setIsLoading(true);
+        setError(null);
+        try {
+            // Fetch base data
             try {
-                // Fetch base data
-                try {
-                    const [emps, locs] = await Promise.all([getEmployees(), getLocations()]);
-                    setEmployees(emps);
-                    setLocations(locs);
-                } catch (e: any) {
-                    console.error("Critical error fetching employees/locations:", e);
-                    setError(e.message || "Error cargando empleados o ubicaciones.");
-                    return; // Stop if critical data fails
-                }
-
-                // Try fetching shift configs, default to empty if fails
-                try {
-                    const configs = await getShiftConfigs();
-                    setShiftConfigs(configs);
-                } catch (e) {
-                    console.warn("Shift configs not available", e);
-                    setShiftConfigs([]);
-                }
-                
-                // Fetch shifts for the current week
-                const startStr = weekDays[0].toISOString();
-                const endStr = weekDays[6].toISOString().replace(/T.*/, 'T23:59:59');
-                try {
-                    const weekShifts = await getWorkShifts(startStr, endStr);
-                    setShifts(weekShifts);
-                } catch (e) {
-                    console.warn("Week shifts not available", e);
-                    setShifts([]);
-                }
-
-                // Fetch shifts for the whole year
-                const yearStart = new Date(new Date().getFullYear(), 0, 1).toISOString();
-                const yearEnd = new Date(new Date().getFullYear(), 11, 31).toISOString();
-                try {
-                    const allShifts = await getWorkShifts(yearStart, yearEnd);
-                    setYearShifts(allShifts);
-                } catch (e) {
-                    setYearShifts([]);
-                }
-
-            } catch (err: any) {
-                console.error("Unexpected error in scheduler", err);
-                setError(err.message || "Error inesperado.");
-            } finally {
-                setIsLoading(false);
+                const [emps, locs] = await Promise.all([getEmployees(), getLocations()]);
+                setEmployees(emps);
+                setLocations(locs);
+            } catch (e: any) {
+                console.error("Critical error fetching employees/locations:", e);
+                setError(e.message || "Error cargando empleados o ubicaciones.");
+                return; // Stop if critical data fails
             }
-        };
+
+            // Try fetching shift configs, default to empty if fails
+            try {
+                const configs = await getShiftConfigs();
+                setShiftConfigs(configs);
+            } catch (e) {
+                console.warn("Shift configs not available", e);
+                setShiftConfigs([]);
+            }
+            
+            // Fetch shifts for the current week
+            const startStr = weekDays[0].toISOString();
+            const endStr = weekDays[6].toISOString().replace(/T.*/, 'T23:59:59');
+            try {
+                const weekShifts = await getWorkShifts(startStr, endStr);
+                setShifts(weekShifts);
+            } catch (e) {
+                console.warn("Week shifts not available", e);
+                setShifts([]);
+            }
+
+            // Fetch shifts for the whole year
+            const yearStart = new Date(new Date().getFullYear(), 0, 1).toISOString();
+            const yearEnd = new Date(new Date().getFullYear(), 11, 31).toISOString();
+            try {
+                const allShifts = await getWorkShifts(yearStart, yearEnd);
+                setYearShifts(allShifts);
+            } catch (e) {
+                setYearShifts([]);
+            }
+
+        } catch (err: any) {
+            console.error("Unexpected error in scheduler", err);
+            setError(err.message || "Error inesperado.");
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    useEffect(() => {
         fetchSchedulerData();
     }, [weekStart]); 
 
@@ -120,6 +123,7 @@ const ShiftSchedulerView: React.FC = () => {
     };
 
     const canEdit = auth?.role?.role_id === 'admin' || auth?.role?.role_id === 'gobernanta' || auth?.role?.role_id === 'receptionist';
+    const isAdmin = auth?.role?.role_id === 'admin';
 
     const handleCellClick = (employeeId: string, date: Date) => {
         if (!canEdit) return;
@@ -143,11 +147,7 @@ const ShiftSchedulerView: React.FC = () => {
             } else {
                 await createWorkShift(shiftData);
             }
-            // Simple refresh logic
-            const startStr = weekDays[0].toISOString();
-            const endStr = weekDays[6].toISOString().replace(/T.*/, 'T23:59:59');
-            const weekShifts = await getWorkShifts(startStr, endStr);
-            setShifts(weekShifts);
+            fetchSchedulerData(); // Refresh all
             setIsModalOpen(false);
         } catch (error) {
             alert("Error al guardar el turno");
@@ -162,6 +162,15 @@ const ShiftSchedulerView: React.FC = () => {
         } catch (error) {
             alert("Error al eliminar");
         }
+    };
+    
+    const handleBulkImport = async (newShifts: Omit<WorkShift, 'shift_id'>[]) => {
+        // En un entorno real, esto debería ser un único endpoint de API.
+        // Aquí hacemos loop, lo cual es lento pero funcional para Mock.
+        for (const shift of newShifts) {
+            await createWorkShift(shift);
+        }
+        fetchSchedulerData();
     };
     
     // Logic to calculate hours (Only counting Work Shifts)
@@ -190,8 +199,8 @@ const ShiftSchedulerView: React.FC = () => {
 
     return (
         <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row justify-between items-center bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-                <div className="flex items-center space-x-2 mb-4 sm:mb-0">
+            <div className="flex flex-col sm:flex-row justify-between items-center bg-white p-4 rounded-lg shadow-sm border border-gray-200 gap-4">
+                <div className="flex items-center space-x-2">
                     <CalendarIcon className="w-6 h-6 text-primary" />
                     <h2 className="text-xl font-bold text-gray-800">Cuadrante de Turnos</h2>
                 </div>
@@ -204,6 +213,18 @@ const ShiftSchedulerView: React.FC = () => {
                     </span>
                     <Button variant="secondary" size="sm" onClick={handleNextWeek}>&gt;</Button>
                 </div>
+
+                {isAdmin && (
+                    <Button 
+                        size="sm" 
+                        variant="success" 
+                        onClick={() => setIsImportModalOpen(true)}
+                        className="w-full sm:w-auto flex items-center justify-center gap-2"
+                    >
+                        <DocumentIcon className="w-4 h-4" />
+                        Importar Excel
+                    </Button>
+                )}
             </div>
 
             <Card className="overflow-hidden p-0 border-0 shadow-lg">
@@ -343,6 +364,16 @@ const ShiftSchedulerView: React.FC = () => {
                     date={modalContext.date}
                     locations={locations}
                     employees={employees}
+                />
+            )}
+
+            {isImportModalOpen && (
+                <ExcelImportModal
+                    isOpen={isImportModalOpen}
+                    onClose={() => setIsImportModalOpen(false)}
+                    onImport={handleBulkImport}
+                    employees={employees}
+                    locations={locations}
                 />
             )}
         </div>

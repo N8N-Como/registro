@@ -12,6 +12,7 @@ interface DailyLog {
         clockIn: string;
         clockOut: string;
         duration: number;
+        isManual: boolean; // New prop to detect manual change
     }[];
     totalDuration: number;
 }
@@ -71,8 +72,20 @@ const PrintableMonthlyLog: React.FC<PrintableMonthlyLogProps> = ({ data, month, 
                                         <tr key={log.day} className="border-b hover:bg-gray-50">
                                             <td className="p-2">{log.day}</td>
                                             <td className="p-2">{log.date}</td>
-                                            <td className="p-2">{log.entries.map(e => e.clockIn).join(', ')}</td>
-                                            <td className="p-2">{log.entries.map(e => e.clockOut).join(', ')}</td>
+                                            <td className="p-2">
+                                                {log.entries.map((e, i) => (
+                                                    <span key={i} className={e.isManual ? 'text-red-600 font-bold' : ''}>
+                                                        {e.clockIn}{i < log.entries.length - 1 ? ', ' : ''}
+                                                    </span>
+                                                ))}
+                                            </td>
+                                            <td className="p-2">
+                                                {log.entries.map((e, i) => (
+                                                    <span key={i} className={e.isManual ? 'text-red-600 font-bold' : ''}>
+                                                        {e.clockOut}{i < log.entries.length - 1 ? ', ' : ''}
+                                                    </span>
+                                                ))}
+                                            </td>
                                             <td className="p-2 text-right font-medium">{log.totalDuration > 0 ? formatDuration(log.totalDuration) : '-'}</td>
                                         </tr>
                                     ))}
@@ -84,6 +97,7 @@ const PrintableMonthlyLog: React.FC<PrintableMonthlyLogProps> = ({ data, month, 
                                     </tr>
                                 </tfoot>
                             </table>
+                            <p className="text-[10px] text-gray-500 mt-2">* Los registros en rojo indican correcciones manuales o incidencias en el fichaje.</p>
                         </main>
 
                         <footer className="mt-16 flex justify-around text-center">

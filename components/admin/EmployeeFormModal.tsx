@@ -46,7 +46,7 @@ const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({ isOpen, onClose, 
   }, [employee, isOpen, roles]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
+    const { name, value, type } = e.target;
     
     // Auto-update hours based on province selection
     if (name === 'province') {
@@ -56,11 +56,13 @@ const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({ isOpen, onClose, 
         
         setFormData(prev => ({ 
             ...prev, 
-            [name]: value,
+            province: value as 'coruna' | 'pontevedra' | 'other',
             annual_hours_contract: hours
         }));
     } else {
-        setFormData(prev => ({ ...prev, [name]: value }));
+        // Handle number inputs correctly
+        const finalValue = type === 'number' ? (value === '' ? 0 : parseFloat(value)) : value;
+        setFormData(prev => ({ ...prev, [name]: finalValue }));
     }
   };
 

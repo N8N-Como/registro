@@ -8,9 +8,10 @@ import { TimeEntry, Location as OfficeLocation, ActivityLog, BreakLog, WorkType,
 import Button from '../shared/Button';
 import Spinner from '../shared/Spinner';
 import Card from '../shared/Card';
-import { LocationIcon, CarIcon, BuildingIcon, FlagIcon, DotIcon } from '../icons';
+import { LocationIcon, CarIcon, BuildingIcon, FlagIcon, DotIcon, ReportIcon } from '../icons';
 import ClockInModal from './ClockInModal';
 import ClockOutModal from './ClockOutModal';
+import TimeCorrectionModal from './TimeCorrectionModal';
 
 type TimelineItem = 
     | { type: 'WORKDAY_START', time: Date, entry: TimeEntry }
@@ -38,6 +39,7 @@ const TimesheetsView: React.FC = () => {
   // Modal State
   const [isClockInModalOpen, setIsClockInModalOpen] = useState(false);
   const [isClockOutModalOpen, setIsClockOutModalOpen] = useState(false);
+  const [isCorrectionModalOpen, setIsCorrectionModalOpen] = useState(false);
   const [isForgottenClockOut, setIsForgottenClockOut] = useState(false);
   const [isOnBreak, setIsOnBreak] = useState(false);
   const [suggestedEndTime, setSuggestedEndTime] = useState<Date | undefined>(undefined);
@@ -473,6 +475,17 @@ const TimesheetsView: React.FC = () => {
         </div>
       </Card>
 
+      {/* Botón de reporte de incidencias de fichaje */}
+      <div className="text-right">
+          <button 
+            onClick={() => setIsCorrectionModalOpen(true)}
+            className="text-xs text-blue-600 hover:underline flex items-center justify-end ml-auto"
+          >
+              <ReportIcon className="w-4 h-4 mr-1" />
+              ¿Olvidaste fichar o hay un error? Solicitar corrección
+          </button>
+      </div>
+
       {runningWorkday && (
         <Card title="Mi Día de Hoy">
             {timelineItems.length > 0 && renderTimeline()}
@@ -529,7 +542,7 @@ const TimesheetsView: React.FC = () => {
         </Card>
       )}
 
-      {/* Clock In Modal */}
+      {/* Modales */}
       {isClockInModalOpen && (
           <ClockInModal 
             isOpen={isClockInModalOpen}
@@ -539,7 +552,6 @@ const TimesheetsView: React.FC = () => {
           />
       )}
 
-      {/* Clock Out Modal (Standard & Forgotten) */}
       {isClockOutModalOpen && (
           <ClockOutModal
             isOpen={isClockOutModalOpen}
@@ -548,6 +560,15 @@ const TimesheetsView: React.FC = () => {
             isLoading={isSubmitting === 'workday-out'}
             defaultTime={suggestedEndTime}
             isForgotten={isForgottenClockOut}
+          />
+      )}
+
+      {isCorrectionModalOpen && auth?.employee && (
+          <TimeCorrectionModal 
+            isOpen={isCorrectionModalOpen}
+            onClose={() => setIsCorrectionModalOpen(false)}
+            employeeId={auth.employee.employee_id}
+            existingEntryId={runningWorkday?.entry_id}
           />
       )}
     </div>

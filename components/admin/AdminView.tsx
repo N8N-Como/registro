@@ -1,7 +1,8 @@
 
-import React, { useState, useEffect } from 'react';
-import { getEmployees, getLocations, getRoles, addEmployee, updateEmployee, addLocation, updateLocation, getRooms, addRoom, updateRoom, updateRole, getShiftConfigs, addShiftConfig, updateShiftConfig, deleteShiftConfig } from '../../services/mockApi';
-import { Employee, Location, Role, Room, Permission, ShiftConfig } from '../../types';
+import React, { useState, useEffect, useContext } from 'react';
+import { getEmployees, getLocations, getRoles, addEmployee, updateEmployee, addLocation, updateLocation, getRooms, addRoom, updateRoom, updateRole, getShiftConfigs, addShiftConfig, updateShiftConfig, deleteShiftConfig, getTimeCorrectionRequests, resolveTimeCorrectionRequest } from '../../services/mockApi';
+import { Employee, Location, Role, Room, Permission, ShiftConfig, TimeCorrectionRequest } from '../../types';
+import { AuthContext } from '../../App';
 import Button from '../shared/Button';
 import Card from '../shared/Card';
 import Spinner from '../shared/Spinner';
@@ -10,9 +11,10 @@ import LocationFormModal from './LocationFormModal';
 import RoomFormModal from './RoomFormModal'; 
 import RoleFormModal from './RoleFormModal';
 import ShiftConfigFormModal from './ShiftConfigFormModal';
-import { DoorOpenIcon, KeyIcon, CalendarIcon } from '../icons';
+import SchemaHelpModal from './SchemaHelpModal';
+import { DoorOpenIcon, KeyIcon, CalendarIcon, WrenchIcon, ReportIcon, CheckIcon, XMarkIcon } from '../icons';
 
-type AdminTab = 'employees' | 'locations' | 'rooms' | 'roles' | 'shift_configs';
+type AdminTab = 'employees' | 'locations' | 'rooms' | 'roles' | 'shift_configs' | 'corrections';
 
 const allPermissions: { id: Permission; label: string }[] = [
     { id: 'manage_employees', label: 'Gestionar Empleados' },
@@ -28,11 +30,13 @@ const allPermissions: { id: Permission; label: string }[] = [
 
 
 const AdminView: React.FC = () => {
+  const auth = useContext(AuthContext);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [locations, setLocations] = useState<Location[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [shiftConfigs, setShiftConfigs] = useState<ShiftConfig[]>([]);
+  const [corrections, setCorrections] = useState<TimeCorrectionRequest[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   
   const [isEmployeeModalOpen, setIsEmployeeModalOpen] = useState(false);
@@ -40,6 +44,7 @@ const AdminView: React.FC = () => {
   const [isRoomModalOpen, setIsRoomModalOpen] = useState(false);
   const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
   const [isShiftConfigModalOpen, setIsShiftConfigModalOpen] = useState(false);
+  const [isSchemaHelpOpen, setIsSchemaHelpOpen] = useState(false);
 
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
@@ -52,14 +57,15 @@ const AdminView: React.FC = () => {
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const [emps, locs, rols, rms, shifts] = await Promise.all([
-          getEmployees(), getLocations(), getRoles(), getRooms(), getShiftConfigs()
+      const [emps, locs, rols, rms, shifts, corrs] = await Promise.all([
+          getEmployees(), getLocations(), getRoles(), getRooms(), getShiftConfigs(), getTimeCorrectionRequests()
       ]);
       setEmployees(emps);
       setLocations(locs);
       setRoles(rols);
       setRooms(rms);
       setShiftConfigs(shifts);
+      setCorrections(corrs.filter(c => c.status === 'pending')); // Only show pending initially
     } catch (error) {
       console.error("Failed to fetch admin data", error);
     } finally {
@@ -90,6 +96,8 @@ const AdminView: React.FC = () => {
         fetchData();
         setIsEmployeeModalOpen(false);
     } catch (e) {
+        // Warning: The retry logic in mockApi suppresses the error if handled, 
+        // so if we are here, it's a real failure.
         alert("Error al guardar empleado: " + (e as any).message);
     }
   };
@@ -174,8 +182,9 @@ const AdminView: React.FC = () => {
           }
           fetchData();
           setIsShiftConfigModalOpen(false);
-      } catch (e) {
-          alert("Error al guardar configuración de turno.");
+      } catch (e: any) {
+          console.error(e);
+          alert("Error al guardar configuración de turno: " + e.message);
       }
   }
   const handleDeleteShiftConfig = async (id: string) => {
@@ -188,11 +197,26 @@ const AdminView: React.FC = () => {
       }
   }
 
+  // Correction Handlers
+  const handleResolveCorrection = async (id: string, status: 'approved' | 'rejected') => {
+      if (!auth?.employee) return;
+      try {
+          await resolveTimeCorrectionRequest(id, status, auth.employee.employee_id);
+          fetchData();
+      } catch (e) {
+          alert("Error al procesar solicitud.");
+      }
+  }
+
 
   if (isLoading) return <Spinner />;
   
   const getRoleName = (roleId: string) => roles.find(r => r.role_id === roleId)?.name || 'N/A';
   const getLocationName = (locationId: string) => locations.find(l => l.location_id === locationId)?.name || 'N/A';
+  const getEmployeeName = (id: string) => {
+      const e = employees.find(emp => emp.employee_id === id);
+      return e ? `${e.first_name} ${e.last_name}` : 'Desconocido';
+  }
 
   const tabClasses = (tabName: AdminTab) => 
     `px-3 py-2 font-semibold rounded-t-lg transition-colors flex items-center space-x-2 ${
@@ -203,27 +227,41 @@ const AdminView: React.FC = () => {
 
   return (
     <div className="space-y-6">
-        <div className="border-b border-gray-200">
-            <nav className="-mb-px flex space-x-1 sm:space-x-2 overflow-x-auto" aria-label="Tabs">
-                <button onClick={() => setActiveTab('employees')} className={tabClasses('employees')}>
-                    <span>Empleados</span>
-                </button>
-                <button onClick={() => setActiveTab('locations')} className={tabClasses('locations')}>
-                    <span>Ubicaciones</span>
-                </button>
-                <button onClick={() => setActiveTab('rooms')} className={tabClasses('rooms')}>
-                     <DoorOpenIcon className="w-5 h-5" />
-                    <span>Habitaciones/Zonas</span>
-                </button>
-                 <button onClick={() => setActiveTab('roles')} className={tabClasses('roles')}>
-                    <KeyIcon className="w-5 h-5" />
-                    <span>Roles</span>
-                </button>
-                <button onClick={() => setActiveTab('shift_configs')} className={tabClasses('shift_configs')}>
-                    <CalendarIcon className="w-5 h-5" />
-                    <span>Tipos de Turno</span>
-                </button>
-            </nav>
+        <div className="flex flex-col md:flex-row justify-between items-end md:items-center gap-4 mb-2">
+            <div className="border-b border-gray-200 w-full md:w-auto">
+                <nav className="-mb-px flex space-x-1 sm:space-x-2 overflow-x-auto" aria-label="Tabs">
+                    <button onClick={() => setActiveTab('employees')} className={tabClasses('employees')}>
+                        <span>Empleados</span>
+                    </button>
+                    <button onClick={() => setActiveTab('corrections')} className={tabClasses('corrections')}>
+                        <ReportIcon className="w-5 h-5 text-red-500" />
+                        <span>Incidencias Fichaje</span>
+                        {corrections.length > 0 && <span className="ml-2 bg-red-600 text-white text-xs rounded-full px-2">{corrections.length}</span>}
+                    </button>
+                    <button onClick={() => setActiveTab('locations')} className={tabClasses('locations')}>
+                        <span>Ubicaciones</span>
+                    </button>
+                    <button onClick={() => setActiveTab('rooms')} className={tabClasses('rooms')}>
+                        <DoorOpenIcon className="w-5 h-5" />
+                        <span>Habitaciones/Zonas</span>
+                    </button>
+                    <button onClick={() => setActiveTab('roles')} className={tabClasses('roles')}>
+                        <KeyIcon className="w-5 h-5" />
+                        <span>Roles</span>
+                    </button>
+                    <button onClick={() => setActiveTab('shift_configs')} className={tabClasses('shift_configs')}>
+                        <CalendarIcon className="w-5 h-5" />
+                        <span>Tipos de Turno</span>
+                    </button>
+                </nav>
+            </div>
+            <button 
+                onClick={() => setIsSchemaHelpOpen(true)}
+                className="text-xs flex items-center text-blue-600 hover:text-blue-800 bg-blue-50 px-3 py-1 rounded-full border border-blue-200"
+            >
+                <WrenchIcon className="w-3 h-3 mr-1" />
+                Actualizar BD (SQL)
+            </button>
         </div>
         
         {activeTab === 'employees' && (
@@ -253,6 +291,48 @@ const AdminView: React.FC = () => {
                     </tbody>
                 </table>
                 </div>
+            </Card>
+        )}
+
+        {activeTab === 'corrections' && (
+            <Card title="Solicitudes de Corrección de Horario">
+                {corrections.length === 0 ? (
+                    <p className="text-gray-500 text-center py-4">No hay solicitudes pendientes.</p>
+                ) : (
+                    <div className="space-y-4">
+                        {corrections.map(req => (
+                            <div key={req.request_id} className="border rounded-lg p-4 bg-yellow-50 border-yellow-200">
+                                <div className="flex justify-between items-start">
+                                    <div>
+                                        <p className="font-bold text-gray-800">{getEmployeeName(req.employee_id)}</p>
+                                        <p className="text-sm text-gray-600">Fecha solicitada: {new Date(req.requested_date).toLocaleDateString()}</p>
+                                    </div>
+                                    <span className="bg-yellow-200 text-yellow-800 text-xs px-2 py-1 rounded font-bold uppercase">
+                                        {req.correction_type === 'create_entry' ? 'Falta Fichaje' : 'Hora Incorrecta'}
+                                    </span>
+                                </div>
+                                <div className="mt-2 bg-white p-2 rounded border border-gray-200 text-sm">
+                                    <p><strong>Cambio Solicitado:</strong> {req.requested_clock_in} - {req.requested_clock_out || 'En curso'}</p>
+                                    <p className="mt-1"><strong>Motivo:</strong> {req.reason}</p>
+                                </div>
+                                <div className="mt-4 flex justify-end space-x-2">
+                                    <button 
+                                        onClick={() => handleResolveCorrection(req.request_id, 'rejected')}
+                                        className="px-3 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 text-sm font-bold flex items-center"
+                                    >
+                                        <XMarkIcon className="w-4 h-4 mr-1" /> Rechazar
+                                    </button>
+                                    <button 
+                                        onClick={() => handleResolveCorrection(req.request_id, 'approved')}
+                                        className="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 text-sm font-bold flex items-center"
+                                    >
+                                        <CheckIcon className="w-4 h-4 mr-1" /> Aprobar y Corregir
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </Card>
         )}
         
@@ -420,6 +500,12 @@ const AdminView: React.FC = () => {
             onDelete={handleDeleteShiftConfig}
             config={selectedShiftConfig}
             locations={locations}
+          />
+      )}
+      {isSchemaHelpOpen && (
+          <SchemaHelpModal 
+            isOpen={isSchemaHelpOpen}
+            onClose={() => setIsSchemaHelpOpen(false)}
           />
       )}
     </div>

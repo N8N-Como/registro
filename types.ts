@@ -62,6 +62,22 @@ export interface TimeEntry {
   work_type?: WorkType;
   work_mode?: WorkMode;
   verified_by_photo?: string;
+  is_manual?: boolean; // NEW: Indicates if the entry was corrected/added manually
+}
+
+export interface TimeCorrectionRequest {
+    request_id: string;
+    employee_id: string;
+    original_entry_id?: string; // If null, it's a request to ADD a missing entry
+    correction_type: 'create_entry' | 'fix_time';
+    requested_date: string; // YYYY-MM-DD
+    requested_clock_in: string; // HH:mm
+    requested_clock_out?: string; // HH:mm
+    reason: string;
+    status: 'pending' | 'approved' | 'rejected';
+    created_at: string;
+    reviewed_by?: string;
+    reviewed_at?: string;
 }
 
 export interface BreakLog {

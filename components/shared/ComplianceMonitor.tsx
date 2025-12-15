@@ -26,6 +26,11 @@ const ComplianceMonitor: React.FC = () => {
     useEffect(() => {
         if (!auth?.employee) return;
 
+        // Request Notification Permission on Mount
+        if ('Notification' in window && Notification.permission !== 'granted') {
+            Notification.requestPermission();
+        }
+
         const checkStatus = async () => {
             try {
                 // 1. Get Locations
@@ -88,7 +93,7 @@ const ComplianceMonitor: React.FC = () => {
                         );
                         
                         if (dist > 150) {
-                            triggerAlarm('distance');
+                            triggerAlarm('distance', `Estás a ${Math.round(dist)}m del establecimiento. ¡Registra tu salida!`);
                         }
                     }
                 }
@@ -99,14 +104,14 @@ const ComplianceMonitor: React.FC = () => {
                     const endTime = new Date(currentShift.end_time);
                     // If we are past end time by > 5 mins and still working
                     if (now > endTime && (now.getTime() - endTime.getTime()) > 5 * 60 * 1000) {
-                        triggerAlarm('shift_end');
+                        triggerAlarm('shift_end', 'Tu turno ha finalizado. Recuerda fichar la salida.');
                     }
                 }
 
             }, 2000);
         };
 
-        const interval = setInterval(runComplianceChecks, 60000 * 10); // Run every 10 mins as requested for alarms
+        const interval = setInterval(runComplianceChecks, 60000 * 5); // Run every 5 mins
         // Initial run delayed
         const timeout = setTimeout(runComplianceChecks, 5000);
 
@@ -116,15 +121,28 @@ const ComplianceMonitor: React.FC = () => {
         };
     }, [runningWorkday, activeActivity, currentShift, position, locations, getLocation]);
 
-    const triggerAlarm = (type: 'distance' | 'shift_end') => {
-        // Play Sound
+    const triggerAlarm = (type: 'distance' | 'shift_end', message: string) => {
+        // 1. Play Sound (if allowed by browser policy)
         if (!audioRef.current) {
             audioRef.current = new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
         }
         audioRef.current.play().catch(e => console.log("Audio autoplay blocked", e));
 
+        // 2. Visual Alert (Modal)
         if (type === 'distance') setShowDistanceAlert(true);
         if (type === 'shift_end') setShowShiftEndAlert(true);
+
+        // 3. System Notification (Critical for background)
+        if ('Notification' in window && Notification.permission === 'granted') {
+            // Check if page is hidden to avoid double notification if user is looking at screen
+            if (document.hidden) {
+                new Notification("ALERTA DE FICHAJE", {
+                    body: message,
+                    icon: '/vite.svg', // Assuming vite logo exists
+                    requireInteraction: true // Keeps notification visible until clicked
+                });
+            }
+        }
     };
 
     if (!showDistanceAlert && !showShiftEndAlert) return null;
@@ -145,7 +163,7 @@ const ComplianceMonitor: React.FC = () => {
                 <div className="bg-orange-500 text-white p-4 rounded-lg shadow-xl flex items-center justify-between max-w-sm">
                     <div>
                         <p className="font-bold text-lg">🕒 FIN DE TURNO</p>
-                        <p className="text-sm">Tu turno ha finalizado. Recuerda fichar la salida cerca del centro de trabajo.</p>
+                        <p className="text-sm">Tu turno ha finalizado. Recuerda fichar la salida.</p>
                     </div>
                     <button onClick={() => setShowShiftEndAlert(false)} className="ml-4 bg-white text-orange-600 px-3 py-1 rounded font-bold">OK</button>
                 </div>
