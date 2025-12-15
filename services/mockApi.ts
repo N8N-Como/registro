@@ -15,10 +15,12 @@ const FALLBACK_ROLES: Role[] = [
     { role_id: 'gobernanta', name: 'Gobernanta', permissions: ['manage_tasks', 'schedule_tasks', 'view_reports', 'access_shift_log', 'manage_incidents', 'manage_inventory'] },
     { role_id: 'cleaner', name: 'Camarera de Pisos', permissions: ['manage_tasks', 'manage_inventory'] },
     { role_id: 'maintenance', name: 'Mantenimiento', permissions: ['manage_incidents', 'manage_inventory'] },
-    { role_id: 'receptionist', name: 'Recepción', permissions: ['access_shift_log', 'manage_incidents', 'view_reports'] }
+    { role_id: 'receptionist', name: 'Recepción', permissions: ['access_shift_log', 'manage_incidents', 'view_reports'] },
+    { role_id: 'revenue', name: 'Revenue', permissions: ['view_reports', 'access_shift_log'] },
+    { role_id: 'administracion', name: 'Administración', permissions: ['manage_employees', 'view_reports', 'manage_documents'] }
 ];
 
-// ORDERED EMPLOYEE LIST (Matching the image provided)
+// ORDERED EMPLOYEE LIST (Matching the image provided + New Additions)
 const FALLBACK_EMPLOYEES: Employee[] = [
     { employee_id: 'noelia', first_name: 'Noelia', last_name: '', pin: '0001', role_id: 'cleaner', status: 'active', policy_accepted: true, photo_url: '' },
     { employee_id: 'lydia', first_name: 'Lydia', last_name: '', pin: '0002', role_id: 'cleaner', status: 'active', policy_accepted: true, photo_url: '' },
