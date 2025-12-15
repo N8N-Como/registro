@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
-import { Employee, Role, Location, DocumentSignature, CompanyDocument } from '../../types';
+import { Employee, Role, Location, DocumentSignature, CompanyDocument, TimeEntry } from '../../types';
 import Modal from '../shared/Modal';
 import Button from '../shared/Button';
-import { getLocations, getEmployeeDocuments } from '../../services/mockApi';
+import { getLocations, getEmployeeDocuments, getTimeEntriesForEmployee } from '../../services/mockApi';
 import { CheckIcon } from '../icons';
 
 interface EmployeeFormModalProps {
@@ -17,8 +17,9 @@ interface EmployeeFormModalProps {
 const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({ isOpen, onClose, onSave, employee, roles }) => {
   const [formData, setFormData] = useState<Partial<Employee>>({});
   const [locations, setLocations] = useState<Location[]>([]);
-  const [activeTab, setActiveTab] = useState<'info' | 'docs'>('info');
+  const [activeTab, setActiveTab] = useState<'info' | 'docs' | 'devices'>('info');
   const [employeeDocs, setEmployeeDocs] = useState<(DocumentSignature & { document: CompanyDocument })[]>([]);
+  const [deviceHistory, setDeviceHistory] = useState<{deviceId: string, deviceInfo: string, lastUsed: string}[]>([]);
 
   useEffect(() => {
     getLocations().then(setLocations);
@@ -27,8 +28,30 @@ const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({ isOpen, onClose, 
   useEffect(() => {
     if (employee) {
       setFormData(employee);
-      // Fetch docs if editing existing employee
+      // Fetch docs
       getEmployeeDocuments(employee.employee_id).then(setEmployeeDocs);
+      
+      // Fetch device history from time entries
+      getTimeEntriesForEmployee(employee.employee_id).then((entries: TimeEntry[]) => {
+          const devices = new Map<string, {deviceId: string, deviceInfo: string, lastUsed: string}>();
+          
+          entries.forEach(entry => {
+              if (entry.device_id && entry.device_info) {
+                  // Keep the most recent timestamp for each device
+                  const existing = devices.get(entry.device_id);
+                  if (!existing || new Date(entry.clock_in_time) > new Date(existing.lastUsed)) {
+                      devices.set(entry.device_id, {
+                          deviceId: entry.device_id,
+                          deviceInfo: entry.device_info,
+                          lastUsed: entry.clock_in_time
+                      });
+                  }
+              }
+          });
+          
+          setDeviceHistory(Array.from(devices.values()).sort((a,b) => new Date(b.lastUsed).getTime() - new Date(a.lastUsed).getTime()));
+      });
+
     } else {
       setFormData({ 
           status: 'active', 
@@ -41,6 +64,7 @@ const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({ isOpen, onClose, 
           default_end_time: '16:00'
         });
       setEmployeeDocs([]);
+      setDeviceHistory([]);
     }
     setActiveTab('info');
   }, [employee, isOpen, roles]);
@@ -82,13 +106,19 @@ const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({ isOpen, onClose, 
                     onClick={() => setActiveTab('info')}
                     className={`flex-1 py-2 text-sm font-medium ${activeTab === 'info' ? 'border-b-2 border-primary text-primary' : 'text-gray-500'}`}
                 >
-                    Información Personal
+                    Info
                 </button>
                 <button 
                     onClick={() => setActiveTab('docs')}
                     className={`flex-1 py-2 text-sm font-medium ${activeTab === 'docs' ? 'border-b-2 border-primary text-primary' : 'text-gray-500'}`}
                 >
-                    Documentación Firmada
+                    Docs
+                </button>
+                <button 
+                    onClick={() => setActiveTab('devices')}
+                    className={`flex-1 py-2 text-sm font-medium ${activeTab === 'devices' ? 'border-b-2 border-primary text-primary' : 'text-gray-500'}`}
+                >
+                    Dispositivos
                 </button>
             </div>
         )}
@@ -171,7 +201,7 @@ const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({ isOpen, onClose, 
                     <Button type="submit">Guardar Cambios</Button>
                 </div>
             </form>
-        ) : (
+        ) : activeTab === 'docs' ? (
             <div className="space-y-4">
                 {employeeDocs.length === 0 ? (
                     <p className="text-gray-500 text-center py-4">No hay documentos asignados a este empleado.</p>
@@ -204,6 +234,35 @@ const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({ isOpen, onClose, 
                             ))}
                         </tbody>
                     </table>
+                )}
+                <div className="pt-4 flex justify-end space-x-2">
+                    <Button type="button" variant="secondary" onClick={onClose}>Cerrar</Button>
+                </div>
+            </div>
+        ) : (
+            // DEVICES TAB
+            <div className="space-y-4">
+                <div className="bg-blue-50 border border-blue-200 text-blue-800 p-3 rounded text-sm mb-2">
+                    <p className="font-bold">Auditoría de Dispositivos</p>
+                    <p>Lista de dispositivos utilizados por este empleado para fichar. Revisa si hay cambios sospechosos de dispositivo.</p>
+                </div>
+                {deviceHistory.length === 0 ? (
+                    <p className="text-gray-500 text-center py-4">No hay historial de dispositivos disponible.</p>
+                ) : (
+                    <ul className="space-y-2">
+                        {deviceHistory.map((dev, idx) => (
+                            <li key={idx} className="border p-3 rounded-lg bg-gray-50 flex justify-between items-center">
+                                <div>
+                                    <p className="font-semibold text-sm">{dev.deviceInfo || 'Dispositivo Desconocido'}</p>
+                                    <p className="text-xs text-gray-500 font-mono mt-1">ID: {dev.deviceId}</p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-xs text-gray-500">Último uso:</p>
+                                    <p className="text-sm font-medium">{new Date(dev.lastUsed).toLocaleDateString()} {new Date(dev.lastUsed).toLocaleTimeString()}</p>
+                                </div>
+                            </li>
+                        ))}
+                    </ul>
                 )}
                 <div className="pt-4 flex justify-end space-x-2">
                     <Button type="button" variant="secondary" onClick={onClose}>Cerrar</Button>

@@ -25,7 +25,7 @@ export const formatDuration = (milliseconds: number): string => {
 export const getDistanceFromLatLonInMeters = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
   const R = 6371e3; // Radius of the Earth in meters
   const dLat = deg2rad(lat2 - lat1);
-  const dLon = deg2rad(lon2 - lon1); // CORREGIDO: Antes ponía (lon2 - 1)
+  const dLon = deg2rad(lon2 - lon1);
   const a =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
     Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
@@ -55,4 +55,41 @@ export const getDaysInMonth = (month: number, year: number): Date[] => {
         date.setDate(date.getDate() + 1);
     }
     return days;
+};
+
+// --- DEVICE FINGERPRINTING HELPERS ---
+
+export const getOrCreateDeviceId = (): string => {
+    const STORAGE_KEY = 'comoencasa_device_id';
+    let deviceId = localStorage.getItem(STORAGE_KEY);
+    
+    if (!deviceId) {
+        // Generate a simple persistent random ID
+        deviceId = 'dev_' + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
+        localStorage.setItem(STORAGE_KEY, deviceId);
+    }
+    return deviceId;
+};
+
+export const getBrowserInfo = (): string => {
+    const ua = navigator.userAgent;
+    let browser = "Desconocido";
+    let os = "Desconocido";
+
+    // Simple detection logic
+    if (ua.indexOf("Firefox") > -1) browser = "Firefox";
+    else if (ua.indexOf("SamsungBrowser") > -1) browser = "Samsung Internet";
+    else if (ua.indexOf("Opera") > -1 || ua.indexOf("OPR") > -1) browser = "Opera";
+    else if (ua.indexOf("Trident") > -1) browser = "Internet Explorer";
+    else if (ua.indexOf("Edge") > -1) browser = "Edge";
+    else if (ua.indexOf("Chrome") > -1) browser = "Chrome";
+    else if (ua.indexOf("Safari") > -1) browser = "Safari";
+
+    if (ua.indexOf("Win") > -1) os = "Windows";
+    else if (ua.indexOf("Mac") > -1) os = "MacOS";
+    else if (ua.indexOf("Linux") > -1) os = "Linux";
+    else if (ua.indexOf("Android") > -1) os = "Android";
+    else if (ua.indexOf("like Mac") > -1) os = "iOS";
+
+    return `${os} - ${browser}`;
 };

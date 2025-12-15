@@ -10,7 +10,8 @@ export type Permission =
   | 'schedule_tasks'
   | 'audit_records'
   | 'manage_documents'
-  | 'manage_maintenance'; // New permission
+  | 'manage_maintenance'
+  | 'manage_inventory'; // New permission
 
 export interface Role {
   role_id: string;
@@ -58,11 +59,16 @@ export interface TimeEntry {
   clock_out_time?: string;
   clock_out_location_id?: string;
   status: 'running' | 'completed';
+  
   // Compliance fields
   work_type?: WorkType;
   work_mode?: WorkMode;
-  verified_by_photo?: string;
-  is_manual?: boolean; // NEW: Indicates if the entry was corrected/added manually
+  verified_by_photo?: string; // Optional now
+  is_manual?: boolean;
+  
+  // Device Fingerprinting
+  device_id?: string; // UUID generated locally
+  device_info?: string; // Browser/OS string
 }
 
 export interface TimeCorrectionRequest {
@@ -286,4 +292,28 @@ export interface MaintenancePlan {
     next_due_date: string; // YYYY-MM-DD
     created_by: string;
     active: boolean;
+}
+
+// --- NEW TYPES FOR INVENTORY ---
+
+export type InventoryCategory = 'cleaning' | 'amenities' | 'maintenance' | 'office' | 'linen';
+
+export interface InventoryItem {
+    item_id: string;
+    name: string;
+    category: InventoryCategory;
+    quantity: number;
+    unit: string; // 'units', 'liters', 'boxes'
+    min_threshold: number; // For alerts
+    location_id?: string; // If specific to a location, null if central warehouse
+    last_updated: string;
+}
+
+export interface StockLog {
+    log_id: string;
+    item_id: string;
+    change_amount: number; // positive or negative
+    reason: string; // 'purchase', 'consumption', 'loss', 'transfer'
+    employee_id: string;
+    created_at: string;
 }

@@ -161,7 +161,7 @@ const TimesheetsView: React.FC = () => {
   }, [position, locations]);
 
   // CLOCK IN HANDLER (Called from Modal)
-  const handleClockInConfirm = async (data: { workType: WorkType; workMode: WorkMode; photoUrl: string }) => {
+  const handleClockInConfirm = async (data: { workType: WorkType; workMode: WorkMode; photoUrl: string; deviceData?: { deviceId: string, deviceInfo: string } }) => {
     if (!auth?.employee) return;
     setIsSubmitting('workday-in');
     try {
@@ -172,7 +172,7 @@ const TimesheetsView: React.FC = () => {
           position?.coords.longitude,
           data.workType,
           data.workMode,
-          data.photoUrl
+          data.deviceData // Passing Device Data
       );
 
       // --- AUTO CHECK-IN LOGIC ---

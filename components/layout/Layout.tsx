@@ -1,8 +1,8 @@
 
 import React, { useState, useContext, useMemo, useEffect } from 'react';
 import { AuthContext } from '../../App';
-import { Permission, MaintenancePlan, Location } from '../../types';
-import { DashboardIcon, TimesheetIcon, AdminIcon, IncidentIcon, ReportIcon, LogoutIcon, BroomIcon, BookOpenIcon, PencilIcon, MegaphoneIcon, CalendarIcon, MenuIcon, ArchiveBoxIcon, SunIcon, DocumentIcon, WrenchIcon, LocationIcon } from '../icons';
+import { Permission, MaintenancePlan, Location, InventoryItem } from '../../types';
+import { DashboardIcon, TimesheetIcon, AdminIcon, IncidentIcon, ReportIcon, LogoutIcon, BroomIcon, BookOpenIcon, PencilIcon, MegaphoneIcon, CalendarIcon, MenuIcon, ArchiveBoxIcon, SunIcon, DocumentIcon, WrenchIcon, LocationIcon, BoxIcon, BellIcon } from '../icons';
 import DashboardView from '../dashboard/DashboardView';
 import TimesheetsView from '../timesheets/TimesheetsView';
 import AdminView from '../admin/AdminView';
@@ -22,7 +22,8 @@ import MaintenanceCalendarView from '../maintenance/MaintenanceCalendarView';
 import PendingDocumentsNotification from '../documents/PendingDocumentsNotification';
 import MaintenanceNotificationModal from '../maintenance/MaintenanceNotificationModal';
 import ComplianceMonitor from '../shared/ComplianceMonitor';
-import { getEmployeeDocuments, checkAndGenerateMaintenanceTasks, getMaintenancePlans, getLocations, getTimeEntriesForEmployee } from '../../services/mockApi';
+import InventoryView from '../inventory/InventoryView';
+import { getEmployeeDocuments, checkAndGenerateMaintenanceTasks, getMaintenancePlans, getLocations, getTimeEntriesForEmployee, getInventoryItems } from '../../services/mockApi';
 
 
 type NavItem = {
@@ -41,6 +42,7 @@ const navItems: NavItem[] = [
     { name: 'Documentación', view: 'documents', icon: DocumentIcon }, 
     { name: 'Tareas Limpieza', view: 'cleaning', icon: BroomIcon, role_id: 'cleaner' },
     { name: 'Planificador Tareas', view: 'scheduler', icon: CalendarIcon, requiredPermission: 'schedule_tasks' },
+    { name: 'Inventario', view: 'inventory', icon: BoxIcon, requiredPermission: 'manage_inventory' },
     { name: 'Incidencias', view: 'incidents', icon: IncidentIcon },
     { name: 'Mantenimiento Prev.', view: 'maintenance_plan', icon: WrenchIcon, requiredPermission: 'manage_incidents' },
     { name: 'Objetos Olvidados', view: 'lost_found', icon: ArchiveBoxIcon },
@@ -55,6 +57,7 @@ const Layout: React.FC = () => {
     const [activeView, setActiveView] = useState('dashboard');
     const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
     
     // Notification State: Documents
     const [showDocNotification, setShowDocNotification] = useState(false);
@@ -65,6 +68,9 @@ const Layout: React.FC = () => {
     const [showMaintNotification, setShowMaintNotification] = useState(false);
     const [upcomingPlans, setUpcomingPlans] = useState<MaintenancePlan[]>([]);
     const [locations, setLocations] = useState<Location[]>([]);
+
+    // Notification State: Inventory
+    const [lowStockItems, setLowStockItems] = useState<InventoryItem[]>([]);
 
     // LOPD Status
     const [isTrackingActive, setIsTrackingActive] = useState(false);
@@ -123,18 +129,31 @@ const Layout: React.FC = () => {
                 const pending = docs.filter(d => d.status === 'pending');
                 
                 if (pending.length > 0) {
+                    setPendingDocsCount(pending.length);
+                    setPendingDocIds(pending.map(d => d.document_id));
+                    
+                    // Show modal only if not dismissed previously
                     const storageKey = `dismissed_docs_${auth.employee.employee_id}`;
                     const dismissedIds = JSON.parse(localStorage.getItem(storageKey) || '[]');
                     const actionableDocs = pending.filter(d => !dismissedIds.includes(d.document_id));
                     
                     if (actionableDocs.length > 0) {
-                        setPendingDocsCount(actionableDocs.length);
-                        setPendingDocIds(actionableDocs.map(d => d.document_id));
                         setShowDocNotification(true);
                     }
                 }
             } catch (e) {
                 console.error("Error checking pending documents", e);
+            }
+
+            // 3. Check Low Stock (Inventory)
+            if (auth.role?.permissions.includes('manage_inventory')) {
+                try {
+                    const items = await getInventoryItems();
+                    const lowStock = items.filter(i => i.quantity <= i.min_threshold);
+                    setLowStockItems(lowStock);
+                } catch (e) {
+                    console.error("Error checking inventory", e);
+                }
             }
         };
         performChecks();
@@ -163,6 +182,18 @@ const Layout: React.FC = () => {
     const handleGoToDocs = () => {
         setShowDocNotification(false);
         setActiveView('documents');
+        setIsNotificationsOpen(false);
+    };
+
+    const handleGoToInventory = () => {
+        setActiveView('inventory');
+        setIsNotificationsOpen(false);
+    };
+
+    const handleGoToMaintenance = () => {
+        setShowMaintNotification(false);
+        setActiveView('maintenance_plan');
+        setIsNotificationsOpen(false);
     };
     
     const renderView = () => {
@@ -178,6 +209,7 @@ const Layout: React.FC = () => {
             case 'reports': return <ReportsView />;
             case 'cleaning': return <CleaningView />;
             case 'scheduler': return <GobernantaView />;
+            case 'inventory': return <InventoryView />;
             case 'shiftlog': return <ShiftLogView />;
             case 'announcements': return <AnnouncementsView />;
             case 'lost_found': return <LostFoundView />;
@@ -190,6 +222,7 @@ const Layout: React.FC = () => {
     }
 
     const currentViewName = navItems.find(item => item.view === activeView)?.name || 'Panel';
+    const totalAlerts = pendingDocsCount + upcomingPlans.length + lowStockItems.length;
 
     return (
         <>
@@ -237,7 +270,7 @@ const Layout: React.FC = () => {
                     </div>
                 </aside>
                 <main className="flex-1 flex flex-col">
-                    <header className="h-20 bg-white text-gray-900 shadow-md flex items-center justify-between px-3 sm:px-6">
+                    <header className="h-20 bg-white text-gray-900 shadow-md flex items-center justify-between px-3 sm:px-6 relative z-20">
                         <div className="flex items-center">
                              <button 
                                 id="mobile-menu-btn"
@@ -263,6 +296,65 @@ const Layout: React.FC = () => {
                                 </div>
                             )}
 
+                            {/* Notification Bell */}
+                            <div className="relative">
+                                <button 
+                                    onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
+                                    className="p-2 text-gray-600 hover:bg-gray-100 rounded-full focus:outline-none"
+                                >
+                                    <BellIcon className="w-6 h-6" />
+                                    {totalAlerts > 0 && (
+                                        <span className="absolute top-1 right-1 h-4 w-4 bg-red-500 rounded-full text-[10px] text-white flex items-center justify-center border border-white">
+                                            {totalAlerts}
+                                        </span>
+                                    )}
+                                </button>
+
+                                {/* Notification Dropdown */}
+                                {isNotificationsOpen && (
+                                    <div className="absolute right-0 mt-2 w-72 bg-white rounded-lg shadow-xl border border-gray-100 py-2 z-50">
+                                        <div className="px-4 py-2 border-b border-gray-100">
+                                            <h3 className="font-semibold text-gray-800">Notificaciones</h3>
+                                        </div>
+                                        <div className="max-h-64 overflow-y-auto">
+                                            {totalAlerts === 0 ? (
+                                                <p className="text-sm text-gray-500 text-center py-4">No tienes notificaciones pendientes.</p>
+                                            ) : (
+                                                <>
+                                                    {pendingDocsCount > 0 && (
+                                                        <button onClick={handleGoToDocs} className="w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-50 flex items-start">
+                                                            <DocumentIcon className="w-5 h-5 text-orange-500 mt-0.5 mr-3" />
+                                                            <div>
+                                                                <p className="text-sm font-medium text-gray-800">{pendingDocsCount} Documentos Pendientes</p>
+                                                                <p className="text-xs text-gray-500">Requieren tu firma o lectura.</p>
+                                                            </div>
+                                                        </button>
+                                                    )}
+                                                    {upcomingPlans.length > 0 && (
+                                                        <button onClick={handleGoToMaintenance} className="w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-50 flex items-start">
+                                                            <WrenchIcon className="w-5 h-5 text-blue-500 mt-0.5 mr-3" />
+                                                            <div>
+                                                                <p className="text-sm font-medium text-gray-800">{upcomingPlans.length} Alertas de Mantenimiento</p>
+                                                                <p className="text-xs text-gray-500">Tareas preventivas próximas a vencer.</p>
+                                                            </div>
+                                                        </button>
+                                                    )}
+                                                    {lowStockItems.length > 0 && (
+                                                        <button onClick={handleGoToInventory} className="w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-50 flex items-start">
+                                                            <BoxIcon className="w-5 h-5 text-red-500 mt-0.5 mr-3" />
+                                                            <div>
+                                                                <p className="text-sm font-medium text-gray-800">{lowStockItems.length} Productos con Stock Bajo</p>
+                                                                <p className="text-xs text-gray-500">Se requiere reposición inmediata.</p>
+                                                            </div>
+                                                        </button>
+                                                    )}
+                                                </>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
                             <div className="flex items-center space-x-3">
                                 <div className="text-right">
                                     <p className="font-semibold text-sm sm:text-base">{auth.employee.first_name} {auth.employee.last_name}</p>
@@ -281,7 +373,7 @@ const Layout: React.FC = () => {
                             </div>
                         </div>
                     </header>
-                    <div id="main-content-area" className="flex-1 p-4 sm:p-8 overflow-y-auto">
+                    <div id="main-content-area" className="flex-1 p-4 sm:p-8 overflow-y-auto" onClick={() => setIsNotificationsOpen(false)}>
                         {renderView()}
                     </div>
                 </main>
@@ -303,7 +395,7 @@ const Layout: React.FC = () => {
                 />
             )}
 
-            {/* Maintenance Alert Modal */}
+            {/* Maintenance Alert Modal (Initial Load only, managed by Bell afterwards) */}
             {showMaintNotification && !showDocNotification && (
                 <MaintenanceNotificationModal 
                     isOpen={showMaintNotification}

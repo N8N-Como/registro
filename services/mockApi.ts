@@ -1,6 +1,6 @@
 
 import { createClient } from '@supabase/supabase-js';
-import { Role, Employee, Location, TimeEntry, Policy, Announcement, Room, Task, TaskTimeLog, Incident, ShiftLogEntry, ActivityLog, LostItem, AccessLog, BreakLog, WorkType, WorkMode, MonthlySignature, TimeOffRequest, WorkShift, ShiftConfig, CompanyDocument, DocumentSignature, MaintenancePlan, TimeCorrectionRequest } from '../types';
+import { Role, Employee, Location, TimeEntry, Policy, Announcement, Room, Task, TaskTimeLog, Incident, ShiftLogEntry, ActivityLog, LostItem, AccessLog, BreakLog, WorkType, WorkMode, MonthlySignature, TimeOffRequest, WorkShift, ShiftConfig, CompanyDocument, DocumentSignature, MaintenancePlan, TimeCorrectionRequest, InventoryItem, StockLog } from '../types';
 import { addToQueue } from './offlineManager';
 
 // --- Supabase Configuration ---
@@ -11,10 +11,10 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // --- FALLBACK DATA (Offline/Demo Mode) ---
 const FALLBACK_ROLES: Role[] = [
-    { role_id: 'admin', name: 'Administrador', permissions: ['manage_employees', 'manage_locations', 'manage_announcements', 'view_reports', 'manage_incidents', 'access_shift_log', 'schedule_tasks', 'audit_records', 'manage_documents'] },
-    { role_id: 'gobernanta', name: 'Gobernanta', permissions: ['manage_tasks', 'schedule_tasks', 'view_reports', 'access_shift_log', 'manage_incidents'] },
-    { role_id: 'cleaner', name: 'Camarera de Pisos', permissions: ['manage_tasks'] },
-    { role_id: 'maintenance', name: 'Mantenimiento', permissions: ['manage_incidents'] },
+    { role_id: 'admin', name: 'Administrador', permissions: ['manage_employees', 'manage_locations', 'manage_announcements', 'view_reports', 'manage_incidents', 'access_shift_log', 'schedule_tasks', 'audit_records', 'manage_documents', 'manage_inventory'] },
+    { role_id: 'gobernanta', name: 'Gobernanta', permissions: ['manage_tasks', 'schedule_tasks', 'view_reports', 'access_shift_log', 'manage_incidents', 'manage_inventory'] },
+    { role_id: 'cleaner', name: 'Camarera de Pisos', permissions: ['manage_tasks', 'manage_inventory'] },
+    { role_id: 'maintenance', name: 'Mantenimiento', permissions: ['manage_incidents', 'manage_inventory'] },
     { role_id: 'receptionist', name: 'Recepción', permissions: ['access_shift_log', 'manage_incidents', 'view_reports'] }
 ];
 
@@ -53,7 +53,31 @@ const FALLBACK_LOCATIONS: Location[] = [
         latitude: 40.416775,
         longitude: -3.703790,
         radius_meters: 100
+    },
+    {
+        location_id: 'loc_beach',
+        name: 'Apartamentos Playa',
+        address: 'Paseo Marítimo 22',
+        latitude: 40.420000,
+        longitude: -3.710000,
+        radius_meters: 100
     }
+];
+
+const FALLBACK_INVENTORY: InventoryItem[] = [
+    // Almacén Central (Sin location_id)
+    { item_id: 'inv_1', name: 'Gel de Baño (Garrafa 5L)', category: 'amenities', quantity: 10, unit: 'garrafas', min_threshold: 2, last_updated: new Date().toISOString() },
+    { item_id: 'inv_2', name: 'Papel Higiénico (Industrial)', category: 'amenities', quantity: 50, unit: 'paquetes', min_threshold: 10, last_updated: new Date().toISOString() },
+    
+    // Hotel Central (loc_main)
+    { item_id: 'inv_3', name: 'Bombillas LED E27 Cálida', category: 'maintenance', quantity: 5, unit: 'unidades', min_threshold: 10, location_id: 'loc_main', last_updated: new Date().toISOString() },
+    { item_id: 'inv_4', name: 'Pilas AA', category: 'maintenance', quantity: 12, unit: 'unidades', min_threshold: 4, location_id: 'loc_main', last_updated: new Date().toISOString() },
+    { item_id: 'inv_5', name: 'Amenities Kit Bienvenida', category: 'amenities', quantity: 20, unit: 'kits', min_threshold: 5, location_id: 'loc_main', last_updated: new Date().toISOString() },
+    
+    // Apartamentos Playa (loc_beach)
+    { item_id: 'inv_6', name: 'Bombillas LED E27 Cálida', category: 'maintenance', quantity: 2, unit: 'unidades', min_threshold: 5, location_id: 'loc_beach', last_updated: new Date().toISOString() },
+    { item_id: 'inv_7', name: 'Bombillas LED E14 Fina', category: 'maintenance', quantity: 8, unit: 'unidades', min_threshold: 3, location_id: 'loc_beach', last_updated: new Date().toISOString() },
+    { item_id: 'inv_8', name: 'Fregasuelos Limón', category: 'cleaning', quantity: 2, unit: 'botellas', min_threshold: 2, location_id: 'loc_beach', last_updated: new Date().toISOString() }
 ];
 
 // Helper to throw readable errors or fallback
@@ -221,7 +245,7 @@ export const getTimeEntriesForEmployee = async (employeeId: string): Promise<Tim
     }
 };
 
-export const clockIn = async (employeeId: string, locationId?: string, latitude?: number, longitude?: number, workType: WorkType = 'ordinaria', workMode: WorkMode = 'presencial', photoUrl?: string, isSyncing = false): Promise<TimeEntry> => {
+export const clockIn = async (employeeId: string, locationId?: string, latitude?: number, longitude?: number, workType: WorkType = 'ordinaria', workMode: WorkMode = 'presencial', deviceData?: { deviceId: string, deviceInfo: string }, isSyncing = false): Promise<TimeEntry> => {
     const newEntry = {
         employee_id: employeeId,
         clock_in_time: new Date().toISOString(),
@@ -231,22 +255,32 @@ export const clockIn = async (employeeId: string, locationId?: string, latitude?
         status: 'running',
         work_type: workType,
         work_mode: workMode,
-        verified_by_photo: photoUrl
+        device_id: deviceData?.deviceId,
+        device_info: deviceData?.deviceInfo
     };
     
     if (!isSyncing && !navigator.onLine) {
-        addToQueue('CLOCK_IN', { employeeId, locationId, latitude, longitude, workType, workMode, photoUrl });
+        addToQueue('CLOCK_IN', { employeeId, locationId, latitude, longitude, workType, workMode, deviceData });
         return { ...newEntry, entry_id: 'offline-' + Date.now() } as TimeEntry;
     }
 
     try {
-        const { data, error } = await supabase.from('time_entries').insert([newEntry]).select().single();
+        // Try insert with device info
+        let { data, error } = await supabase.from('time_entries').insert([newEntry]).select().single();
+        
+        // Fallback if DB doesn't have columns yet (graceful degradation)
+        if (isSchemaError(error)) {
+            const safeEntry = cleanData(newEntry, ['device_id', 'device_info']);
+            const retry = await supabase.from('time_entries').insert([safeEntry]).select().single();
+            data = retry.data;
+            error = retry.error;
+        }
+
         if (error) throw error;
         return data;
     } catch (e: any) {
-        // Fallback or Queue
         if (!isSyncing) {
-             addToQueue('CLOCK_IN', { employeeId, locationId, latitude, longitude, workType, workMode, photoUrl });
+             addToQueue('CLOCK_IN', { employeeId, locationId, latitude, longitude, workType, workMode, deviceData });
              return { ...newEntry, entry_id: 'offline-' + Date.now() } as TimeEntry;
         }
         throw e;
@@ -861,3 +895,48 @@ export const checkAndGenerateMaintenanceTasks = async (): Promise<void> => {
         }
     } catch (e) { }
 };
+
+// --- INVENTORY API ---
+
+export const getInventoryItems = async (): Promise<InventoryItem[]> => {
+    try {
+        const { data, error } = await supabase.from('inventory_items').select('*');
+        
+        // Return FALLBACK_INVENTORY if table empty or error (demo mode)
+        if (error || !data || data.length === 0) {
+             // In a real app we'd just return [], but for demo we want data
+             if (!data || data.length === 0) return FALLBACK_INVENTORY;
+             throw error;
+        }
+        return data;
+    } catch(e) {
+        console.warn("Supabase unreachable (Inventory), using fallback data."); 
+        return FALLBACK_INVENTORY; 
+    }
+};
+
+export const addInventoryItem = async (data: any): Promise<InventoryItem> => {
+    try {
+        const { data: created, error } = await supabase.from('inventory_items').insert([{...data, last_updated: new Date().toISOString()}]).select().single();
+        if (error) throw error;
+        return created;
+    } catch(e) { return { ...data, item_id: 'mock', last_updated: new Date().toISOString() } as InventoryItem; }
+};
+
+export const updateInventoryItem = async (data: InventoryItem): Promise<InventoryItem> => {
+    try {
+        const { data: updated, error } = await supabase.from('inventory_items').update({...data, last_updated: new Date().toISOString()}).eq('item_id', data.item_id).select().single();
+        if (error) throw error;
+        return updated;
+    } catch(e) { return data; }
+};
+
+export const logStockMovement = async (itemId: string, changeAmount: number, reason: string, employeeId: string): Promise<void> => {
+    try {
+        // 1. Log
+        await supabase.from('stock_logs').insert([{ item_id: itemId, change_amount: changeAmount, reason, employee_id: employeeId, created_at: new Date().toISOString() }]);
+        // 2. Update Quantity is handled by trigger in real DB, here we assume updateInventoryItem is called by UI or we do it here.
+        // For mock simple logic:
+        // This is usually done in the UI component logic for now to keep it simple with optimistic updates.
+    } catch(e) { }
+}
