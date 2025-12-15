@@ -101,6 +101,7 @@ const ShiftSchedulerView: React.FC = () => {
                 );
 
                 // --- FILTER LOGIC FOR NON-MANAGERS ---
+                // Si NO es manager, solo se ve a sí mismo
                 if (!canManage && auth?.employee) {
                     operationalStaff = operationalStaff.filter(e => e.employee_id === auth.employee!.employee_id);
                 }
@@ -364,7 +365,10 @@ const ShiftSchedulerView: React.FC = () => {
                                     <td className={`p-2 border-r border-gray-200 font-medium text-gray-800 sticky left-0 z-10 shadow-sm text-xs ${isRowEven ? 'bg-white' : 'bg-gray-50'}`}>
                                         <div className="flex justify-between items-center">
                                             <span className="truncate max-w-[120px]" title={`${emp.first_name} ${emp.last_name}`}>{emp.first_name}</span>
-                                            <span className={`text-[9px] ${annualHours > limit ? 'text-red-500' : 'text-green-600'}`}>{Math.round(annualHours)}h</span>
+                                            {/* Show hours only to managers */}
+                                            {canManage && (
+                                                <span className={`text-[9px] ${annualHours > limit ? 'text-red-500' : 'text-green-600'}`}>{Math.round(annualHours)}h</span>
+                                            )}
                                         </div>
                                     </td>
                                     {viewDays.map(day => {
@@ -414,7 +418,7 @@ const ShiftSchedulerView: React.FC = () => {
                                                     )
                                                 })}
                                                 
-                                                {/* Hover Plus for Empty Cells */}
+                                                {/* Hover Plus for Empty Cells (Only Managers) */}
                                                 {dayShifts.length === 0 && canManage && (
                                                     <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 text-gray-300 text-xl font-light hover:bg-gray-200">
                                                         +
@@ -431,14 +435,14 @@ const ShiftSchedulerView: React.FC = () => {
                 
                 {/* Clickable Legend */}
                 <div className="p-2 bg-gray-50 border-t flex flex-wrap gap-4 text-[10px] text-gray-600 justify-center items-center">
-                    <p className="mr-2 font-bold text-gray-400 uppercase">Leyenda (Click para editar):</p>
+                    <p className="mr-2 font-bold text-gray-400 uppercase">Leyenda:</p>
                     
                     {shiftConfigs.map(cfg => (
                         <div 
                             key={cfg.config_id} 
-                            className="flex items-center space-x-1 cursor-pointer hover:bg-gray-200 p-1 rounded transition-colors"
+                            className={`flex items-center space-x-1 p-1 rounded transition-colors ${canManage ? 'cursor-pointer hover:bg-gray-200' : ''}`}
                             onClick={() => handleEditConfig(cfg)}
-                            title={`Editar turno ${cfg.name}`}
+                            title={canManage ? `Editar turno ${cfg.name}` : cfg.name}
                         >
                             <div className="w-3 h-3 rounded-sm" style={{backgroundColor: cfg.color}}></div>
                             <span>{cfg.code}: {cfg.name}</span>
@@ -471,7 +475,7 @@ const ShiftSchedulerView: React.FC = () => {
                 </div>
             </Card>
 
-            {isModalOpen && modalContext && (
+            {isModalOpen && modalContext && canManage && (
                 <ShiftFormModal 
                     isOpen={isModalOpen}
                     onClose={() => setIsModalOpen(false)}
@@ -485,7 +489,7 @@ const ShiftSchedulerView: React.FC = () => {
                 />
             )}
 
-            {isConfigModalOpen && (
+            {isConfigModalOpen && canManage && (
                 <ShiftConfigFormModal 
                     isOpen={isConfigModalOpen}
                     onClose={() => setIsConfigModalOpen(false)}
@@ -496,7 +500,7 @@ const ShiftSchedulerView: React.FC = () => {
                 />
             )}
 
-            {isImportModalOpen && (
+            {isImportModalOpen && canManage && (
                 <ExcelImportModal
                     isOpen={isImportModalOpen}
                     onClose={() => setIsImportModalOpen(false)}

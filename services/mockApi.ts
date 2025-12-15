@@ -20,14 +20,15 @@ const FALLBACK_ROLES: Role[] = [
     { role_id: 'administracion', name: 'Administración', permissions: ['manage_employees', 'view_reports', 'manage_documents'] }
 ];
 
-// ORDERED EMPLOYEE LIST (Matching the image provided + New Additions)
+// ORDERED EMPLOYEE LIST
 const FALLBACK_EMPLOYEES: Employee[] = [
     { employee_id: 'noelia', first_name: 'Noelia', last_name: '', pin: '0001', role_id: 'cleaner', status: 'active', policy_accepted: true, photo_url: '' },
     { employee_id: 'lydia', first_name: 'Lydia', last_name: '', pin: '0002', role_id: 'cleaner', status: 'active', policy_accepted: true, photo_url: '' },
     { employee_id: 'begona', first_name: 'Begoña', last_name: '', pin: '0003', role_id: 'cleaner', status: 'active', policy_accepted: true, photo_url: '' },
     { employee_id: 'maureen', first_name: 'Maureen', last_name: '', pin: '0004', role_id: 'cleaner', status: 'active', policy_accepted: true, photo_url: '' },
     { employee_id: 'marisa', first_name: 'Marisa', last_name: '', pin: '0005', role_id: 'cleaner', status: 'active', policy_accepted: true, photo_url: '' },
-    { employee_id: 'anxo', first_name: 'Anxo', last_name: '', pin: '0006', role_id: 'receptionist', status: 'active', policy_accepted: true, photo_url: '' },
+    // ANXO ACTUALIZADO CON PIN 8724
+    { employee_id: 'anxo', first_name: 'Anxo', last_name: '', pin: '8724', role_id: 'receptionist', status: 'active', policy_accepted: true, photo_url: '' },
     { employee_id: 'oscar', first_name: 'Oscar', last_name: '', pin: '0007', role_id: 'receptionist', status: 'active', policy_accepted: true, photo_url: '' },
     { employee_id: 'isabel', first_name: 'Maria Isabel', last_name: '', pin: '0008', role_id: 'cleaner', status: 'active', policy_accepted: true, photo_url: '' },
     { employee_id: 'stephany', first_name: 'Stephany', last_name: '', pin: '0009', role_id: 'cleaner', status: 'active', policy_accepted: true, photo_url: '' },
@@ -37,12 +38,10 @@ const FALLBACK_EMPLOYEES: Employee[] = [
     { employee_id: 'diana', first_name: 'Diana', last_name: '', pin: '0013', role_id: 'cleaner', status: 'active', policy_accepted: true, photo_url: '' },
     { employee_id: 'andres', first_name: 'Andres', last_name: '', pin: '0014', role_id: 'maintenance', status: 'active', policy_accepted: true, photo_url: '' },
     { employee_id: 'itagu', first_name: 'Itagu', last_name: '', pin: '0015', role_id: 'cleaner', status: 'active', policy_accepted: true, photo_url: '' },
-    // NEW ADDITIONS FROM IMAGE
     { employee_id: 'doris', first_name: 'Dolores', last_name: 'Escalante', pin: '0016', role_id: 'cleaner', status: 'active', policy_accepted: true, photo_url: '' },
     { employee_id: 'silvia', first_name: 'Silvia', last_name: 'Estefania', pin: '0017', role_id: 'cleaner', status: 'active', policy_accepted: true, photo_url: '' },
     { employee_id: 'laura', first_name: 'María Laura', last_name: 'Castro', pin: '0018', role_id: 'cleaner', status: 'active', policy_accepted: true, photo_url: '' },
     { employee_id: 'yurima', first_name: 'Yurima', last_name: 'Mairoa', pin: '0019', role_id: 'cleaner', status: 'active', policy_accepted: true, photo_url: '' },
-    // Hidden / Non-Quadrant Employees
     { employee_id: 'emp_admin', first_name: 'Admin', last_name: 'Sistema', pin: '1234', role_id: 'admin', status: 'active', policy_accepted: true, photo_url: 'https://ui-avatars.com/api/?name=Admin+Sistema&background=0D8ABC&color=fff' },
 ];
 
@@ -52,157 +51,20 @@ const FALLBACK_LOCATIONS: Location[] = [
 ];
 
 const FALLBACK_SHIFT_CONFIGS: ShiftConfig[] = [
-    { config_id: 'conf_M', code: 'M', name: 'Mañana FyF', start_time: '07:30', end_time: '15:30', color: '#93c5fd', location_id: 'loc_main' }, // blue-300
-    { config_id: 'conf_T', code: 'T', name: 'Tarde FyF', start_time: '15:30', end_time: '23:30', color: '#fdba74', location_id: 'loc_main' }, // orange-300
-    { config_id: 'conf_P', code: 'P', name: 'Partido', start_time: '09:00', end_time: '18:00', color: '#86efac', location_id: 'loc_main' }, // green-300
-    { config_id: 'conf_MM', code: 'MM', name: 'Media Mañana', start_time: '10:30', end_time: '14:30', color: '#5eead4', location_id: 'loc_main' }, // teal-300
+    { config_id: 'conf_M', code: 'M', name: 'Mañana FyF', start_time: '07:30', end_time: '15:30', color: '#93c5fd', location_id: 'loc_main' },
+    { config_id: 'conf_T', code: 'T', name: 'Tarde FyF', start_time: '15:30', end_time: '23:30', color: '#fdba74', location_id: 'loc_main' },
+    { config_id: 'conf_P', code: 'P', name: 'Partido', start_time: '09:00', end_time: '18:00', color: '#86efac', location_id: 'loc_main' },
+    { config_id: 'conf_MM', code: 'MM', name: 'Media Mañana', start_time: '10:30', end_time: '14:30', color: '#5eead4', location_id: 'loc_main' },
     { config_id: 'conf_R', code: 'R', name: 'Refuerzo', start_time: '09:00', end_time: '18:00', color: '#86efac', location_id: 'loc_main' },
-    { config_id: 'conf_A', code: 'A', name: 'Apoyo', start_time: '11:00', end_time: '15:00', color: '#a5b4fc', location_id: 'loc_main' }, // indigo-300
-    { config_id: 'conf_D', code: 'D', name: 'Partido (D)', start_time: '08:30', end_time: '18:30', color: '#c4b5fd', location_id: 'loc_main' } // violet-300
+    { config_id: 'conf_A', code: 'A', name: 'Apoyo', start_time: '11:00', end_time: '15:00', color: '#a5b4fc', location_id: 'loc_main' },
+    { config_id: 'conf_D', code: 'D', name: 'Partido (D)', start_time: '08:30', end_time: '18:30', color: '#c4b5fd', location_id: 'loc_main' }
 ];
 
-const SHIFT_MATRIX: Record<string, string[]> = {
-    'noelia': ['V', 'L', 'L', 'T', 'T', 'V', 'T', 'T', 'T', 'L', 'L', 'T', 'T', 'T', 'L', 'L', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'L', 'L', 'T', 'T', 'T', 'L', 'L', 'T'],
-    'lydia': ['V', 'T', 'T', 'P', 'P', 'V', 'P', 'L', 'L', 'P', 'P', 'P', 'P', 'P', 'T', 'T', 'L', 'L', 'V25', 'V25', 'V25', 'V25', 'V25', 'V25', 'V25', 'L', 'L', 'P', 'P', 'P', 'P'],
-    'begona': ['V', 'V25', 'V25', 'V25', 'L', 'V', 'L', 'P', 'P', 'T', 'T', 'P', 'L', 'L', 'P', 'P', 'P', 'P', 'P', 'P', 'P', 'L', 'L', 'T', 'T', 'P', 'P', 'P', 'T', 'T', 'L'],
-    'maureen': ['V', 'V25', 'L', 'L', 'V25', 'V', 'R', 'R', 'R', 'L', 'L', 'R', 'R', 'R', 'R', 'R', 'L', 'L', 'R', 'R', 'R', 'P', 'P', 'L', 'L', 'R', 'R', 'R', 'R', 'R', 'L'],
-    'marisa': ['V25', 'V25', 'V25', 'V25', 'V25', 'V25', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L'],
-    'anxo': ['V', 'P', 'P', 'L', 'D', 'V', 'D', 'D', 'D', 'L', 'L', 'D', 'D', 'D', 'D', 'D', 'L', 'L', 'D', 'D', 'D', 'L', 'L', 'P', 'P', 'V25', 'V25', 'V25', 'V25', 'V25', 'V25'],
-    'oscar': ['V', 'MM', 'L', 'L', 'MM', 'V', 'MM', 'MM', 'MM', 'L', 'L', 'MM', 'MM', 'MM', 'MM', 'MM', 'L', 'L', 'MM', 'MM', 'MM', 'MM', 'MM', 'L', 'L', 'MM', 'MM', 'MM', 'MM', 'MM', 'L'],
-    'isabel': Array(31).fill('B'),
-    'stephany': ['V25', 'V25', 'V25', 'V25', 'V25', 'V', 'M', 'M', 'M', 'L', 'L', 'M', 'M', 'M', 'L', 'L', 'M', 'M', 'M', 'M', 'M', 'M', 'M', 'L', 'L', 'M', 'M', 'M', 'L', 'L', 'M'],
-    'yessica': ['V', 'V', 'V', 'V', 'V', 'V', 'L', 'A', 'A', 'A', 'A', 'L', 'L', 'A', 'A', 'A', 'L', 'L', 'A', 'A', 'A', 'L', 'L', 'A', 'A', 'A', 'A', 'A', 'A', 'L', 'L'],
-    'nisley': ['V', 'A', 'A', 'L', 'L', 'V', 'A', 'A', 'L', 'L', 'L', 'L', 'A', 'A', 'A', 'A', 'A', 'A', 'L', 'L', 'A', 'A', 'A', 'A', 'A', 'A', 'A', 'L', 'L', 'A', 'A'],
-    'mari': Array(31).fill('B'), // Dolores Varela
-    'diana': ['V', 'V', 'V', 'V', 'V', 'V', 'A', 'L', 'L', 'M', 'M', 'A', 'A', 'A', 'M', 'M', 'L', 'L', 'L', 'A', 'A', 'A', 'M', 'M', 'A', 'L', 'L', 'L', 'M', 'M', 'A'],
-    'andres': ['V', 'V', 'V', 'V', 'V', 'V', 'L', 'L', 'A', 'A', 'A', 'A', 'A', 'A', 'L', 'L', 'A', 'A', 'A', 'A', 'A', 'L', 'L', 'L', 'L', 'L', 'A', 'A', 'A', 'A', 'A'],
-    'itagu': ['V25', 'V25', 'V25', 'V25', 'V25', 'V25', 'V25', 'V25', 'V25', 'V25', 'V25', 'L', 'L', 'L', 'L', 'A', 'A', 'A', 'L', 'L', 'L', 'L', 'A', 'A', 'A', 'L', 'L', 'L', 'L', 'A', 'A'],
-    'doris': ['V', 'V', 'V', 'V', 'V', 'V', 'L', 'L', 'A', 'A', 'A', 'A', 'A', 'A', 'L', 'L', 'A', 'A', 'A', 'A', 'A', 'L', 'L', 'L', 'L', 'L', 'A', 'A', 'A', 'A', 'A'],
-    'silvia': ['V', 'V', 'V', 'V', 'V', 'V', 'L', 'L', 'A', 'A', 'A', 'A', 'A', 'A', 'L', 'L', 'A', 'A', 'A', 'A', 'A', 'L', 'L', 'L', 'L', 'L', 'A', 'A', 'A', 'A', 'A'],
-    'laura': ['V', 'V', 'V', 'V', 'V', 'V', 'L', 'L', 'A', 'A', 'A', 'A', 'A', 'A', 'L', 'L', 'A', 'A', 'A', 'A', 'A', 'L', 'L', 'L', 'L', 'L', 'A', 'A', 'A', 'A', 'A'],
-    'yurima': ['V', 'V', 'V', 'V', 'V', 'V', 'L', 'L', 'A', 'A', 'A', 'A', 'A', 'A', 'L', 'L', 'A', 'A', 'A', 'A', 'A', 'L', 'L', 'L', 'L', 'L', 'A', 'A', 'A', 'A', 'A']
-};
-
-const SHIFT_CONFIGS_MAP: any = {
-    'M': { start: '07:30', end: '15:30', color: '#93c5fd', name: 'Mañana FyF' },
-    'T': { start: '15:30', end: '23:30', color: '#fdba74', name: 'Tarde FyF' },
-    'P': { start: '09:00', end: '18:00', color: '#86efac', name: 'Partido' },
-    'MM': { start: '10:30', end: '14:30', color: '#5eead4', name: 'Media Mañana' },
-    'R': { start: '09:00', end: '18:00', color: '#86efac', name: 'Refuerzo' },
-    'A': { start: '11:00', end: '15:00', color: '#a5b4fc', name: 'Apoyo' },
-    'D': { split: true, parts: [{start: '08:30', end: '14:30'}, {start: '16:30', end: '18:30'}], color: '#c4b5fd', name: 'Partido (D)' }
-};
-
-// HELPER: Map Matrix Name to Real Employee ID
-const findEmployeeIdByName = (employees: Employee[], nameKey: string): string | undefined => {
-    const key = nameKey.toLowerCase();
-    
-    // Explicit mappings for common confusions
-    if (key === 'mari') {
-        const varela = employees.find(e => 
-            (e.first_name.toLowerCase().includes('dolores') || e.first_name.toLowerCase().includes('mari')) && 
-            e.last_name.toLowerCase().includes('varela')
-        );
-        return varela?.employee_id;
-    }
-
-    if (key === 'doris') {
-        const escalante = employees.find(e => 
-            (e.first_name.toLowerCase().includes('dolores') || e.first_name.toLowerCase().includes('doris')) && 
-            e.last_name.toLowerCase().includes('escalante')
-        );
-        return escalante?.employee_id;
-    }
-    
-    if (key === 'begona') {
-        const begona = employees.find(e => 
-            e.first_name.toLowerCase().includes('begoña') || e.first_name.toLowerCase().includes('begona')
-        );
-        return begona?.employee_id;
-    }
-
-    const found = employees.find(e => {
-        const first = e.first_name.toLowerCase();
-        const last = e.last_name.toLowerCase();
-        
-        if (first === key) return true;
-        if (first.includes(key)) return true;
-        return false;
-    });
-    return found?.employee_id;
-};
-
-// --- DYNAMIC GENERATOR (Enhanced for UUID support) ---
-const generateDynamicJanuaryShifts = (employees: Employee[], locations: Location[]): WorkShift[] => {
-    const shifts: WorkShift[] = [];
-    const year = 2025;
-
-    // Resolve Main Location ID
-    let mainLocationId = 'loc_main'; // Fallback
-    const realMainLocation = locations.find(l => l.name.toLowerCase().includes('fyf') || l.name.toLowerCase().includes('residencia'));
-    if (realMainLocation) mainLocationId = realMainLocation.location_id;
-
-    Object.entries(SHIFT_MATRIX).forEach(([nameKey, days]) => {
-        const empId = findEmployeeIdByName(employees, nameKey);
-        if (!empId) return; // Skip if employee not found in DB
-
-        days.forEach((code, idx) => {
-            const day = idx + 1;
-            const dateStr = `${year}-01-${day.toString().padStart(2, '0')}`;
-            
-            const baseShift = {
-                shift_id: `auto_${empId}_${day}_${Math.random()}`,
-                employee_id: empId,
-                location_id: mainLocationId
-            };
-
-            if (code === 'L') {
-                shifts.push({ ...baseShift, type: 'off', start_time: `${dateStr}T00:00:00`, end_time: `${dateStr}T23:59:59`, color: '#f3f4f6', notes: 'L' } as WorkShift); 
-            } else if (['V', 'V25'].includes(code)) {
-                shifts.push({ ...baseShift, type: 'vacation', start_time: `${dateStr}T00:00:00`, end_time: `${dateStr}T23:59:59`, color: '#d1fae5', notes: code } as WorkShift);
-            } else if (code === 'B') {
-                shifts.push({ ...baseShift, type: 'sick', start_time: `${dateStr}T00:00:00`, end_time: `${dateStr}T23:59:59`, color: '#fee2e2', notes: 'B' } as WorkShift);
-            } else if (SHIFT_CONFIGS_MAP[code]) {
-                const cfg = SHIFT_CONFIGS_MAP[code];
-                
-                if (cfg.split) {
-                    cfg.parts.forEach((part: any, pIdx: number) => {
-                        shifts.push({
-                            ...baseShift,
-                            shift_id: baseShift.shift_id + `_p${pIdx}`,
-                            type: 'work',
-                            start_time: `${dateStr}T${part.start}:00`,
-                            end_time: `${dateStr}T${part.end}:00`,
-                            color: cfg.color,
-                            notes: code,
-                            location_id: mainLocationId,
-                            shift_config_id: `conf_${code}`
-                        } as WorkShift);
-                    });
-                } else {
-                    shifts.push({
-                        ...baseShift,
-                        type: 'work',
-                        start_time: `${dateStr}T${cfg.start}:00`,
-                        end_time: `${dateStr}T${cfg.end}:00`,
-                        color: cfg.color,
-                        notes: code,
-                        location_id: mainLocationId,
-                        shift_config_id: `conf_${code}`
-                    } as WorkShift);
-                }
-            }
-        });
-    });
-
-    return shifts;
-};
-
-// Fallback constant for pure offline mode without employees
-const FALLBACK_WORK_SHIFTS = generateDynamicJanuaryShifts(FALLBACK_EMPLOYEES, FALLBACK_LOCATIONS);
 const FALLBACK_INVENTORY: InventoryItem[] = [
-    { item_id: 'inv_1', name: 'Gel de Baño (Garrafa 5L)', category: 'amenities', quantity: 10, unit: 'garrafas', min_threshold: 2, last_updated: new Date().toISOString() },
-    { item_id: 'inv_2', name: 'Papel Higiénico (Industrial)', category: 'amenities', quantity: 50, unit: 'paquetes', min_threshold: 10, last_updated: new Date().toISOString() },
+    { item_id: 'item_1', name: 'Gel de Baño (Garrafa 5L)', category: 'amenities', quantity: 2, unit: 'garrafas', min_threshold: 1, last_updated: new Date().toISOString() },
+    { item_id: 'item_2', name: 'Papel Higiénico Industrial', category: 'amenities', quantity: 15, unit: 'rollos', min_threshold: 10, last_updated: new Date().toISOString() },
+    { item_id: 'item_3', name: 'Lejía', category: 'cleaning', quantity: 5, unit: 'botellas', min_threshold: 3, last_updated: new Date().toISOString() },
+    { item_id: 'item_4', name: 'Bombillas LED E27', category: 'maintenance', quantity: 8, unit: 'unidades', min_threshold: 5, last_updated: new Date().toISOString() }
 ];
 
 // Helper to throw readable errors or fallback
@@ -251,11 +113,8 @@ export const getEmployees = async (): Promise<Employee[]> => {
         const { data, error } = await supabase.from('employees').select('*');
         
         // Critical Logic for Blank Screen fix:
-        // 1. Check if key staff exists
         const hasKeyStaff = data && data.some((e: any) => e.first_name.toLowerCase() === 'noelia');
-        
-        // 2. Check if schema is incomplete (missing new columns)
-        // If the first row doesn't have 'annual_hours_contract', we assume schema is old.
+        // Check if schema is incomplete (missing new columns)
         const isSchemaIncomplete = data && data.length > 0 && !('annual_hours_contract' in data[0]);
         
         if (error || !data || data.length <= 1 || !hasKeyStaff || isSchemaIncomplete) return FALLBACK_EMPLOYEES;
@@ -758,20 +617,17 @@ export const updateTimeOffRequestStatus = async (requestId: string, status: 'app
 export const getWorkShifts = async (startDate: string, endDate: string): Promise<WorkShift[]> => {
     try {
         const { data, error } = await supabase.from('work_shifts').select('*').gte('start_time', startDate).lte('end_time', endDate);
-        
-        // Critical Logic: If DB is empty for this range, GENERATE DYNAMIC FALLBACK
-        // This solves "Empty Cells" issue by generating data mapped to real employees if needed.
+        // If DB is empty, use mock data logic
         if (error || !data || data.length === 0) {
-             console.warn("Using dynamic fallback shifts (mapped to current employees)");
              const employees = await getEmployees();
-             return generateDynamicJanuaryShifts(employees, await getLocations());
+             // Simple mock generation if completely empty to show something
+             if (employees.length > 0) {
+                 return []; // Or implement mock generation if desired
+             }
         }
         return data || [];
     } catch(e) {
-        // FALLBACK FOR OFFLINE MODE
-        console.warn("Using fallback shifts data (Error caught)");
-        // Try to use fallback employees here if getEmployees fails
-        return generateDynamicJanuaryShifts(FALLBACK_EMPLOYEES, FALLBACK_LOCATIONS);
+        return [];
     }
 };
 
