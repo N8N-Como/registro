@@ -69,7 +69,7 @@ const TimesheetsView: React.FC = () => {
         setBreakLogs(breaks);
         setIsOnBreak(breaks.some(b => !b.end_time));
 
-        // Check for Forgotten Clock Out
+        // Check for Forgotten Clock Out (Punto 2.B)
         checkForForgottenClockOut(currentRunningWorkday);
       } else {
         setActivityLogs([]);
@@ -87,9 +87,24 @@ const TimesheetsView: React.FC = () => {
     fetchData();
   }, [fetchData]);
   
-  // Logic to detect if user forgot to clock out based on Shift Schedule
+  // Logic to detect if user forgot to clock out (Updated for 8.5 hours rule)
   const checkForForgottenClockOut = async (entry: TimeEntry) => {
-      // 1. Get today's shift
+      const start = new Date(entry.clock_in_time);
+      const now = new Date();
+      
+      // Calculate active duration in hours
+      const diffMs = now.getTime() - start.getTime();
+      const hours = diffMs / (1000 * 60 * 60);
+
+      // HARD LIMIT: 8.5 Hours (Punto 2.B)
+      if (hours > 8.5) {
+           setIsForgottenClockOut(true);
+           setSuggestedEndTime(now); // Suggest now, but user enters manually
+           setIsClockOutModalOpen(true);
+           return;
+      }
+
+      // Check Shift Schedule (Secondary check)
       const today = new Date();
       const startOfDay = new Date(today); startOfDay.setHours(0,0,0,0);
       const endOfDay = new Date(today); endOfDay.setHours(23,59,59,999);
@@ -100,9 +115,8 @@ const TimesheetsView: React.FC = () => {
           
           if (myShift) {
               const shiftEnd = new Date(myShift.end_time);
-              const now = new Date();
-              const diffMs = now.getTime() - shiftEnd.getTime();
-              const diffMinutes = diffMs / (1000 * 60);
+              const diffEndMs = now.getTime() - shiftEnd.getTime();
+              const diffMinutes = diffEndMs / (1000 * 60);
 
               // If more than 30 mins passed since shift end
               if (diffMinutes > 30) {
@@ -110,16 +124,6 @@ const TimesheetsView: React.FC = () => {
                   setSuggestedEndTime(shiftEnd);
                   setIsClockOutModalOpen(true);
               }
-          } else {
-               // Fallback: If working > 12 hours, assume forgotten
-               const start = new Date(entry.clock_in_time);
-               const now = new Date();
-               const hours = (now.getTime() - start.getTime()) / (1000 * 60 * 60);
-               if (hours > 12) {
-                   setIsForgottenClockOut(true);
-                   setSuggestedEndTime(now);
-                   setIsClockOutModalOpen(true);
-               }
           }
       } catch (e) {
           console.error("Error checking shifts", e);

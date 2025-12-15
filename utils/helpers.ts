@@ -38,12 +38,52 @@ const deg2rad = (deg: number): number => {
   return deg * (Math.PI / 180);
 };
 
-export const blobToBase64 = <T,>(blob: Blob): Promise<string> => {
+// COMPRESSED IMAGE CONVERSION (Punto 2.A)
+export const blobToBase64 = (blob: Blob, maxWidth = 1024, quality = 0.7): Promise<string> => {
   return new Promise((resolve, reject) => {
+    // If it's not an image (e.g. PDF), return standard base64
+    if (!blob.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+        return;
+    }
+
     const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result as string);
-    reader.onerror = reject;
     reader.readAsDataURL(blob);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target?.result as string;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+
+        // Resize logic
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        
+        if (!ctx) {
+            reject(new Error("Could not get canvas context"));
+            return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        // Compress to JPEG
+        const dataUrl = canvas.toDataURL('image/jpeg', quality);
+        resolve(dataUrl);
+      };
+      img.onerror = (err) => reject(err);
+    };
+    reader.onerror = (err) => reject(err);
   });
 };
 

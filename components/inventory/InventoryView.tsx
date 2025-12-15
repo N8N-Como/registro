@@ -8,6 +8,7 @@ import Button from '../shared/Button';
 import Spinner from '../shared/Spinner';
 import { BoxIcon, ShoppingCartIcon, BuildingIcon } from '../icons';
 import StockMovementModal from './StockMovementModal';
+import StockHistoryModal from './StockHistoryModal';
 
 const InventoryView: React.FC = () => {
     const auth = useContext(AuthContext);
@@ -16,6 +17,7 @@ const InventoryView: React.FC = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
+    const [historyItem, setHistoryItem] = useState<InventoryItem | null>(null);
     
     // Filters
     const [searchTerm, setSearchTerm] = useState('');
@@ -177,6 +179,12 @@ const InventoryView: React.FC = () => {
                             </div>
 
                             <div className="mt-2 pt-3 border-t flex gap-2">
+                                <button 
+                                    onClick={() => setHistoryItem(item)}
+                                    className="px-3 py-2 bg-gray-100 text-gray-600 rounded text-sm hover:bg-gray-200"
+                                >
+                                    Historial
+                                </button>
                                 <Button size="sm" variant="secondary" className="flex-1" onClick={() => setSelectedItem(item)}>
                                     Ajustar Stock
                                 </Button>
@@ -232,6 +240,14 @@ const InventoryView: React.FC = () => {
                     onClose={() => setSelectedItem(null)} 
                     onSave={handleStockMovement}
                     item={selectedItem}
+                />
+            )}
+
+            {historyItem && (
+                <StockHistoryModal 
+                    isOpen={!!historyItem}
+                    onClose={() => setHistoryItem(null)}
+                    item={historyItem}
                 />
             )}
         </div>

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { getTimeEntriesForEmployee, getEmployees, getLocations, getCurrentEstablishmentStatus } from '../../../services/mockApi';
+import { getAllRunningTimeEntries, getEmployees, getLocations, getCurrentEstablishmentStatus } from '../../../services/mockApi';
 import { Employee, Location } from '../../../types';
 import Card from '../../shared/Card';
 import Spinner from '../../shared/Spinner';
@@ -10,6 +10,7 @@ interface ClockedInEmployee extends Employee {
     locationName: string;
     location?: Location;
     statusType: 'establishment' | 'travel';
+    startTime: string; // New field for start time
 }
 
 const EstablishmentCheckInWidget: React.FC = () => {
@@ -19,18 +20,13 @@ const EstablishmentCheckInWidget: React.FC = () => {
     useEffect(() => {
         const fetchCheckIns = async () => {
             try {
-                const [employees, locations, activeActivities] = await Promise.all([
+                // Optimized fetching: Get all running entries in 1 call instead of N calls
+                const [employees, locations, activeActivities, runningEntries] = await Promise.all([
                     getEmployees(),
                     getLocations(),
-                    getCurrentEstablishmentStatus()
+                    getCurrentEstablishmentStatus(),
+                    getAllRunningTimeEntries()
                 ]);
-
-                // Get all running time entries concurrently
-                const allTimeEntries = (await Promise.all(
-                    employees.map(e => getTimeEntriesForEmployee(e.employee_id))
-                )).flat();
-
-                const runningEntries = allTimeEntries.filter(e => e.status === 'running');
                 
                 const checkedInMap = new Map<string, ClockedInEmployee>();
 
@@ -49,7 +45,8 @@ const EstablishmentCheckInWidget: React.FC = () => {
                             ...employee,
                             locationName: loc?.name || 'Ubicación Desconocida',
                             location: loc,
-                            statusType: 'establishment'
+                            statusType: 'establishment',
+                            startTime: entry.clock_in_time
                         });
                     } else {
                         // 2. If not in a specific location log, they are in "Travel" / "General" mode
@@ -60,12 +57,15 @@ const EstablishmentCheckInWidget: React.FC = () => {
                             ...employee,
                             locationName: initialLoc ? `${initialLoc.name} (Entrada)` : 'En Desplazamiento / Teletrabajo',
                             location: initialLoc,
-                            statusType: 'travel'
+                            statusType: 'travel',
+                            startTime: entry.clock_in_time
                         });
                     }
                 }
                 
-                setCheckedIn(Array.from(checkedInMap.values()));
+                // Sort by name
+                const sorted = Array.from(checkedInMap.values()).sort((a,b) => a.first_name.localeCompare(b.first_name));
+                setCheckedIn(sorted);
 
             } catch (error) {
                 console.error("Failed to fetch check-in data", error);
@@ -78,6 +78,10 @@ const EstablishmentCheckInWidget: React.FC = () => {
         const interval = setInterval(fetchCheckIns, 30000); // Refresh every 30 seconds
         return () => clearInterval(interval);
     }, []);
+
+    const formatTime = (isoString: string) => {
+        return new Date(isoString).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+    }
 
     if (isLoading) return <Card><Spinner size="sm" /></Card>;
 
@@ -97,8 +101,13 @@ const EstablishmentCheckInWidget: React.FC = () => {
                                    {emp.first_name.charAt(0)}{emp.last_name.charAt(0)}
                                </div>
                                <div className="flex-1 min-w-0">
-                                <p className="font-medium text-gray-800 truncate">{emp.first_name} {emp.last_name}</p>
-                                <div className="flex items-center text-sm text-gray-500">
+                                <div className="flex justify-between items-center">
+                                    <p className="font-medium text-gray-800 truncate">{emp.first_name} {emp.last_name}</p>
+                                    <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full border border-gray-200">
+                                        Desde {formatTime(emp.startTime)}
+                                    </span>
+                                </div>
+                                <div className="flex items-center text-sm text-gray-500 mt-0.5">
                                     {emp.statusType === 'establishment' ? <LocationIcon className="w-3 h-3 mr-1"/> : <CarIcon className="w-3 h-3 mr-1"/>}
                                     <span className="truncate">{emp.locationName}</span>
                                 </div>

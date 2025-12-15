@@ -245,6 +245,21 @@ export const getTimeEntriesForEmployee = async (employeeId: string): Promise<Tim
     }
 };
 
+// OPTIMIZED FUNCTION FOR DASHBOARD
+export const getAllRunningTimeEntries = async (): Promise<TimeEntry[]> => {
+    try {
+        const { data, error } = await supabase
+            .from('time_entries')
+            .select('*')
+            .eq('status', 'running');
+        if (error) throw error;
+        return data || [];
+    } catch (error) {
+        console.warn("Using fallback for getAllRunningTimeEntries");
+        return [];
+    }
+};
+
 export const clockIn = async (employeeId: string, locationId?: string, latitude?: number, longitude?: number, workType: WorkType = 'ordinaria', workMode: WorkMode = 'presencial', deviceData?: { deviceId: string, deviceInfo: string }, isSyncing = false): Promise<TimeEntry> => {
     const newEntry = {
         employee_id: employeeId,
@@ -939,4 +954,15 @@ export const logStockMovement = async (itemId: string, changeAmount: number, rea
         // For mock simple logic:
         // This is usually done in the UI component logic for now to keep it simple with optimistic updates.
     } catch(e) { }
+}
+
+// NEW FUNCTION FOR KARDEX (Punto 3.A)
+export const getStockLogs = async (itemId: string): Promise<StockLog[]> => {
+    try {
+        const { data, error } = await supabase.from('stock_logs').select('*').eq('item_id', itemId).order('created_at', { ascending: false });
+        if (error) throw error;
+        return data || [];
+    } catch(e) { 
+        return []; 
+    }
 }

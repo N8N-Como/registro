@@ -10,6 +10,7 @@ import Modal from '../shared/Modal';
 import { formatTime, getDaysInMonth } from '../../utils/helpers';
 import PrintableMonthlyLog from './PrintableMonthlyLog';
 import SignaturePad from '../shared/SignaturePad';
+import * as XLSX from 'xlsx';
 
 interface DailyLog {
     day: number;
@@ -151,6 +152,46 @@ const MonthlyWorkLogReport: React.FC = () => {
             setIsSavingSignature(false);
         }
     };
+
+    // EXCEL EXPORT FUNCTION (Punto 3.B)
+    const handleExportExcel = () => {
+        if (!reportData || reportData.length === 0) return;
+
+        // Flatten data for Excel
+        const rows: any[] = [];
+
+        reportData.forEach(rep => {
+            rep.dailyLogs.forEach(dayLog => {
+                // If multiple entries per day, join them or create multiple rows? 
+                // For payroll, usually summary per day is enough, but detailed is safer.
+                if (dayLog.entries.length > 0) {
+                    dayLog.entries.forEach(entry => {
+                        rows.push({
+                            "Empleado": `${rep.employee.first_name} ${rep.employee.last_name}`,
+                            "DNI/NIF": rep.employee.pin, // Assuming ID is not PII for this internal report
+                            "Fecha": dayLog.date,
+                            "Entrada": entry.clockIn,
+                            "Salida": entry.clockOut,
+                            "Horas Efectivas": (entry.duration / (1000 * 60 * 60)).toFixed(2),
+                            "Incidencia": entry.isManual ? "Manual/Corregido" : ""
+                        });
+                    });
+                } else {
+                    // Empty row for days without work? Or skip? Let's skip to keep file clean.
+                }
+            });
+        });
+
+        if (rows.length === 0) {
+            alert("No hay datos para exportar.");
+            return;
+        }
+
+        const ws = XLSX.utils.json_to_sheet(rows);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Registro Horario");
+        XLSX.writeFile(wb, `Registro_Horario_${selectedMonth}_${selectedYear}.xlsx`);
+    };
     
     if (isLoading) return <Spinner />;
     
@@ -195,10 +236,19 @@ const MonthlyWorkLogReport: React.FC = () => {
             
             {isGenerating && <Spinner/>}
 
-            {reportData && (
-                reportData.length > 0
-                ? <PrintableMonthlyLog data={reportData} month={parseInt(selectedMonth)} year={parseInt(selectedYear)} />
-                : <p className="text-center p-4">No se encontraron datos de fichaje para los criterios seleccionados.</p>
+            {reportData && reportData.length > 0 && (
+                <div className="space-y-4">
+                    <div className="flex justify-end no-print">
+                        <Button variant="success" onClick={handleExportExcel} className="mr-2">
+                            📥 Exportar Excel (.xlsx)
+                        </Button>
+                    </div>
+                    <PrintableMonthlyLog data={reportData} month={parseInt(selectedMonth)} year={parseInt(selectedYear)} />
+                </div>
+            )}
+            
+            {reportData && reportData.length === 0 && (
+                <p className="text-center p-4">No se encontraron datos de fichaje para los criterios seleccionados.</p>
             )}
 
             {isSigningModalOpen && (
