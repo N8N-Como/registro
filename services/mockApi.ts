@@ -84,13 +84,13 @@ const SHIFT_MATRIX: Record<string, string[]> = {
 };
 
 const SHIFT_CONFIGS_MAP: any = {
-    'M': { start: '07:30', end: '15:30', color: '#93c5fd', name: 'Mañana FyF', loc: 'loc_main' },
-    'T': { start: '15:30', end: '23:30', color: '#fdba74', name: 'Tarde FyF', loc: 'loc_main' },
-    'P': { start: '09:00', end: '18:00', color: '#86efac', name: 'Partido', loc: 'loc_main' },
-    'MM': { start: '10:30', end: '14:30', color: '#5eead4', name: 'Media Mañana', loc: 'loc_main' },
-    'R': { start: '09:00', end: '18:00', color: '#86efac', name: 'Refuerzo', loc: 'loc_main' },
-    'A': { start: '11:00', end: '15:00', color: '#a5b4fc', name: 'Apoyo', loc: 'loc_main' },
-    'D': { split: true, parts: [{start: '08:30', end: '14:30'}, {start: '16:30', end: '18:30'}], color: '#c4b5fd', name: 'Partido (D)', loc: 'loc_main' }
+    'M': { start: '07:30', end: '15:30', color: '#93c5fd', name: 'Mañana FyF' },
+    'T': { start: '15:30', end: '23:30', color: '#fdba74', name: 'Tarde FyF' },
+    'P': { start: '09:00', end: '18:00', color: '#86efac', name: 'Partido' },
+    'MM': { start: '10:30', end: '14:30', color: '#5eead4', name: 'Media Mañana' },
+    'R': { start: '09:00', end: '18:00', color: '#86efac', name: 'Refuerzo' },
+    'A': { start: '11:00', end: '15:00', color: '#a5b4fc', name: 'Apoyo' },
+    'D': { split: true, parts: [{start: '08:30', end: '14:30'}, {start: '16:30', end: '18:30'}], color: '#c4b5fd', name: 'Partido (D)' }
 };
 
 // HELPER: Map Matrix Name to Real Employee ID
@@ -99,7 +99,6 @@ const findEmployeeIdByName = (employees: Employee[], nameKey: string): string | 
     
     // Explicit mappings for common confusions
     if (key === 'mari') {
-        // Look for Dolores Varela specifically
         const varela = employees.find(e => 
             (e.first_name.toLowerCase().includes('dolores') || e.first_name.toLowerCase().includes('mari')) && 
             e.last_name.toLowerCase().includes('varela')
@@ -108,7 +107,6 @@ const findEmployeeIdByName = (employees: Employee[], nameKey: string): string | 
     }
 
     if (key === 'doris') {
-        // Look for Dolores Escalante specifically
         const escalante = employees.find(e => 
             (e.first_name.toLowerCase().includes('dolores') || e.first_name.toLowerCase().includes('doris')) && 
             e.last_name.toLowerCase().includes('escalante')
@@ -126,9 +124,7 @@ const findEmployeeIdByName = (employees: Employee[], nameKey: string): string | 
     const found = employees.find(e => {
         const first = e.first_name.toLowerCase();
         const last = e.last_name.toLowerCase();
-        const full = `${first} ${last}`;
         
-        // Exact or partial match on firstname
         if (first === key) return true;
         if (first.includes(key)) return true;
         return false;
@@ -136,10 +132,15 @@ const findEmployeeIdByName = (employees: Employee[], nameKey: string): string | 
     return found?.employee_id;
 };
 
-// --- DYNAMIC GENERATOR ---
-const generateDynamicJanuaryShifts = (employees: Employee[]): WorkShift[] => {
+// --- DYNAMIC GENERATOR (Enhanced for UUID support) ---
+const generateDynamicJanuaryShifts = (employees: Employee[], locations: Location[]): WorkShift[] => {
     const shifts: WorkShift[] = [];
     const year = 2025;
+
+    // Resolve Main Location ID
+    let mainLocationId = 'loc_main'; // Fallback
+    const realMainLocation = locations.find(l => l.name.toLowerCase().includes('fyf') || l.name.toLowerCase().includes('residencia'));
+    if (realMainLocation) mainLocationId = realMainLocation.location_id;
 
     Object.entries(SHIFT_MATRIX).forEach(([nameKey, days]) => {
         const empId = findEmployeeIdByName(employees, nameKey);
@@ -152,7 +153,7 @@ const generateDynamicJanuaryShifts = (employees: Employee[]): WorkShift[] => {
             const baseShift = {
                 shift_id: `auto_${empId}_${day}_${Math.random()}`,
                 employee_id: empId,
-                location_id: 'loc_main'
+                location_id: mainLocationId
             };
 
             if (code === 'L') {
@@ -174,7 +175,7 @@ const generateDynamicJanuaryShifts = (employees: Employee[]): WorkShift[] => {
                             end_time: `${dateStr}T${part.end}:00`,
                             color: cfg.color,
                             notes: code,
-                            location_id: cfg.loc,
+                            location_id: mainLocationId,
                             shift_config_id: `conf_${code}`
                         } as WorkShift);
                     });
@@ -186,7 +187,7 @@ const generateDynamicJanuaryShifts = (employees: Employee[]): WorkShift[] => {
                         end_time: `${dateStr}T${cfg.end}:00`,
                         color: cfg.color,
                         notes: code,
-                        location_id: cfg.loc,
+                        location_id: mainLocationId,
                         shift_config_id: `conf_${code}`
                     } as WorkShift);
                 }
@@ -198,7 +199,7 @@ const generateDynamicJanuaryShifts = (employees: Employee[]): WorkShift[] => {
 };
 
 // Fallback constant for pure offline mode without employees
-const FALLBACK_WORK_SHIFTS = generateDynamicJanuaryShifts(FALLBACK_EMPLOYEES);
+const FALLBACK_WORK_SHIFTS = generateDynamicJanuaryShifts(FALLBACK_EMPLOYEES, FALLBACK_LOCATIONS);
 const FALLBACK_INVENTORY: InventoryItem[] = [
     { item_id: 'inv_1', name: 'Gel de Baño (Garrafa 5L)', category: 'amenities', quantity: 10, unit: 'garrafas', min_threshold: 2, last_updated: new Date().toISOString() },
     { item_id: 'inv_2', name: 'Papel Higiénico (Industrial)', category: 'amenities', quantity: 50, unit: 'paquetes', min_threshold: 10, last_updated: new Date().toISOString() },
@@ -248,7 +249,16 @@ export const updateRole = async (roleData: Role): Promise<Role> => {
 export const getEmployees = async (): Promise<Employee[]> => {
     try {
         const { data, error } = await supabase.from('employees').select('*');
-        if (error || !data || data.length === 0) return FALLBACK_EMPLOYEES;
+        
+        // Critical Logic for Blank Screen fix:
+        // 1. Check if key staff exists
+        const hasKeyStaff = data && data.some((e: any) => e.first_name.toLowerCase() === 'noelia');
+        
+        // 2. Check if schema is incomplete (missing new columns)
+        // If the first row doesn't have 'annual_hours_contract', we assume schema is old.
+        const isSchemaIncomplete = data && data.length > 0 && !('annual_hours_contract' in data[0]);
+        
+        if (error || !data || data.length <= 1 || !hasKeyStaff || isSchemaIncomplete) return FALLBACK_EMPLOYEES;
         return data;
     } catch (error) { return FALLBACK_EMPLOYEES; }
 };
@@ -286,7 +296,7 @@ export const acceptPolicy = async (employeeId: string): Promise<void> => {
 export const getLocations = async (): Promise<Location[]> => {
     try {
         const { data, error } = await supabase.from('locations').select('*');
-        if (error || !data || data.length === 0) return FALLBACK_LOCATIONS;
+        if (error || !data || data.length < 1) return FALLBACK_LOCATIONS;
         return data;
     } catch (error) { return FALLBACK_LOCATIONS; }
 };
@@ -754,14 +764,14 @@ export const getWorkShifts = async (startDate: string, endDate: string): Promise
         if (error || !data || data.length === 0) {
              console.warn("Using dynamic fallback shifts (mapped to current employees)");
              const employees = await getEmployees();
-             return generateDynamicJanuaryShifts(employees);
+             return generateDynamicJanuaryShifts(employees, await getLocations());
         }
         return data || [];
     } catch(e) {
         // FALLBACK FOR OFFLINE MODE
         console.warn("Using fallback shifts data (Error caught)");
         // Try to use fallback employees here if getEmployees fails
-        return generateDynamicJanuaryShifts(FALLBACK_EMPLOYEES);
+        return generateDynamicJanuaryShifts(FALLBACK_EMPLOYEES, FALLBACK_LOCATIONS);
     }
 };
 
