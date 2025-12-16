@@ -11,7 +11,8 @@ import {
     getShiftConfigs,
     addShiftConfig,
     updateShiftConfig,
-    deleteShiftConfig
+    deleteShiftConfig,
+    createBulkWorkShifts // NEW
 } from '../../services/mockApi';
 import { Employee, Location, WorkShift, ShiftConfig } from '../../types';
 import Card from '../shared/Card';
@@ -189,9 +190,21 @@ const ShiftSchedulerView: React.FC = () => {
         } catch (error) { alert("Error al eliminar"); }
     };
     
+    // UPDATED BULK IMPORT LOGIC
     const handleBulkImport = async (newShifts: Omit<WorkShift, 'shift_id'>[]) => {
-        for (const shift of newShifts) await createWorkShift(shift);
-        fetchSchedulerData();
+        if (newShifts.length === 0) return;
+        setIsLoading(true);
+        try {
+            await createBulkWorkShifts(newShifts);
+            // Add a small delay to allow Supabase to index the changes before we fetch again
+            setTimeout(() => {
+                fetchSchedulerData();
+            }, 500);
+        } catch (e: any) {
+            console.error(e);
+            alert(`Error importando datos: ${e.message}`);
+            setIsLoading(false);
+        }
     };
 
     // Configuración de Turnos

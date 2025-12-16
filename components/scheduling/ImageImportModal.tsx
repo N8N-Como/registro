@@ -34,7 +34,8 @@ const ImageImportModal: React.FC<ImageImportModalProps> = ({
         if (!selectedFile) return;
         
         setFile(selectedFile);
-        const base64 = await blobToBase64(selectedFile);
+        // INCREASED RESOLUTION: 2500px width ensures text is readable for full-month schedules
+        const base64 = await blobToBase64(selectedFile, 2500, 0.85); 
         setPreviewUrl(base64);
         setParsedShifts([]); // Reset previous
     };

@@ -683,6 +683,27 @@ export const createWorkShift = async (data: any): Promise<WorkShift> => {
     } catch(e) { return { ...data, shift_id: 'mock' } as WorkShift; }
 };
 
+// NEW: Bulk Insert for fast imports
+export const createBulkWorkShifts = async (shifts: any[]): Promise<void> => {
+    try {
+        // Safe batch processing (e.g. 50 at a time)
+        const batchSize = 50;
+        for (let i = 0; i < shifts.length; i += batchSize) {
+            const batch = shifts.slice(i, i + batchSize).map(s => ({
+                ...s,
+                // Ensure optional UUIDs are null not undefined/empty string
+                location_id: s.location_id || null,
+                shift_config_id: s.shift_config_id || null
+            }));
+            const { error } = await supabase.from('work_shifts').insert(batch);
+            if (error) throw error;
+        }
+    } catch (e: any) {
+        console.error("Bulk insert failed", e);
+        throw new Error(e.message || "Error al insertar turnos masivamente");
+    }
+};
+
 export const updateWorkShift = async (data: WorkShift): Promise<WorkShift> => {
     try {
         const { data: updated, error } = await supabase.from('work_shifts').update(data).eq('shift_id', data.shift_id).select().single();

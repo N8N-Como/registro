@@ -152,6 +152,13 @@ export interface ParsedShiftFromImage {
     original_text_in_cell?: string;
 }
 
+// Compact interface for AI response
+interface CompactSchedule {
+    [employeeId: string]: {
+        [day: string]: string; // "1": "M"
+    }
+}
+
 const getAIClient = () => {
     const apiKey = process.env.API_KEY;
     if (!apiKey) throw new Error("API Key not configured");
@@ -175,34 +182,33 @@ export const parseScheduleImage = async (
 
         // Context Construction
         const employeeContext = employees.map(e => `Name: "${e.first_name} ${e.last_name}", ID: "${e.employee_id}"`).join('\n');
-        const configContext = shiftConfigs.map(c => `Code "${c.code}": ${c.name}`).join('\n');
+        const configContext = shiftConfigs.map(c => `Code "${c.code}"`).join(', ');
         
         const prompt = `
-        Analyze the attached image of a monthly work schedule (cuadrante).
+        Analyze the attached schedule image (Month: ${month}, Year: ${year}).
         
-        CONTEXT:
-        - Target Month: ${month}, Target Year: ${year}
-        - KNOWN EMPLOYEES (Use these IDs):\n${employeeContext}
-        - KNOWN SHIFT CODES:\n${configContext}
-        - SPECIAL CODES: 'L' (Off), 'V' or 'V25' (Vacation), 'B' (Sick), 'P' (Generic/Split).
+        EMPLOYEES TO FIND (Use these exact IDs):
+        ${employeeContext}
+
+        KNOWN CODES: ${configContext}, L, V, V25, B, P.
 
         INSTRUCTIONS:
-        1. **Detect Rows**: Match the name in the first column to the "KNOWN EMPLOYEES" list. 
-           - IMPORTANT: Be flexible with names. "ANXO" matches "Anxo Bernárdez". "BEGOÑA" matches "Begoña".
-           - Ignore rows that do not match a known employee.
-        2. **Detect Columns**: The header row contains numbers 1 to 30/31. Map these to the days of the month.
-        3. **Extract Cells**: For each Employee + Day intersection, read the text code.
-           - If cell is empty, ignore it.
-           - Treat "V25", "V", "Vac" as Vacation.
-           - Treat "L", "Libre" as Off.
+        1. Identify the row for each employee name. Fuzzy match names (e.g., "ANXO" = "Anxo Bernárdez").
+        2. Identify the columns as days (1..31).
+        3. Extract the code for each day.
         
-        OUTPUT FORMAT:
-        Return ONLY a raw JSON Array. Do not use Markdown code blocks. Do not add explanations.
-        Structure:
-        [
-          { "employee_id": "uuid_from_list", "day": 1, "shift_code": "M" },
-          { "employee_id": "uuid_from_list", "day": 2, "shift_code": "L" }
-        ]
+        IMPORTANT: Return a SINGLE JSON OBJECT where:
+        - Keys are the "ID" from the employee list above.
+        - Values are an object mapping the Day Number (as string) to the Code.
+        - Omit empty cells.
+        
+        FORMAT EXAMPLE:
+        {
+          "uuid_employee_1": { "1": "M", "2": "T", "3": "L" },
+          "uuid_employee_2": { "1": "V", "5": "M" }
+        }
+        
+        Return ONLY raw JSON. No markdown.
         `;
 
         const response = await ai.models.generateContent({
@@ -218,43 +224,58 @@ export const parseScheduleImage = async (
             ],
             config: {
                 responseMimeType: 'application/json',
-                temperature: 0.1 // Lower temperature for more deterministic output
+                temperature: 0.1 
             }
         });
 
-        const text = response.text();
-        console.log("Gemini Raw Response:", text); // Debugging
+        // FIXED: Access text as property, not function
+        const text = response.text;
+        console.log("Gemini Raw Response:", text); 
 
         if (!text) throw new Error("Recibida respuesta vacía de la IA");
         
         // ROBUST JSON EXTRACTION
-        // Sometimes AI adds text before/after or markdown ```json ... ```
         let jsonStr = text;
-        
-        // 1. Find the first '[' and last ']'
-        const firstBracket = text.indexOf('[');
-        const lastBracket = text.lastIndexOf(']');
+        const firstBracket = text.indexOf('{');
+        const lastBracket = text.lastIndexOf('}');
         
         if (firstBracket !== -1 && lastBracket !== -1) {
             jsonStr = text.substring(firstBracket, lastBracket + 1);
         } else {
-            // Fallback cleanup if brackets not found (unlikely for valid array)
             jsonStr = text.replace(/```json/g, '').replace(/```/g, '').trim();
         }
 
+        let compactData: CompactSchedule;
         try {
-            const parsed = JSON.parse(jsonStr) as ParsedShiftFromImage[];
-            if (!Array.isArray(parsed)) throw new Error("La respuesta no es un array");
-            return parsed;
+            compactData = JSON.parse(jsonStr) as CompactSchedule;
         } catch (parseError) {
             console.error("JSON Parse Error:", parseError);
-            console.error("Failed JSON String:", jsonStr);
-            throw new Error("No se pudo leer el formato de datos devuelto por la IA.");
+            throw new Error("La IA devolvió un formato inválido. Intenta recortar la imagen solo al cuadrante.");
         }
+
+        // Transform Compact Data back to Array for the UI
+        const results: ParsedShiftFromImage[] = [];
+        
+        Object.entries(compactData).forEach(([empId, days]) => {
+            // Verify empId exists in our list (safety check)
+            if (employees.some(e => e.employee_id === empId)) {
+                Object.entries(days).forEach(([dayStr, code]) => {
+                    results.push({
+                        employee_id: empId,
+                        day: parseInt(dayStr, 10),
+                        shift_code: code
+                    });
+                });
+            }
+        });
+
+        return results;
 
     } catch (error: any) {
         console.error("Gemini Image Parsing Error:", error);
-        throw new Error(`Error analizando imagen: ${error.message}`);
+        // Expose real error to UI
+        if (error.message.includes('format')) throw error;
+        throw new Error(`Error IA (${error.name}): ${error.message}`);
     }
 };
 
