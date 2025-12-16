@@ -67,7 +67,9 @@ const GobernantaView: React.FC = () => {
     }
 
     const handleSaveTask = async (taskData: Omit<Task, 'task_id' | 'created_at' | 'completed_at'> | Task) => {
-        const { location_id, ...dataToSave } = taskData as any;
+        // Fix unused variable error by using object spread deletion
+        const dataToSave = { ...taskData } as any;
+        delete dataToSave.location_id;
 
         if ('task_id' in dataToSave) {
             await updateTask(dataToSave);

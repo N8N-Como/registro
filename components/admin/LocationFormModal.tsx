@@ -65,9 +65,10 @@ const LocationFormModal: React.FC<LocationFormModalProps> = ({ isOpen, onClose, 
         return;
     }
 
-    // 2. LIMPIEZA CRÍTICA: Extraer latStr y lonStr para NO enviarlos a la API/BD
-    // Si enviamos campos que no existen en la BD, Supabase devolverá error y bloqueará el guardado.
-    const { latStr, lonStr, ...cleanData } = formData;
+    // 2. LIMPIEZA CRÍTICA: Eliminar campos temporales sin usar desestructuración con variables no usadas
+    const cleanData = { ...formData };
+    delete cleanData.latStr;
+    delete cleanData.lonStr;
 
     const finalLocation: Location = {
         ...cleanData as Location, // TypeScript casting seguro tras limpieza

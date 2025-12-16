@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, FunctionDeclaration, Type } from "@google/genai";
-import { Employee, Room, Location, Task, Incident, InventoryItem, MaintenancePlan } from '../types';
+import { Employee, Room, Location, InventoryItem, MaintenancePlan } from '../types';
 
 // Define interfaces for context
 export interface ContextData {
