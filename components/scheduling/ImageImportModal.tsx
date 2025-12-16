@@ -76,7 +76,7 @@ const ImageImportModal: React.FC<ImageImportModalProps> = ({
                         type = 'off';
                         startISO = `${dateStr}T00:00:00`;
                         endISO = `${dateStr}T23:59:59`;
-                    } else if (code.startsWith('V')) { // Vacaciones (V25)
+                    } else if (code.startsWith('V') || code.startsWith('V25')) { // Vacaciones
                         type = 'vacation';
                         color = '#10b981';
                         startISO = `${dateStr}T00:00:00`;
