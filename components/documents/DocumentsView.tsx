@@ -9,8 +9,6 @@ import Spinner from '../shared/Spinner';
 import { DocumentIcon, PaperClipIcon, CheckIcon, XMarkIcon } from '../icons';
 import DocumentUploadModal from './DocumentUploadModal';
 import SignDocumentModal from './SignDocumentModal';
-import AIAssistant, { InputMode } from '../shared/AIAssistant';
-import { AIResponse } from '../../services/geminiService';
 
 const DocumentsView: React.FC = () => {
     const auth = useContext(AuthContext);
@@ -101,39 +99,12 @@ const DocumentsView: React.FC = () => {
         setIsSignModalOpen(true);
     };
 
-    // AI Action Handler
-    const handleAIAction = async (response: AIResponse) => {
-        if (response.action === 'createDocument' && response.data && auth?.employee) {
-            try {
-                // Default targets to all if not specified
-                const allEmpIds = employees.map(e => e.employee_id);
-                await handleCreateDocument({
-                    title: response.data.title,
-                    description: response.data.description,
-                    type: 'file', // Default
-                    content_url: '', // Empty or generate placeholder
-                    requires_signature: response.data.requires_signature || false,
-                    target_employee_ids: allEmpIds
-                });
-            } catch (e) {
-                console.error("AI Create Doc Error", e);
-            }
-        }
-    };
-
-    // Determine AI Config based on Role
-    const role = auth?.role?.role_id;
-    let allowedAIInputs: InputMode[] | null = null;
-    if (['admin', 'receptionist', 'gobernanta', 'revenue', 'administracion'].includes(role || '')) {
-        allowedAIInputs = ['text', 'voice', 'image'];
-    }
-
     if (isLoading) return <Spinner />;
 
     // --- RENDER ADMIN VIEW ---
     if (isAdminMode) {
         return (
-            <div className="space-y-6 relative">
+            <div className="space-y-6">
                 <div className="flex justify-between items-center">
                     <h2 className="text-xl font-bold flex items-center gap-2">
                         <DocumentIcon className="text-primary" />
@@ -215,14 +186,6 @@ const DocumentsView: React.FC = () => {
                         onClose={() => setIsUploadModalOpen(false)} 
                         onSave={handleCreateDocument}
                         employees={employees}
-                    />
-                )}
-
-                {allowedAIInputs && (
-                    <AIAssistant 
-                        context={{ employees, currentUser: auth?.employee || undefined }} 
-                        onAction={handleAIAction}
-                        allowedInputs={allowedAIInputs}
                     />
                 )}
             </div>

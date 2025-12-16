@@ -7,7 +7,7 @@ import Button from '../shared/Button';
 import Spinner from '../shared/Spinner';
 import TaskFormModal from './TaskFormModal';
 import { CheckIcon } from '../icons';
-import AIAssistant, { InputMode } from '../shared/AIAssistant';
+import AIAssistant from '../shared/AIAssistant';
 import { AuthContext } from '../../App';
 import { AIResponse } from '../../services/geminiService';
 
@@ -82,13 +82,18 @@ const GobernantaView: React.FC = () => {
     const handleAIAction = async (response: AIResponse) => {
         if (response.action === 'createTask' && response.data) {
             try {
+                // Ensure room_id defaults to something valid if AI missed it but gave location
+                // If location_id is missing, try to find it from room_id
                 let finalRoomId = response.data.room_id || 'all_rooms';
+                
                 await addTask({
                     description: response.data.description,
                     room_id: finalRoomId,
                     assigned_to: response.data.assigned_to,
                     due_date: response.data.due_date || new Date().toISOString().split('T')[0],
                     status: 'pending',
+                    // Note: MockApi addTask doesn't strictly need location_id if room is valid, 
+                    // but usually we pass it. For now, assume room link is enough.
                 } as any);
                 fetchData();
             } catch (e) {
@@ -128,6 +133,9 @@ const GobernantaView: React.FC = () => {
         return rooms.find(r => r.room_id === roomId)?.name || 'N/A';
     };
 
+    // --- Lógica de Estilos Mejorada ---
+
+    // Paleta de colores para establecimientos (pastel e intenso para texto)
     const locationPalettes = [
         { bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-800', badge: 'bg-blue-100 text-blue-800' },
         { bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-800', badge: 'bg-emerald-100 text-emerald-800' },
@@ -142,15 +150,10 @@ const GobernantaView: React.FC = () => {
     const getLocationStyle = (locationId: string | undefined) => {
         if (!locationId) return locationPalettes[0];
         const index = locations.findIndex(l => l.location_id === locationId);
+        // Si no encuentra, usa el 0. Si encuentra, usa el modulo para ciclar colores.
         return locationPalettes[Math.max(0, index) % locationPalettes.length];
     };
 
-    // Determine AI Config based on Role
-    const role = auth?.role?.role_id;
-    let allowedAIInputs: InputMode[] | null = null;
-    if (['admin', 'gobernanta'].includes(role || '')) {
-        allowedAIInputs = ['text', 'voice', 'image'];
-    }
 
     if(isLoading) return <Spinner/>;
 
@@ -181,6 +184,7 @@ const GobernantaView: React.FC = () => {
                     <table className="w-full text-left table-fixed border-collapse">
                         <thead className="bg-white sticky top-0 z-10 shadow-sm">
                             <tr>
+                                {/* Columna Empleados: Más estrecha */}
                                 <th className="p-2 w-28 sm:w-32 border-b border-r bg-gray-50 text-xs font-bold text-gray-500 uppercase tracking-wider">
                                     Empleado
                                 </th>
@@ -202,6 +206,7 @@ const GobernantaView: React.FC = () => {
                         <tbody className="divide-y divide-gray-200 bg-white">
                             {displayStaff.map(employee => (
                                 <tr key={employee.employee_id}>
+                                    {/* Celda Nombre Empleado: Pequeña y compacta */}
                                     <td className="p-2 border-r bg-gray-50 align-middle">
                                         <div className="flex flex-col items-center justify-center text-center">
                                             <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-xs font-bold text-gray-600 mb-1">
@@ -215,6 +220,8 @@ const GobernantaView: React.FC = () => {
                                             </p>
                                         </div>
                                     </td>
+                                    
+                                    {/* Celdas de Días */}
                                     {nextSevenDays.map(date => {
                                         const dateKey = date.toISOString().split('T')[0];
                                         const employeeTasksForDay = groupedTasks[dateKey]?.[employee.employee_id] || [];
@@ -238,14 +245,19 @@ const GobernantaView: React.FC = () => {
                                                                 ${styles.bg} ${styles.border} ${isCompleted ? 'opacity-50 grayscale' : 'hover:scale-[1.02] hover:shadow-md'}
                                                             `}
                                                         >
+                                                            {/* Barra lateral de color intenso */}
                                                             <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-md ${styles.text.replace('text-', 'bg-').replace('800', '400')}`}></div>
+                                                            
                                                             <div className="pl-2.5 pr-1 py-1.5">
+                                                                {/* Cabecera: Ubicación */}
                                                                 <div className="flex justify-between items-start mb-0.5">
                                                                     <span className={`text-[9px] font-bold uppercase tracking-wider px-1 rounded-sm ${styles.badge}`}>
                                                                         {location?.name || 'S/E'}
                                                                     </span>
                                                                     {isCompleted && <CheckIcon className="w-3 h-3 text-green-600" />}
                                                                 </div>
+                                                                
+                                                                {/* Cuerpo: Habitación y Descripción */}
                                                                 <div className={`${styles.text}`}>
                                                                     <p className={`text-xs font-bold leading-tight ${isCompleted ? 'line-through decoration-gray-500' : ''}`}>
                                                                         {getRoomName(task.room_id)}
@@ -281,13 +293,10 @@ const GobernantaView: React.FC = () => {
             )}
 
             {/* AI Assistant Integration */}
-            {allowedAIInputs && (
-                <AIAssistant 
-                    context={{ employees, rooms, locations, currentUser: auth?.employee || undefined }} 
-                    onAction={handleAIAction}
-                    allowedInputs={allowedAIInputs}
-                />
-            )}
+            <AIAssistant 
+                context={{ employees, rooms, locations, currentUser: auth?.employee || undefined }} 
+                onAction={handleAIAction}
+            />
         </div>
     );
 };

@@ -9,8 +9,6 @@ import Spinner from '../shared/Spinner';
 import LostItemFormModal from './LostItemFormModal';
 import { ArchiveBoxIcon } from '../icons';
 import { formatDate } from '../../utils/helpers';
-import AIAssistant, { InputMode } from '../shared/AIAssistant';
-import { AIResponse } from '../../services/geminiService';
 
 const LostFoundView: React.FC = () => {
     const auth = useContext(AuthContext);
@@ -65,22 +63,6 @@ const LostFoundView: React.FC = () => {
         setIsModalOpen(false);
     };
 
-    const handleAIAction = async (response: AIResponse) => {
-        if (response.action === 'addLostItem' && response.data && auth?.employee) {
-            try {
-                await addLostItem({
-                    description: response.data.description,
-                    found_at_location_id: response.data.location_id,
-                    found_at_room_id: response.data.room_id || '',
-                    found_by_employee_id: auth.employee.employee_id
-                });
-                fetchData();
-            } catch (e) {
-                console.error("AI Lost Item Error", e);
-            }
-        }
-    };
-
     const getEmployeeName = (id: string) => {
         const emp = employees.find(e => e.employee_id === id);
         return emp ? `${emp.first_name} ${emp.last_name}` : 'Desconocido';
@@ -94,17 +76,10 @@ const LostFoundView: React.FC = () => {
         return item.status === filter;
     });
 
-    // Determine AI Config based on Role
-    const role = auth?.role?.role_id;
-    let allowedAIInputs: InputMode[] | null = null;
-    if (role === 'cleaner') {
-        allowedAIInputs = ['voice'];
-    }
-
     if (isLoading) return <Spinner />;
 
     return (
-        <div className="space-y-6 relative">
+        <div className="space-y-6">
             <Card>
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                     <div className="flex items-center space-x-2">
@@ -192,14 +167,6 @@ const LostFoundView: React.FC = () => {
                     item={selectedItem}
                     locations={locations}
                     rooms={rooms}
-                />
-            )}
-
-            {allowedAIInputs && (
-                <AIAssistant 
-                    context={{ locations, rooms, currentUser: auth?.employee || undefined }} 
-                    onAction={handleAIAction}
-                    allowedInputs={allowedAIInputs}
                 />
             )}
         </div>

@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useContext, useCallback } from 'react';
 import Card from '../shared/Card';
 import Button from '../shared/Button';
@@ -6,8 +7,6 @@ import Spinner from '../shared/Spinner';
 import { AuthContext } from '../../App';
 import { getShiftLog, addShiftLogEntry, getEmployees, getRoles, updateShiftLogEntry } from '../../services/mockApi';
 import { ShiftLogEntry, Employee, Role } from '../../types';
-import AIAssistant, { InputMode } from '../shared/AIAssistant';
-import { AIResponse } from '../../services/geminiService';
 
 const ShiftLogView: React.FC = () => {
     const auth = useContext(AuthContext);
@@ -103,22 +102,6 @@ const ShiftLogView: React.FC = () => {
         }
     };
 
-    // AI Integration
-    const handleAIAction = async (response: AIResponse) => {
-        if (response.action === 'createShiftLog' && response.data && auth?.employee) {
-            try {
-                await addShiftLogEntry({
-                    employee_id: auth.employee.employee_id,
-                    message: response.data.message,
-                    target_role_id: response.data.target_role || 'all',
-                });
-                fetchData();
-            } catch (e) {
-                console.error("AI Create Shift Log Error", e);
-            }
-        }
-    };
-
     const getRoleName = (roleId: string) => {
         if (roleId === 'all') return 'General';
         return roles.find(r => r.role_id === roleId)?.name || 'Desconocido';
@@ -147,17 +130,9 @@ const ShiftLogView: React.FC = () => {
         handleStatusChange(logEntry, newStatus);
     };
 
-    // Determine AI Config based on Role
-    const role = auth?.role?.role_id;
-    let allowedAIInputs: InputMode[] | null = null;
-    if (['admin', 'receptionist', 'gobernanta', 'revenue', 'administracion'].includes(role || '')) {
-        allowedAIInputs = ['text', 'voice', 'image'];
-    } else if (role === 'cleaner') {
-        allowedAIInputs = ['voice'];
-    }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 relative">
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
       <div className="md:col-span-1">
         <Card title="Añadir Nota de Turno">
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -231,14 +206,6 @@ const ShiftLogView: React.FC = () => {
             )}
         </Card>
       </div>
-
-        {allowedAIInputs && (
-            <AIAssistant 
-                context={{ employees, currentUser: auth?.employee || undefined }} 
-                onAction={handleAIAction}
-                allowedInputs={allowedAIInputs}
-            />
-        )}
     </div>
   );
 };

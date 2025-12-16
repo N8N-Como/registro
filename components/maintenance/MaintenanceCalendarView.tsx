@@ -8,8 +8,6 @@ import Button from '../shared/Button';
 import Spinner from '../shared/Spinner';
 import MaintenancePlanFormModal from './MaintenancePlanFormModal';
 import { WrenchIcon, CalendarIcon } from '../icons';
-import AIAssistant, { InputMode } from '../shared/AIAssistant';
-import { AIResponse } from '../../services/geminiService';
 
 const MaintenanceCalendarView: React.FC = () => {
     const auth = useContext(AuthContext);
@@ -57,25 +55,6 @@ const MaintenanceCalendarView: React.FC = () => {
         setIsModalOpen(false);
     };
 
-    const handleAIAction = async (response: AIResponse) => {
-        if (response.action === 'createMaintenancePlan' && response.data && auth?.employee) {
-            try {
-                await addMaintenancePlan({
-                    title: response.data.title,
-                    description: response.data.description,
-                    frequency: response.data.frequency,
-                    location_id: response.data.location_id,
-                    next_due_date: new Date().toISOString().split('T')[0],
-                    active: true,
-                    created_by: auth.employee.employee_id
-                });
-                fetchData();
-            } catch (e) {
-                console.error("AI Create Maint Plan Error", e);
-            }
-        }
-    };
-
     const getLocationName = (id: string) => locations.find(l => l.location_id === id)?.name || 'N/A';
 
     const getFrequencyLabel = (freq: string) => {
@@ -88,19 +67,10 @@ const MaintenanceCalendarView: React.FC = () => {
         }
     };
 
-    // Determine AI Config based on Role
-    const role = auth?.role?.role_id;
-    let allowedAIInputs: InputMode[] | null = null;
-    if (['admin', 'receptionist', 'gobernanta', 'revenue', 'administracion'].includes(role || '')) {
-        allowedAIInputs = ['text', 'voice', 'image'];
-    } else if (role === 'maintenance') {
-        allowedAIInputs = ['voice'];
-    }
-
     if (isLoading) return <Spinner />;
 
     return (
-        <div className="space-y-6 relative">
+        <div className="space-y-6">
             <div className="flex justify-between items-center">
                 <h2 className="text-xl font-bold flex items-center gap-2">
                     <WrenchIcon className="text-primary" />
@@ -156,14 +126,6 @@ const MaintenanceCalendarView: React.FC = () => {
                     plan={selectedPlan}
                     locations={locations}
                     employeeId={auth.employee.employee_id}
-                />
-            )}
-
-            {allowedAIInputs && (
-                <AIAssistant 
-                    context={{ locations, currentUser: auth?.employee || undefined }} 
-                    onAction={handleAIAction}
-                    allowedInputs={allowedAIInputs}
                 />
             )}
         </div>

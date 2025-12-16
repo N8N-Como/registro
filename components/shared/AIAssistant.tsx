@@ -1,42 +1,42 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { SparklesIcon, MicrophoneIcon, XMarkIcon, PaperClipIcon } from '../icons';
+import { SparklesIcon, MicrophoneIcon, XMarkIcon } from '../icons';
 import { processNaturalLanguageCommand, ContextData, AIResponse, ChatMessage } from '../../services/geminiService';
-import { blobToBase64 } from '../../utils/helpers';
 
 export type InputMode = 'text' | 'voice' | 'image';
 
 interface AIAssistantProps {
     context: ContextData;
     onAction: (response: AIResponse) => void;
-    allowedInputs?: InputMode[]; // ['text', 'voice', 'image'] default
+    allowedInputs?: InputMode[] | null;
 }
 
-const AIAssistant: React.FC<AIAssistantProps> = ({ context, onAction, allowedInputs = ['text', 'voice', 'image'] }) => {
+const AIAssistant: React.FC<AIAssistantProps> = ({ context, onAction, allowedInputs }) => {
+    // Visibility state
     const [isOpen, setIsOpen] = useState(false);
+    
+    // Chat state
     const [messages, setMessages] = useState<ChatMessage[]>([
-        { role: 'model', text: 'Hola, soy tu asistente. ¿En qué te ayudo?' }
+        { role: 'model', text: 'Hola, soy tu asistente. Puedes pedirme crear tareas, reportar incidencias o consultarme algo. ¿En qué te ayudo?' }
     ]);
     const [inputText, setInputText] = useState('');
-    const [selectedImage, setSelectedImage] = useState<string | null>(null);
     
+    // Processing state
     const [isListening, setIsListening] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
     
+    // Refs
     const recognitionRef = useRef<any>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
-    const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const isVoiceOnly = allowedInputs.length === 1 && allowedInputs.includes('voice');
-    const canUseImage = allowedInputs.includes('image');
-    const canUseText = allowedInputs.includes('text');
-
+    // Scroll to bottom on new message
     useEffect(() => {
         if (isOpen) {
             messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
         }
     }, [messages, isOpen]);
 
+    // Initialize Speech Recognition
     useEffect(() => {
         if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
             const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -49,20 +49,20 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ context, onAction, allowedInp
                 const text = event.results[0][0].transcript;
                 setInputText(text);
                 setIsListening(false);
-                if (isVoiceOnly) {
-                    handleProcess(text); // Auto submit on voice only
-                }
+                handleProcess(text);
             };
 
             recognitionRef.current.onerror = (event: any) => {
+                console.error("Speech recognition error", event.error);
                 setIsListening(false);
+                // Don't alert, just stop visual indicator
             };
             
             recognitionRef.current.onend = () => {
                 setIsListening(false);
             };
         }
-    }, [isVoiceOnly]);
+    }, []);
 
     const toggleListening = () => {
         if (isListening) {
@@ -72,46 +72,47 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ context, onAction, allowedInp
                 recognitionRef.current?.start();
                 setIsListening(true);
             } catch (e) {
+                console.error("Mic error", e);
                 alert("No se puede acceder al micrófono.");
             }
         }
     };
 
-    const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            try {
-                const base64 = await blobToBase64(file);
-                setSelectedImage(base64);
-            } catch (err) {
-                console.error("Error reading image", err);
-            }
-        }
-    };
-
     const handleProcess = async (text: string) => {
-        if (!text.trim() && !selectedImage) return;
+        if (!text.trim()) return;
         
-        const userMsg: ChatMessage = { role: 'user', text, image: selectedImage || undefined };
+        // 1. Add User Message immediately
+        const userMsg: ChatMessage = { role: 'user', text };
         const newHistory = [...messages, userMsg];
         setMessages(newHistory);
-        
-        // Reset inputs
         setInputText('');
-        setSelectedImage(null);
         setIsProcessing(true);
         
         try {
+            // 2. Call API with full history
             const result = await processNaturalLanguageCommand(newHistory, context);
             
+            let modelText = result.message;
+            
             if (result.action !== 'none') {
+                // Execute action
                 onAction(result);
+                
+                // Formulate a success message based on action
+                if (result.action === 'createTask') {
+                    modelText = `✅ He creado la tarea: "${result.data.description}".`;
+                } else if (result.action === 'createIncident') {
+                    modelText = `✅ He reportado la incidencia en: "${result.data.description}".`;
+                } else if (result.action === 'createShift') {
+                    modelText = `✅ He creado el turno para el empleado.`;
+                }
             }
 
-            setMessages(prev => [...prev, { role: 'model', text: result.message }]);
+            // 3. Add Model Response
+            setMessages(prev => [...prev, { role: 'model', text: modelText }]);
             
         } catch (e) {
-            setMessages(prev => [...prev, { role: 'model', text: "Error de conexión." }]);
+            setMessages(prev => [...prev, { role: 'model', text: "Lo siento, tuve un problema de conexión." }]);
         } finally {
             setIsProcessing(false);
         }
@@ -124,6 +125,7 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ context, onAction, allowedInp
 
     return (
         <>
+            {/* Floating Action Button */}
             <button
                 onClick={() => setIsOpen(true)}
                 className="fixed bottom-6 right-6 bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-4 rounded-full shadow-xl hover:shadow-2xl transition-transform hover:scale-105 z-40 flex items-center justify-center border-2 border-white"
@@ -132,18 +134,20 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ context, onAction, allowedInp
                 <SparklesIcon className="w-8 h-8" />
             </button>
 
+            {/* Modal - Using display:none instead of conditional rendering to persist state */}
             <div className={`fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 backdrop-blur-sm bg-black/40 transition-opacity duration-200 ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
                 
-                <div className={`bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col h-[600px] max-h-[85vh] transition-transform duration-300 ${isOpen ? 'translate-y-0 scale-100' : 'translate-y-10 scale-95'}`}>
+                {/* Modal Content */}
+                <div 
+                    className={`bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col h-[600px] max-h-[85vh] transition-transform duration-300 ${isOpen ? 'translate-y-0 scale-100' : 'translate-y-10 scale-95'}`}
+                >
                     {/* Header */}
                     <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-4 flex justify-between items-center text-white shadow-md">
                         <div className="flex items-center space-x-2">
                             <SparklesIcon className="w-6 h-6" />
                             <div>
                                 <h3 className="font-bold text-lg leading-tight">Asistente IA</h3>
-                                <p className="text-xs text-indigo-100">
-                                    {isVoiceOnly ? 'Modo Voz' : 'Multimodal'}
-                                </p>
+                                <p className="text-xs text-indigo-100">Memoria activa</p>
                             </div>
                         </div>
                         <button onClick={() => setIsOpen(false)} className="hover:bg-white/20 rounded-full p-1 transition-colors">
@@ -154,10 +158,7 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ context, onAction, allowedInp
                     {/* Chat Area */}
                     <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50 custom-scrollbar">
                         {messages.map((msg, idx) => (
-                            <div key={idx} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                                {msg.image && (
-                                    <img src={msg.image} alt="Upload" className="w-32 h-32 object-cover rounded-lg mb-2 border shadow-sm" />
-                                )}
+                            <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                                 <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 shadow-sm text-sm ${
                                     msg.role === 'user' 
                                         ? 'bg-indigo-600 text-white rounded-br-none' 
@@ -181,74 +182,39 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ context, onAction, allowedInp
 
                     {/* Input Area */}
                     <div className="p-4 bg-white border-t border-gray-100">
-                        {selectedImage && (
-                            <div className="mb-2 flex items-center bg-gray-100 p-2 rounded-lg">
-                                <span className="text-xs text-gray-500 truncate flex-1">Imagen seleccionada</span>
-                                <button onClick={() => setSelectedImage(null)} className="text-red-500 hover:text-red-700">
-                                    <XMarkIcon className="w-4 h-4" />
-                                </button>
-                            </div>
-                        )}
-
-                        <div className="flex items-center space-x-2 justify-center">
-                            
-                            {/* Image Button (If allowed) */}
-                            {canUseImage && (
-                                <>
-                                    <button 
-                                        onClick={() => fileInputRef.current?.click()}
-                                        className="p-3 rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 transition-all flex-shrink-0"
-                                        title="Adjuntar Imagen"
-                                    >
-                                        <PaperClipIcon className="w-5 h-5" />
-                                    </button>
-                                    <input 
-                                        type="file" 
-                                        ref={fileInputRef} 
-                                        className="hidden" 
-                                        accept="image/*" 
-                                        onChange={handleImageUpload}
-                                    />
-                                </>
-                            )}
-
-                            {/* Mic Button */}
+                        <div className="flex items-center space-x-2">
                             <button
                                 onClick={toggleListening}
                                 className={`p-3 rounded-full transition-all flex-shrink-0 ${
                                     isListening 
-                                        ? 'bg-red-500 text-white animate-pulse ring-4 ring-red-100 scale-110' 
-                                        : isVoiceOnly ? 'bg-indigo-600 text-white hover:bg-indigo-700 w-12 h-12 flex items-center justify-center' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                                        ? 'bg-red-500 text-white animate-pulse ring-4 ring-red-100' 
+                                        : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
                                 }`}
                                 title="Dictar por voz"
                             >
-                                <MicrophoneIcon className={`${isVoiceOnly ? 'w-6 h-6' : 'w-5 h-5'}`} />
+                                <MicrophoneIcon className="w-5 h-5" />
                             </button>
                             
-                            {/* Text Input (If allowed) */}
-                            {canUseText && (
-                                <form onSubmit={handleSubmitText} className="flex-1 relative">
-                                    <input
-                                        type="text"
-                                        value={inputText}
-                                        onChange={(e) => setInputText(e.target.value)}
-                                        placeholder={isListening ? "Escuchando..." : "Escribe una orden..."}
-                                        className="w-full border-gray-200 bg-gray-50 rounded-full pl-5 pr-12 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-white transition-all shadow-inner"
-                                        disabled={isProcessing}
-                                    />
-                                    <button 
-                                        type="submit" 
-                                        disabled={!inputText.trim() && !selectedImage || isProcessing}
-                                        className="absolute right-2 top-1.5 bottom-1.5 bg-indigo-600 text-white rounded-full w-9 h-9 flex items-center justify-center hover:bg-indigo-700 disabled:opacity-50 disabled:hover:bg-indigo-600 transition-colors shadow-sm"
-                                    >
-                                        <svg className="w-4 h-4 transform rotate-90" fill="currentColor" viewBox="0 0 20 20">
-                                            <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
-                                        </svg>
-                                    </button>
-                                </form>
-                            )}
+                            <form onSubmit={handleSubmitText} className="flex-1 relative">
+                                <input
+                                    type="text"
+                                    value={inputText}
+                                    onChange={(e) => setInputText(e.target.value)}
+                                    placeholder="Escribe una orden..."
+                                    className="w-full border-gray-200 bg-gray-50 rounded-full pl-5 pr-12 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-white transition-all shadow-inner"
+                                    disabled={isProcessing}
+                                />
+                                <button 
+                                    type="submit" 
+                                    disabled={!inputText.trim() || isProcessing}
+                                    className="absolute right-2 top-1.5 bottom-1.5 bg-indigo-600 text-white rounded-full w-9 h-9 flex items-center justify-center hover:bg-indigo-700 disabled:opacity-50 disabled:hover:bg-indigo-600 transition-colors shadow-sm"
+                                >
+                                    <svg className="w-4 h-4 transform rotate-90" fill="currentColor" viewBox="0 0 20 20">
+                                        <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
+                                    </svg>
+                                </button>
+                            </form>
                         </div>
-                        {isVoiceOnly && <p className="text-center text-xs text-gray-400 mt-2">Modo solo voz activado</p>}
                     </div>
                 </div>
             </div>

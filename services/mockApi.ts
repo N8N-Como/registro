@@ -26,21 +26,8 @@ const FALLBACK_EMPLOYEES: Employee[] = [
     { employee_id: 'begona', first_name: 'Begoña', last_name: '', pin: '0003', role_id: 'cleaner', status: 'active', policy_accepted: true, photo_url: '' },
     { employee_id: 'maureen', first_name: 'Maureen', last_name: '', pin: '0004', role_id: 'cleaner', status: 'active', policy_accepted: true, photo_url: '' },
     { employee_id: 'marisa', first_name: 'Marisa', last_name: '', pin: '0005', role_id: 'cleaner', status: 'active', policy_accepted: true, photo_url: '' },
-    // PIN ACTUALIZADO A 8724
     { employee_id: 'anxo', first_name: 'Anxo', last_name: '', pin: '8724', role_id: 'receptionist', status: 'active', policy_accepted: true, photo_url: '' },
     { employee_id: 'oscar', first_name: 'Oscar', last_name: '', pin: '0007', role_id: 'receptionist', status: 'active', policy_accepted: true, photo_url: '' },
-    { employee_id: 'isabel', first_name: 'Maria Isabel', last_name: '', pin: '0008', role_id: 'cleaner', status: 'active', policy_accepted: true, photo_url: '' },
-    { employee_id: 'stephany', first_name: 'Stephany', last_name: '', pin: '0009', role_id: 'cleaner', status: 'active', policy_accepted: true, photo_url: '' },
-    { employee_id: 'yessica', first_name: 'Yessica', last_name: '', pin: '0010', role_id: 'cleaner', status: 'active', policy_accepted: true, photo_url: '' },
-    { employee_id: 'nisley', first_name: 'Nisley', last_name: '', pin: '0011', role_id: 'cleaner', status: 'active', policy_accepted: true, photo_url: '' },
-    { employee_id: 'mari', first_name: 'Dolores', last_name: 'Varela', pin: '0012', role_id: 'cleaner', status: 'active', policy_accepted: true, photo_url: '' },
-    { employee_id: 'diana', first_name: 'Diana', last_name: '', pin: '0013', role_id: 'cleaner', status: 'active', policy_accepted: true, photo_url: '' },
-    { employee_id: 'andres', first_name: 'Andres', last_name: '', pin: '0014', role_id: 'maintenance', status: 'active', policy_accepted: true, photo_url: '' },
-    { employee_id: 'itagu', first_name: 'Itagu', last_name: '', pin: '0015', role_id: 'cleaner', status: 'active', policy_accepted: true, photo_url: '' },
-    { employee_id: 'doris', first_name: 'Dolores', last_name: 'Escalante', pin: '0016', role_id: 'cleaner', status: 'active', policy_accepted: true, photo_url: '' },
-    { employee_id: 'silvia', first_name: 'Silvia', last_name: 'Estefania', pin: '0017', role_id: 'cleaner', status: 'active', policy_accepted: true, photo_url: '' },
-    { employee_id: 'laura', first_name: 'María Laura', last_name: 'Castro', pin: '0018', role_id: 'cleaner', status: 'active', policy_accepted: true, photo_url: '' },
-    { employee_id: 'yurima', first_name: 'Yurima', last_name: 'Mairoa', pin: '0019', role_id: 'cleaner', status: 'active', policy_accepted: true, photo_url: '' },
     { employee_id: 'emp_admin', first_name: 'Admin', last_name: 'Sistema', pin: '1234', role_id: 'admin', status: 'active', policy_accepted: true, photo_url: 'https://ui-avatars.com/api/?name=Admin+Sistema&background=0D8ABC&color=fff' },
 ];
 
@@ -63,105 +50,6 @@ const FALLBACK_INVENTORY: InventoryItem[] = [
     { item_id: 'item_1', name: 'Gel de Baño (Garrafa 5L)', category: 'amenities', quantity: 2, unit: 'garrafas', min_threshold: 1, last_updated: new Date().toISOString() },
     { item_id: 'item_2', name: 'Papel Higiénico Industrial', category: 'amenities', quantity: 15, unit: 'rollos', min_threshold: 10, last_updated: new Date().toISOString() },
 ];
-
-const SHIFT_MATRIX: Record<string, string[]> = {
-    'noelia': ['V', 'L', 'L', 'T', 'T', 'V', 'T', 'T', 'T', 'L', 'L', 'T', 'T', 'T', 'L', 'L', 'T', 'T', 'T', 'T', 'T', 'T', 'T', 'L', 'L', 'T', 'T', 'T', 'L', 'L', 'T'],
-    'lydia': ['V', 'T', 'T', 'P', 'P', 'V', 'P', 'L', 'L', 'P', 'P', 'P', 'P', 'P', 'T', 'T', 'L', 'L', 'V25', 'V25', 'V25', 'V25', 'V25', 'V25', 'V25', 'L', 'L', 'P', 'P', 'P', 'P'],
-    'begona': ['V', 'V25', 'V25', 'V25', 'L', 'V', 'L', 'P', 'P', 'T', 'T', 'P', 'L', 'L', 'P', 'P', 'P', 'P', 'P', 'P', 'P', 'L', 'L', 'T', 'T', 'P', 'P', 'P', 'T', 'T', 'L'],
-    'maureen': ['V', 'V25', 'L', 'L', 'V25', 'V', 'R', 'R', 'R', 'L', 'L', 'R', 'R', 'R', 'R', 'R', 'L', 'L', 'R', 'R', 'R', 'P', 'P', 'L', 'L', 'R', 'R', 'R', 'R', 'R', 'L'],
-    'marisa': ['V25', 'V25', 'V25', 'V25', 'V25', 'V25', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L', 'L'],
-    'anxo': ['V', 'P', 'P', 'L', 'D', 'V', 'D', 'D', 'D', 'L', 'L', 'D', 'D', 'D', 'D', 'D', 'L', 'L', 'D', 'D', 'D', 'L', 'L', 'P', 'P', 'V25', 'V25', 'V25', 'V25', 'V25', 'V25'],
-    'oscar': ['V', 'MM', 'L', 'L', 'MM', 'V', 'MM', 'MM', 'MM', 'L', 'L', 'MM', 'MM', 'MM', 'MM', 'MM', 'L', 'L', 'MM', 'MM', 'MM', 'MM', 'MM', 'L', 'L', 'MM', 'MM', 'MM', 'MM', 'MM', 'L'],
-    'isabel': Array(31).fill('B'),
-    'stephany': ['V25', 'V25', 'V25', 'V25', 'V25', 'V', 'M', 'M', 'M', 'L', 'L', 'M', 'M', 'M', 'L', 'L', 'M', 'M', 'M', 'M', 'M', 'M', 'M', 'L', 'L', 'M', 'M', 'M', 'L', 'L', 'M'],
-    'yessica': ['V', 'V', 'V', 'V', 'V', 'V', 'L', 'A', 'A', 'A', 'A', 'L', 'L', 'A', 'A', 'A', 'L', 'L', 'A', 'A', 'A', 'L', 'L', 'A', 'A', 'A', 'A', 'A', 'A', 'L', 'L'],
-    'nisley': ['V', 'A', 'A', 'L', 'L', 'V', 'A', 'A', 'L', 'L', 'L', 'L', 'A', 'A', 'A', 'A', 'A', 'A', 'L', 'L', 'A', 'A', 'A', 'A', 'A', 'A', 'A', 'L', 'L', 'A', 'A'],
-    'mari': Array(31).fill('B'), 
-    'diana': ['V', 'V', 'V', 'V', 'V', 'V', 'A', 'L', 'L', 'M', 'M', 'A', 'A', 'A', 'M', 'M', 'L', 'L', 'L', 'A', 'A', 'A', 'M', 'M', 'A', 'L', 'L', 'L', 'M', 'M', 'A'],
-    'andres': ['V', 'V', 'V', 'V', 'V', 'V', 'L', 'L', 'A', 'A', 'A', 'A', 'A', 'A', 'L', 'L', 'A', 'A', 'A', 'A', 'A', 'L', 'L', 'L', 'L', 'L', 'A', 'A', 'A', 'A', 'A'],
-    'itagu': ['V25', 'V25', 'V25', 'V25', 'V25', 'V25', 'V25', 'V25', 'V25', 'V25', 'V25', 'L', 'L', 'L', 'L', 'A', 'A', 'A', 'L', 'L', 'L', 'L', 'A', 'A', 'A', 'L', 'L', 'L', 'L', 'A', 'A'],
-    'doris': ['V', 'V', 'V', 'V', 'V', 'V', 'L', 'L', 'A', 'A', 'A', 'A', 'A', 'A', 'L', 'L', 'A', 'A', 'A', 'A', 'A', 'L', 'L', 'L', 'L', 'L', 'A', 'A', 'A', 'A', 'A'],
-    'silvia': ['V', 'V', 'V', 'V', 'V', 'V', 'L', 'L', 'A', 'A', 'A', 'A', 'A', 'A', 'L', 'L', 'A', 'A', 'A', 'A', 'A', 'L', 'L', 'L', 'L', 'L', 'A', 'A', 'A', 'A', 'A'],
-    'laura': ['V', 'V', 'V', 'V', 'V', 'V', 'L', 'L', 'A', 'A', 'A', 'A', 'A', 'A', 'L', 'L', 'A', 'A', 'A', 'A', 'A', 'L', 'L', 'L', 'L', 'L', 'A', 'A', 'A', 'A', 'A'],
-    'yurima': ['V', 'V', 'V', 'V', 'V', 'V', 'L', 'L', 'A', 'A', 'A', 'A', 'A', 'A', 'L', 'L', 'A', 'A', 'A', 'A', 'A', 'L', 'L', 'L', 'L', 'L', 'A', 'A', 'A', 'A', 'A']
-};
-
-const SHIFT_CONFIGS_MAP: any = {
-    'M': { start: '07:30', end: '15:30', color: '#93c5fd' },
-    'T': { start: '15:30', end: '23:30', color: '#fdba74' },
-    'P': { start: '09:00', end: '18:00', color: '#86efac' },
-    'MM': { start: '10:30', end: '14:30', color: '#5eead4' },
-    'R': { start: '09:00', end: '18:00', color: '#86efac' },
-    'A': { start: '11:00', end: '15:00', color: '#a5b4fc' },
-    'D': { start: '08:30', end: '18:30', color: '#c4b5fd' }
-};
-
-const findEmployeeIdByName = (employees: Employee[], nameKey: string): string | undefined => {
-    const key = nameKey.toLowerCase();
-    
-    if (key === 'mari') {
-        const varela = employees.find(e => e.first_name.toLowerCase().includes('dolores') && e.last_name.toLowerCase().includes('varela'));
-        return varela?.employee_id;
-    }
-    if (key === 'doris') {
-        const escalante = employees.find(e => e.first_name.toLowerCase().includes('dolores') && e.last_name.toLowerCase().includes('escalante'));
-        return escalante?.employee_id;
-    }
-    if (key === 'begona') {
-        const begona = employees.find(e => e.first_name.toLowerCase().includes('begoña') || e.first_name.toLowerCase().includes('begona'));
-        return begona?.employee_id;
-    }
-
-    const found = employees.find(e => {
-        const first = e.first_name.toLowerCase();
-        if (first === key || first.includes(key)) return true;
-        return false;
-    });
-    return found?.employee_id;
-};
-
-const generateDynamicJanuaryShifts = (employees: Employee[], locations: Location[]): WorkShift[] => {
-    const shifts: WorkShift[] = [];
-    const year = 2025;
-    
-    // Fallback location
-    let mainLocationId = locations[0]?.location_id || 'loc_main';
-
-    Object.entries(SHIFT_MATRIX).forEach(([nameKey, days]) => {
-        const empId = findEmployeeIdByName(employees, nameKey);
-        if (!empId) return;
-
-        days.forEach((code, idx) => {
-            const day = idx + 1;
-            const dateStr = `${year}-01-${day.toString().padStart(2, '0')}`;
-            const baseShift = {
-                shift_id: `auto_${empId}_${day}_${Math.random()}`,
-                employee_id: empId,
-                location_id: mainLocationId
-            };
-
-            if (code === 'L') {
-                shifts.push({ ...baseShift, type: 'off', start_time: `${dateStr}T00:00:00`, end_time: `${dateStr}T23:59:59`, color: '#f3f4f6', notes: 'L' } as WorkShift); 
-            } else if (['V', 'V25'].includes(code)) {
-                shifts.push({ ...baseShift, type: 'vacation', start_time: `${dateStr}T00:00:00`, end_time: `${dateStr}T23:59:59`, color: '#d1fae5', notes: code } as WorkShift);
-            } else if (code === 'B') {
-                shifts.push({ ...baseShift, type: 'sick', start_time: `${dateStr}T00:00:00`, end_time: `${dateStr}T23:59:59`, color: '#fee2e2', notes: 'B' } as WorkShift);
-            } else if (SHIFT_CONFIGS_MAP[code]) {
-                const cfg = SHIFT_CONFIGS_MAP[code];
-                shifts.push({
-                    ...baseShift,
-                    type: 'work',
-                    start_time: `${dateStr}T${cfg.start}:00`,
-                    end_time: `${dateStr}T${cfg.end}:00`,
-                    color: cfg.color,
-                    notes: code,
-                    location_id: mainLocationId
-                } as WorkShift);
-            }
-        });
-    });
-    return shifts;
-};
 
 const handleSupabaseError = (error: any, context: string) => {
     console.error(`Error in ${context}:`, error);
@@ -207,12 +95,10 @@ export const getEmployees = async (): Promise<Employee[]> => {
     try {
         const { data, error } = await supabase.from('employees').select('*');
         
-        // Critical Logic for Blank Screen fix:
+        // Comprobación de integridad básica
         const hasKeyStaff = data && data.some((e: any) => e.first_name.toLowerCase() === 'noelia');
-        // Check if schema is incomplete (missing new columns)
-        const isSchemaIncomplete = data && data.length > 0 && !('annual_hours_contract' in data[0]);
+        if (error || !data || data.length <= 1 || !hasKeyStaff) return FALLBACK_EMPLOYEES;
         
-        if (error || !data || data.length <= 1 || !hasKeyStaff || isSchemaIncomplete) return FALLBACK_EMPLOYEES;
         return data;
     } catch (error) { return FALLBACK_EMPLOYEES; }
 };
@@ -241,6 +127,19 @@ export const updateEmployee = async (employeeData: Employee): Promise<Employee> 
         if (error) throw error;
         return data;
     } catch (e) { return employeeData; }
+};
+
+// --- NEW: DELETE EMPLOYEE ---
+export const deleteEmployee = async (employeeId: string): Promise<void> => {
+    try {
+        const { error } = await supabase.from('employees').delete().eq('employee_id', employeeId);
+        if (error) {
+            console.error("Error deleting employee:", error);
+            throw new Error(error.message);
+        }
+    } catch (e: any) { 
+        throw new Error("No se pudo eliminar el empleado. Es posible que tenga registros asociados (fichajes, turnos, etc.). Intenta desactivarlo (Inactivo) en su lugar.");
+    }
 };
 
 export const acceptPolicy = async (employeeId: string): Promise<void> => {
@@ -712,18 +611,10 @@ export const updateTimeOffRequestStatus = async (requestId: string, status: 'app
 export const getWorkShifts = async (startDate: string, endDate: string): Promise<WorkShift[]> => {
     try {
         const { data, error } = await supabase.from('work_shifts').select('*').gte('start_time', startDate).lte('end_time', endDate);
-        
-        // AUTO-FILL LOGIC: If DB has no shifts, generate dynamic ones mapped to real employees
-        if (error || !data || data.length === 0) {
-             console.warn("Generating dynamic fallback shifts (mapped to current employees)");
-             const employees = await getEmployees();
-             const locations = await getLocations();
-             return generateDynamicJanuaryShifts(employees, locations);
-        }
-        return data || [];
+        if (error || !data) return [];
+        return data;
     } catch(e) {
-        // Fallback for offline mode completely
-        return generateDynamicJanuaryShifts(FALLBACK_EMPLOYEES, FALLBACK_LOCATIONS);
+        return [];
     }
 };
 
@@ -747,7 +638,9 @@ export const deleteWorkShift = async (shiftId: string): Promise<void> => {
     try {
         const { error } = await supabase.from('work_shifts').delete().eq('shift_id', shiftId);
         if (error) throw error;
-    } catch(e) { }
+    } catch(e: any) { 
+        throw new Error(e.message || "Error al eliminar turno"); 
+    }
 };
 
 export const getShiftConfigs = async (): Promise<ShiftConfig[]> => {
@@ -771,6 +664,7 @@ export const addShiftConfig = async (data: any): Promise<ShiftConfig> => {
 
 export const updateShiftConfig = async (data: ShiftConfig): Promise<ShiftConfig> => {
     try {
+        // Fix for empty string location_id causing UUID errors
         const payload = { ...data };
         if (!payload.location_id || payload.location_id === '') {
             (payload as any).location_id = null;

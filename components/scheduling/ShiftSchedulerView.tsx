@@ -24,7 +24,7 @@ import { CalendarIcon, DocumentIcon } from '../icons';
 import AIAssistant, { InputMode } from '../shared/AIAssistant';
 import { AIResponse } from '../../services/geminiService';
 
-// Orden específico solicitado para el cuadrante
+// ORDEN ESPECÍFICO SOLICITADO
 const NAME_SORT_ORDER = [
     'noelia', 'lydia', 'begoña', 'begona', 'maureen', 'marisa', 
     'anxo', 'oscar', 'isabel', 'stephany', 'yessica', 
@@ -34,7 +34,7 @@ const NAME_SORT_ORDER = [
 
 const ShiftSchedulerView: React.FC = () => {
     const auth = useContext(AuthContext);
-    const [currentWeekStart, setCurrentWeekStart] = useState(new Date(2025, 0, 1)); // Enero 2025 por defecto
+    const [currentWeekStart, setCurrentWeekStart] = useState(new Date(2025, 0, 1)); // Enero 2025 por defecto para demo
     const [shifts, setShifts] = useState<WorkShift[]>([]);
     const [yearShifts, setYearShifts] = useState<WorkShift[]>([]); 
     const [employees, setEmployees] = useState<Employee[]>([]);
@@ -51,38 +51,38 @@ const ShiftSchedulerView: React.FC = () => {
     const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
     const [selectedConfig, setSelectedConfig] = useState<ShiftConfig | null>(null);
 
-    const daysInView = 31; // Vista mensual
+    const daysInView = 31; // Vista mensual completa
     
-    // --- LÓGICA DE PERMISOS ---
-    // Roles que pueden ver TODO y editar: Admin, Recepción, Gobernanta, Revenue, Administración
+    // --- PERMISOS ---
     const canManage = useMemo(() => {
         const role = auth?.role?.role_id || '';
         return ['admin', 'receptionist', 'gobernanta', 'revenue', 'administracion'].includes(role);
     }, [auth?.role]);
 
+    // Generar días del mes
     const viewDays = useMemo(() => {
         const days = [];
         const start = new Date(currentWeekStart.getFullYear(), currentWeekStart.getMonth(), 1);
         
-        for (let i = 0; i < daysInView; i++) {
+        // Obtener último día del mes
+        const lastDay = new Date(currentWeekStart.getFullYear(), currentWeekStart.getMonth() + 1, 0).getDate();
+
+        for (let i = 0; i < lastDay; i++) {
             const d = new Date(start);
             d.setDate(start.getDate() + i);
-            if (d.getMonth() === start.getMonth()) {
-                days.push(d);
-            }
+            days.push(d);
         }
         return days;
     }, [currentWeekStart]);
 
-    // Función auxiliar para ordenar empleados según la lista
+    // Función de ordenación
     const getSortIndex = (employee: Employee) => {
         const fullName = `${employee.first_name} ${employee.last_name}`.toLowerCase();
         
-        // Mapeos específicos para nombres compuestos o confusos
+        // Mapeos específicos
         if (fullName.includes('dolores') && fullName.includes('varela')) return NAME_SORT_ORDER.indexOf('dolores varela');
         if (fullName.includes('dolores') && fullName.includes('escalante')) return NAME_SORT_ORDER.indexOf('dolores escalante');
         
-        // Búsqueda general
         const index = NAME_SORT_ORDER.findIndex(key => fullName.includes(key));
         return index !== -1 ? index : 999; 
     };
@@ -91,35 +91,29 @@ const ShiftSchedulerView: React.FC = () => {
         setIsLoading(true);
         setError(null);
         try {
-            // 1. Cargar Empleados y Ubicaciones
             const [emps, locs] = await Promise.all([getEmployees(), getLocations()]);
             
-            // 2. Filtrar Empleados
+            // FILTRADO Y ORDENACIÓN
             let operationalStaff = emps.filter(e => 
                 e.role_id !== 'admin' && 
                 !e.first_name.toLowerCase().includes('admin')
             );
 
-            // --- APLICAR RESTRICCIÓN DE VISTA ---
-            // Si NO es manager, filtrar la lista para que solo contenga al usuario actual
+            // Restricción de vista: Empleados normales solo se ven a sí mismos
             if (!canManage && auth?.employee) {
                 operationalStaff = operationalStaff.filter(e => e.employee_id === auth.employee!.employee_id);
             }
-            // ------------------------------------
 
             operationalStaff.sort((a, b) => getSortIndex(a) - getSortIndex(b));
             setEmployees(operationalStaff);
             setLocations(locs);
 
-            // 3. Cargar Configuraciones de Turno
             try {
                 const configs = await getShiftConfigs();
                 setShiftConfigs(configs);
-            } catch (e) {
-                setShiftConfigs([]);
-            }
+            } catch (e) { setShiftConfigs([]); }
             
-            // 4. Cargar Turnos del Mes
+            // Cargar turnos del mes
             if (viewDays.length > 0) {
                 const startStr = viewDays[0].toISOString();
                 const endStr = viewDays[viewDays.length - 1].toISOString().replace(/T.*/, 'T23:59:59');
@@ -127,15 +121,15 @@ const ShiftSchedulerView: React.FC = () => {
                 setShifts(weekShifts);
             }
 
-            // 5. Cargar Turnos del Año (para cálculo de horas)
+            // Cargar anuales (para contadores)
             const yearStart = new Date(currentWeekStart.getFullYear(), 0, 1).toISOString();
             const yearEnd = new Date(currentWeekStart.getFullYear(), 11, 31).toISOString();
             const allShifts = await getWorkShifts(yearStart, yearEnd);
             setYearShifts(allShifts);
 
         } catch (err: any) {
-            console.error("Error cargando cuadrante:", err);
-            setError("No se pudieron cargar los datos. Verifica tu conexión.");
+            console.error(err);
+            setError("Error cargando datos.");
         } finally {
             setIsLoading(false);
         }
@@ -162,9 +156,8 @@ const ShiftSchedulerView: React.FC = () => {
         setCurrentWeekStart(new Date(now.getFullYear(), now.getMonth(), 1));
     };
 
-    // Acciones de Celda
     const handleCellClick = (employeeId: string, date: Date) => {
-        if (!canManage) return; // Bloquear edición a no-managers
+        if (!canManage) return;
         setModalContext({ employeeId, date });
         setSelectedShift(null);
         setIsModalOpen(true);
@@ -172,7 +165,7 @@ const ShiftSchedulerView: React.FC = () => {
 
     const handleShiftClick = (e: React.MouseEvent, shift: WorkShift) => {
         e.stopPropagation();
-        if (!canManage) return; // Bloquear edición a no-managers
+        if (!canManage) return;
         setSelectedShift(shift);
         setModalContext({ employeeId: shift.employee_id, date: new Date(shift.start_time) });
         setIsModalOpen(true);
@@ -180,67 +173,52 @@ const ShiftSchedulerView: React.FC = () => {
 
     const handleSaveShift = async (shiftData: WorkShift | Omit<WorkShift, 'shift_id'>) => {
         try {
-            if ('shift_id' in shiftData) {
-                await updateWorkShift(shiftData);
-            } else {
-                await createWorkShift(shiftData);
-            }
+            if ('shift_id' in shiftData) await updateWorkShift(shiftData);
+            else await createWorkShift(shiftData);
             fetchSchedulerData(); 
             setIsModalOpen(false);
-        } catch (error) {
-            alert("Error al guardar el turno");
-        }
+        } catch (error) { alert("Error al guardar"); }
     };
 
     const handleDeleteShift = async (shiftId: string) => {
         try {
             await deleteWorkShift(shiftId);
-            setShifts(prev => prev.filter(s => s.shift_id !== shiftId));
             setIsModalOpen(false);
-        } catch (error) {
-            alert("Error al eliminar");
+            // IMPORTANTE: Recargar datos completos para actualizar contadores anuales
+            fetchSchedulerData(); 
+        } catch (error) { 
+            console.error(error);
+            alert("Error al eliminar turno. Inténtalo de nuevo."); 
         }
     };
     
     const handleBulkImport = async (newShifts: Omit<WorkShift, 'shift_id'>[]) => {
-        for (const shift of newShifts) {
-            await createWorkShift(shift);
-        }
+        for (const shift of newShifts) await createWorkShift(shift);
         fetchSchedulerData();
     };
 
-    // Acciones de Configuración (Leyenda)
+    // Configuración de Turnos
     const handleEditConfig = (config: ShiftConfig | null) => {
         if (!canManage) return;
         setSelectedConfig(config);
         setIsConfigModalOpen(true);
     };
-
     const handleSaveConfig = async (data: any) => {
         try {
-            if ('config_id' in data) {
-                await updateShiftConfig(data);
-            } else {
-                await addShiftConfig(data);
-            }
+            if ('config_id' in data) await updateShiftConfig(data);
+            else await addShiftConfig(data);
             fetchSchedulerData();
             setIsConfigModalOpen(false);
-        } catch (e: any) {
-            alert("Error: " + e.message);
-        }
+        } catch (e: any) { alert("Error: " + e.message); }
     };
-
     const handleDeleteConfig = async (id: string) => {
         try {
             await deleteShiftConfig(id);
             fetchSchedulerData();
             setIsConfigModalOpen(false);
-        } catch (e) {
-            alert("Error al eliminar configuración.");
-        }
+        } catch (e) { alert("Error al eliminar config."); }
     };
     
-    // Integración IA
     const handleAIAction = async (response: AIResponse) => {
         if (response.action === 'createShift' && response.data) {
             try {
@@ -252,17 +230,9 @@ const ShiftSchedulerView: React.FC = () => {
                     location_id: response.data.location_id
                 });
                 fetchSchedulerData();
-            } catch (e) {
-                console.error("AI Create Shift Error", e);
-            }
+            } catch (e) { console.error(e); }
         }
     };
-
-    const role = auth?.role?.role_id;
-    let allowedAIInputs: InputMode[] | null = null;
-    if (['admin', 'receptionist', 'gobernanta', 'revenue', 'administracion'].includes(role || '')) {
-        allowedAIInputs = ['text', 'voice', 'image'];
-    }
 
     const calculateAnnualHours = (employeeId: string) => {
         const empShifts = yearShifts.filter(s => s.employee_id === employeeId && (!s.type || s.type === 'work'));
@@ -272,6 +242,8 @@ const ShiftSchedulerView: React.FC = () => {
         });
         return totalMs / (1000 * 60 * 60);
     };
+
+    const allowedAIInputs: InputMode[] | null = canManage ? ['text', 'voice', 'image'] : null;
 
     if (isLoading && employees.length === 0) return <Spinner />;
     
@@ -288,6 +260,7 @@ const ShiftSchedulerView: React.FC = () => {
 
     return (
         <div className="space-y-4 relative">
+            {/* Header Toolbar */}
             <div className="flex flex-col xl:flex-row justify-between items-center bg-white p-4 rounded-lg shadow-sm border border-gray-200 gap-4">
                 <div className="flex items-center space-x-2">
                     <CalendarIcon className="w-6 h-6 text-primary" />
@@ -315,6 +288,7 @@ const ShiftSchedulerView: React.FC = () => {
                 )}
             </div>
 
+            {/* TABLA PRINCIPAL */}
             <Card className="overflow-hidden p-0 border-0 shadow-lg">
                 <div className="overflow-x-auto">
                     <table className="w-full border-collapse">
@@ -326,7 +300,7 @@ const ShiftSchedulerView: React.FC = () => {
                                 {viewDays.map(day => {
                                     const isToday = day.toDateString() === new Date().toDateString();
                                     return (
-                                        <th key={day.toISOString()} className={`p-1 text-center border-r border-blue-500 min-w-[30px] ${isToday ? 'bg-blue-800' : ''}`}>
+                                        <th key={day.toISOString()} className={`p-1 text-center border-r border-blue-500 min-w-[32px] ${isToday ? 'bg-blue-800' : ''}`}>
                                             <div className="text-[10px] font-bold">{day.getDate()}</div>
                                             <div className="text-[9px] opacity-75">{day.toLocaleDateString('es-ES', { weekday: 'narrow' })}</div>
                                         </th>
@@ -367,7 +341,7 @@ const ShiftSchedulerView: React.FC = () => {
                                                     let displayCode = '';
                                                     if (shift.shift_config_id) {
                                                         const cfg = shiftConfigs.find(c => c.config_id === shift.shift_config_id);
-                                                        displayCode = cfg?.code || shift.notes || '?';
+                                                        displayCode = cfg?.code || shift.notes?.substring(0,2) || '?';
                                                     } else if (shift.notes && shift.notes.length <= 4) {
                                                         displayCode = shift.notes;
                                                     } else if (shift.type === 'off') displayCode = 'L';
@@ -375,7 +349,7 @@ const ShiftSchedulerView: React.FC = () => {
                                                     else if (shift.type === 'sick') displayCode = 'B';
                                                     else displayCode = new Date(shift.start_time).getHours().toString();
 
-                                                    if (i > 0) return null; 
+                                                    if (i > 0) return null; // Solo muestra 1 turno por celda visualmente
 
                                                     return (
                                                         <div 
@@ -383,7 +357,7 @@ const ShiftSchedulerView: React.FC = () => {
                                                             onClick={(e) => handleShiftClick(e, shift)}
                                                             className="w-full h-full flex items-center justify-center text-white font-bold text-xs shadow-inner"
                                                             style={{ backgroundColor: shift.color || '#9ca3af' }}
-                                                            title={`${shift.notes || 'Turno'} (${new Date(shift.start_time).toLocaleTimeString()} - ${new Date(shift.end_time).toLocaleTimeString()})`}
+                                                            title={`${shift.notes || 'Turno'} (${new Date(shift.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - ${new Date(shift.end_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})})`}
                                                         >
                                                             {displayCode}
                                                         </div>
@@ -398,6 +372,7 @@ const ShiftSchedulerView: React.FC = () => {
                     </table>
                 </div>
                 
+                {/* LEYENDA */}
                 <div className="p-2 bg-gray-50 border-t flex flex-wrap gap-4 text-[10px] text-gray-600 justify-center items-center">
                     <p className="mr-2 font-bold text-gray-400 uppercase">Leyenda:</p>
                     {shiftConfigs.map(cfg => (

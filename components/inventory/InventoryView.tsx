@@ -9,8 +9,6 @@ import Spinner from '../shared/Spinner';
 import { BoxIcon, ShoppingCartIcon, BuildingIcon } from '../icons';
 import StockMovementModal from './StockMovementModal';
 import StockHistoryModal from './StockHistoryModal';
-import AIAssistant, { InputMode } from '../shared/AIAssistant';
-import { AIResponse } from '../../services/geminiService';
 
 const InventoryView: React.FC = () => {
     const auth = useContext(AuthContext);
@@ -82,25 +80,6 @@ const InventoryView: React.FC = () => {
         } catch(e) { alert("Error actualizando stock"); }
     };
 
-    const handleAIAction = async (response: AIResponse) => {
-        if (response.action === 'updateStock' && response.data && auth?.employee) {
-            try {
-                // Find item by fuzzy name match
-                const targetItem = items.find(i => i.name.toLowerCase().includes(response.data.item_name.toLowerCase()));
-                if (targetItem) {
-                    const newQty = targetItem.quantity + response.data.quantity_change;
-                    await updateInventoryItem({ ...targetItem, quantity: newQty });
-                    await logStockMovement(targetItem.item_id, response.data.quantity_change, response.data.reason || 'AI Update', auth.employee.employee_id);
-                    loadData();
-                } else {
-                    alert(`No he encontrado el producto: ${response.data.item_name}`);
-                }
-            } catch (e) {
-                console.error("AI Stock Update Error", e);
-            }
-        }
-    };
-
     const categories = {
         cleaning: 'Limpieza',
         amenities: 'Amenities',
@@ -114,13 +93,6 @@ const InventoryView: React.FC = () => {
         return locations.find(l => l.location_id === id)?.name || "Ubicación Desconocida";
     };
 
-    // Determine AI Config based on Role
-    const role = auth?.role?.role_id;
-    let allowedAIInputs: InputMode[] | null = null;
-    if (['maintenance', 'cleaner'].includes(role || '')) {
-        allowedAIInputs = ['voice'];
-    }
-
     // --- Filter Logic ---
     const filteredItems = items.filter(item => {
         const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase());
@@ -132,7 +104,7 @@ const InventoryView: React.FC = () => {
     if (isLoading) return <Spinner />;
 
     return (
-        <div className="space-y-6 relative">
+        <div className="space-y-6">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <h2 className="text-xl font-bold flex items-center gap-2">
                     <ShoppingCartIcon className="text-primary" />
@@ -276,14 +248,6 @@ const InventoryView: React.FC = () => {
                     isOpen={!!historyItem}
                     onClose={() => setHistoryItem(null)}
                     item={historyItem}
-                />
-            )}
-
-            {allowedAIInputs && (
-                <AIAssistant 
-                    context={{ locations, currentUser: auth?.employee || undefined }} 
-                    onAction={handleAIAction}
-                    allowedInputs={allowedAIInputs}
                 />
             )}
         </div>

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useContext } from 'react';
-import { getEmployees, getLocations, getRoles, addEmployee, updateEmployee, addLocation, updateLocation, getRooms, addRoom, updateRoom, updateRole, getShiftConfigs, addShiftConfig, updateShiftConfig, deleteShiftConfig, getTimeCorrectionRequests, resolveTimeCorrectionRequest } from '../../services/mockApi';
+import { getEmployees, getLocations, getRoles, addEmployee, updateEmployee, deleteEmployee, addLocation, updateLocation, getRooms, addRoom, updateRoom, updateRole, getShiftConfigs, addShiftConfig, updateShiftConfig, deleteShiftConfig, getTimeCorrectionRequests, resolveTimeCorrectionRequest } from '../../services/mockApi';
 import { Employee, Location, Role, Room, Permission, ShiftConfig, TimeCorrectionRequest } from '../../types';
 import { AuthContext } from '../../App';
 import Button from '../shared/Button';
@@ -96,10 +96,17 @@ const AdminView: React.FC = () => {
         fetchData();
         setIsEmployeeModalOpen(false);
     } catch (e) {
-        // Warning: The retry logic in mockApi suppresses the error if handled, 
-        // so if we are here, it's a real failure.
         alert("Error al guardar empleado: " + (e as any).message);
     }
+  };
+  const handleDeleteEmployee = async (employeeId: string) => {
+      try {
+          await deleteEmployee(employeeId);
+          fetchData();
+          setIsEmployeeModalOpen(false);
+      } catch (e: any) {
+          alert(e.message);
+      }
   };
 
   // Location Handlers
@@ -462,6 +469,7 @@ const AdminView: React.FC = () => {
             isOpen={isEmployeeModalOpen}
             onClose={() => setIsEmployeeModalOpen(false)}
             onSave={handleSaveEmployee}
+            onDelete={handleDeleteEmployee}
             employee={selectedEmployee}
             roles={roles}
         />
