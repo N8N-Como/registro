@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useContext } from 'react';
-import { getEmployees, getLocations, getRoles, addEmployee, updateEmployee, addLocation, updateLocation, getRooms, addRoom, updateRoom, updateRole, getShiftConfigs, addShiftConfig, updateShiftConfig, deleteShiftConfig, getTimeCorrectionRequests, resolveTimeCorrectionRequest } from '../../services/mockApi';
+import { getEmployees, getLocations, getRoles, addEmployee, updateEmployee, addLocation, updateLocation, getRooms, addRoom, updateRoom, updateRole, getShiftConfigs, addShiftConfig, updateShiftConfig, deleteShiftConfig, getTimeCorrectionRequests, resolveTimeCorrectionRequest, deleteEmployee, deleteLocation, deleteRoom } from '../../services/mockApi';
 import { Employee, Location, Role, Room, Permission, ShiftConfig, TimeCorrectionRequest } from '../../types';
 import { AuthContext } from '../../App';
 import Button from '../shared/Button';
@@ -12,7 +12,7 @@ import RoomFormModal from './RoomFormModal';
 import RoleFormModal from './RoleFormModal';
 import ShiftConfigFormModal from './ShiftConfigFormModal';
 import SchemaHelpModal from './SchemaHelpModal';
-import { DoorOpenIcon, KeyIcon, CalendarIcon, WrenchIcon, ReportIcon, CheckIcon, XMarkIcon } from '../icons';
+import { DoorOpenIcon, KeyIcon, CalendarIcon, WrenchIcon, ReportIcon, CheckIcon, XMarkIcon, TrashIcon } from '../icons';
 
 type AdminTab = 'employees' | 'locations' | 'rooms' | 'roles' | 'shift_configs' | 'corrections';
 
@@ -101,6 +101,16 @@ const AdminView: React.FC = () => {
         alert("Error al guardar empleado: " + (e as any).message);
     }
   };
+  const handleDeleteEmployee = async (employee: Employee) => {
+      if (window.confirm(`¿Seguro que quieres eliminar a ${employee.first_name} ${employee.last_name}? Esta acción no se puede deshacer.`)) {
+          try {
+              await deleteEmployee(employee.employee_id);
+              fetchData();
+          } catch (e: any) {
+              alert(e.message);
+          }
+      }
+  };
 
   // Location Handlers
   const handleEditLocation = (location: Location) => {
@@ -125,6 +135,16 @@ const AdminView: React.FC = () => {
         alert("Error al guardar ubicación. Comprueba que los datos sean correctos.");
     }
   };
+  const handleDeleteLocation = async (location: Location) => {
+      if (window.confirm(`¿Seguro que quieres eliminar la ubicación ${location.name}?`)) {
+          try {
+              await deleteLocation(location.location_id);
+              fetchData();
+          } catch (e: any) {
+              alert(e.message);
+          }
+      }
+  };
 
   // Room Handlers
   const handleEditRoom = (room: Room) => {
@@ -147,6 +167,16 @@ const AdminView: React.FC = () => {
     } catch (e) {
         alert("Error al guardar habitación/zona.");
     }
+  };
+  const handleDeleteRoom = async (room: Room) => {
+      if (window.confirm(`¿Seguro que quieres eliminar la habitación/zona ${room.name}?`)) {
+          try {
+              await deleteRoom(room.room_id);
+              fetchData();
+          } catch (e: any) {
+              alert(e.message);
+          }
+      }
   };
 
   // Role Handlers
@@ -283,8 +313,9 @@ const AdminView: React.FC = () => {
                         <td className="p-3">{emp.first_name} {emp.last_name}</td>
                         <td className="p-3">{getRoleName(emp.role_id)}</td>
                         <td className="p-3 capitalize">{emp.status}</td>
-                        <td className="p-3">
+                        <td className="p-3 flex space-x-2">
                             <Button variant="secondary" size="sm" onClick={() => handleEditEmployee(emp)}>Editar</Button>
+                            <button onClick={() => handleDeleteEmployee(emp)} className="text-red-500 hover:text-red-700" title="Eliminar"><TrashIcon className="w-5 h-5"/></button>
                         </td>
                         </tr>
                     ))}
@@ -355,8 +386,9 @@ const AdminView: React.FC = () => {
                         <td className="p-3">{loc.name}</td>
                         <td className="p-3">{loc.address}</td>
                         <td className="p-3">{loc.radius_meters}</td>
-                        <td className="p-3">
+                        <td className="p-3 flex space-x-2">
                             <Button variant="secondary" size="sm" onClick={() => handleEditLocation(loc)}>Editar</Button>
+                            <button onClick={() => handleDeleteLocation(loc)} className="text-red-500 hover:text-red-700" title="Eliminar"><TrashIcon className="w-5 h-5"/></button>
                         </td>
                         </tr>
                     ))}
@@ -383,8 +415,9 @@ const AdminView: React.FC = () => {
                         <tr key={room.room_id} className="border-b hover:bg-gray-50">
                         <td className="p-3">{room.name}</td>
                         <td className="p-3">{getLocationName(room.location_id)}</td>
-                        <td className="p-3">
+                        <td className="p-3 flex space-x-2">
                             <Button variant="secondary" size="sm" onClick={() => handleEditRoom(room)}>Editar</Button>
+                            <button onClick={() => handleDeleteRoom(room)} className="text-red-500 hover:text-red-700" title="Eliminar"><TrashIcon className="w-5 h-5"/></button>
                         </td>
                         </tr>
                     ))}

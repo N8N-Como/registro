@@ -1,12 +1,12 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useContext } from 'react';
-import { getTasks, getRooms, getEmployees, addTask, getLocations, updateTask } from '../../services/mockApi';
+import { getTasks, getRooms, getEmployees, addTask, getLocations, updateTask, deleteTask } from '../../services/mockApi';
 import { Task, Room, Employee, Location } from '../../types';
 import Card from '../shared/Card';
 import Button from '../shared/Button';
 import Spinner from '../shared/Spinner';
 import TaskFormModal from './TaskFormModal';
-import { CheckIcon } from '../icons';
+import { CheckIcon, TrashIcon } from '../icons';
 import AIAssistant from '../shared/AIAssistant';
 import { AuthContext } from '../../App';
 import { AIResponse } from '../../services/geminiService';
@@ -22,6 +22,8 @@ const GobernantaView: React.FC = () => {
     const [editingTask, setEditingTask] = useState<Task | null>(null);
     
     const cleaningStaff = useMemo(() => employees.filter(e => e.role_id === 'cleaner'), [employees]);
+
+    const canManage = auth?.role?.role_id === 'admin' || auth?.role?.role_id === 'gobernanta';
 
     const displayStaff = useMemo(() => {
         const allCleanersPseudoEmployee: Employee = { 
@@ -80,6 +82,18 @@ const GobernantaView: React.FC = () => {
         setIsModalOpen(false);
         setEditingTask(null);
     }
+
+    const handleDeleteTask = async (taskId: string) => {
+        if (window.confirm("¿Estás seguro de querer eliminar esta tarea?")) {
+            try {
+                await deleteTask(taskId);
+                fetchData();
+            } catch (e) {
+                console.error(e);
+                alert("Error al eliminar la tarea.");
+            }
+        }
+    };
     
     const handleAIAction = async (response: AIResponse) => {
         if (response.action === 'createTask' && response.data) {
@@ -239,37 +253,47 @@ const GobernantaView: React.FC = () => {
                                                         const isCompleted = task.status === 'completed';
 
                                                         return (
-                                                        <button 
-                                                            key={task.task_id} 
-                                                            onClick={() => handleOpenEditModal(task)}
-                                                            className={`
-                                                                w-full text-left rounded-md border shadow-sm transition-all relative group
-                                                                ${styles.bg} ${styles.border} ${isCompleted ? 'opacity-50 grayscale' : 'hover:scale-[1.02] hover:shadow-md'}
-                                                            `}
-                                                        >
-                                                            {/* Barra lateral de color intenso */}
-                                                            <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-md ${styles.text.replace('text-', 'bg-').replace('800', '400')}`}></div>
-                                                            
-                                                            <div className="pl-2.5 pr-1 py-1.5">
-                                                                {/* Cabecera: Ubicación */}
-                                                                <div className="flex justify-between items-start mb-0.5">
-                                                                    <span className={`text-[9px] font-bold uppercase tracking-wider px-1 rounded-sm ${styles.badge}`}>
-                                                                        {location?.name || 'S/E'}
-                                                                    </span>
-                                                                    {isCompleted && <CheckIcon className="w-3 h-3 text-green-600" />}
-                                                                </div>
+                                                        <div key={task.task_id} className="relative group">
+                                                            <button 
+                                                                onClick={() => handleOpenEditModal(task)}
+                                                                className={`
+                                                                    w-full text-left rounded-md border shadow-sm transition-all relative
+                                                                    ${styles.bg} ${styles.border} ${isCompleted ? 'opacity-50 grayscale' : 'hover:scale-[1.02] hover:shadow-md'}
+                                                                `}
+                                                            >
+                                                                {/* Barra lateral de color intenso */}
+                                                                <div className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-md ${styles.text.replace('text-', 'bg-').replace('800', '400')}`}></div>
                                                                 
-                                                                {/* Cuerpo: Habitación y Descripción */}
-                                                                <div className={`${styles.text}`}>
-                                                                    <p className={`text-xs font-bold leading-tight ${isCompleted ? 'line-through decoration-gray-500' : ''}`}>
-                                                                        {getRoomName(task.room_id)}
-                                                                    </p>
-                                                                    <p className="text-[10px] mt-0.5 opacity-80 truncate leading-snug">
-                                                                        {task.description}
-                                                                    </p>
+                                                                <div className="pl-2.5 pr-1 py-1.5">
+                                                                    {/* Cabecera: Ubicación */}
+                                                                    <div className="flex justify-between items-start mb-0.5">
+                                                                        <span className={`text-[9px] font-bold uppercase tracking-wider px-1 rounded-sm ${styles.badge}`}>
+                                                                            {location?.name || 'S/E'}
+                                                                        </span>
+                                                                        {isCompleted && <CheckIcon className="w-3 h-3 text-green-600" />}
+                                                                    </div>
+                                                                    
+                                                                    {/* Cuerpo: Habitación y Descripción */}
+                                                                    <div className={`${styles.text}`}>
+                                                                        <p className={`text-xs font-bold leading-tight ${isCompleted ? 'line-through decoration-gray-500' : ''}`}>
+                                                                            {getRoomName(task.room_id)}
+                                                                        </p>
+                                                                        <p className="text-[10px] mt-0.5 opacity-80 truncate leading-snug">
+                                                                            {task.description}
+                                                                        </p>
+                                                                    </div>
                                                                 </div>
-                                                            </div>
-                                                        </button>
+                                                            </button>
+                                                            {canManage && (
+                                                                <button 
+                                                                    onClick={(e) => { e.stopPropagation(); handleDeleteTask(task.task_id); }}
+                                                                    className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity shadow-md z-10"
+                                                                    title="Eliminar tarea"
+                                                                >
+                                                                    <TrashIcon className="w-3 h-3" />
+                                                                </button>
+                                                            )}
+                                                        </div>
                                                     )})}
                                                 </div>
                                             </td>

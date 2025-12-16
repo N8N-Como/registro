@@ -1,10 +1,12 @@
+
 import React, { useState, useEffect, useCallback, useContext } from 'react';
-import { getAnnouncements, addAnnouncement, updateAnnouncement, getEmployees } from '../../services/mockApi';
+import { getAnnouncements, addAnnouncement, updateAnnouncement, getEmployees, deleteAnnouncement } from '../../services/mockApi';
 import { Announcement, Employee } from '../../types';
 import { AuthContext } from '../../App';
 import Button from '../shared/Button';
 import Card from '../shared/Card';
 import Spinner from '../shared/Spinner';
+import { TrashIcon } from '../icons';
 
 const AnnouncementsView: React.FC = () => {
     const auth = useContext(AuthContext);
@@ -61,6 +63,17 @@ const AnnouncementsView: React.FC = () => {
         fetchData();
     }
 
+    const handleDeleteAnnouncement = async (id: string) => {
+        if (window.confirm("¿Eliminar este comunicado?")) {
+            try {
+                await deleteAnnouncement(id);
+                fetchData();
+            } catch (e: any) {
+                alert(e.message);
+            }
+        }
+    }
+
     if (isLoading) return <Spinner />;
 
     return (
@@ -90,7 +103,7 @@ const AnnouncementsView: React.FC = () => {
                 <Card title="Historial de Comunicados">
                      <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
                         {announcements.map(ann => (
-                            <div key={ann.announcement_id} className="p-4 rounded-lg border">
+                            <div key={ann.announcement_id} className="p-4 rounded-lg border relative group">
                                 <p className="text-gray-700">{ann.message}</p>
                                 <div className="text-xs text-gray-500 mt-2 pt-2 border-t flex justify-between items-center">
                                     <span>Por: {getEmployeeName(ann.created_by)} - {new Date(ann.created_at).toLocaleDateString('es-ES')}</span>
@@ -98,6 +111,13 @@ const AnnouncementsView: React.FC = () => {
                                         {ann.is_active ? 'Desactivar' : 'Activar'}
                                     </Button>
                                 </div>
+                                <button 
+                                    onClick={() => handleDeleteAnnouncement(ann.announcement_id)}
+                                    className="absolute top-2 right-2 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                    title="Eliminar"
+                                >
+                                    <TrashIcon className="w-4 h-4"/>
+                                </button>
                             </div>
                         ))}
                     </div>

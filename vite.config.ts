@@ -1,3 +1,4 @@
+
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -7,5 +8,15 @@ export default defineConfig({
   define: {
     // Esto evita el error "process is not defined" en el navegador
     'process.env': {}
+  },
+  build: {
+    rollupOptions: {
+      external: ['xlsx'],
+      output: {
+        globals: {
+          xlsx: 'XLSX'
+        }
+      }
+    }
   }
 })

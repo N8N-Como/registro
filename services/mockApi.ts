@@ -168,6 +168,15 @@ export const updateLocation = async (locationData: Location): Promise<Location> 
     } catch (e) { return locationData; }
 };
 
+export const deleteLocation = async (locationId: string): Promise<void> => {
+    try {
+        const { error } = await supabase.from('locations').delete().eq('location_id', locationId);
+        if (error) throw error;
+    } catch (e: any) {
+        throw new Error(e.message || "Error al eliminar ubicación");
+    }
+};
+
 export const getTimeEntriesForEmployee = async (employeeId: string): Promise<TimeEntry[]> => {
     try {
         const { data, error } = await supabase.from('time_entries').select('*').eq('employee_id', employeeId).order('clock_in_time', { ascending: false });
@@ -412,6 +421,15 @@ export const updateAnnouncement = async (data: Announcement): Promise<Announceme
     } catch (e) { return data; }
 };
 
+export const deleteAnnouncement = async (announcementId: string): Promise<void> => {
+    try {
+        const { error } = await supabase.from('announcements').delete().eq('announcement_id', announcementId);
+        if (error) throw error;
+    } catch (e: any) {
+        throw new Error(e.message || "Error al eliminar comunicado");
+    }
+};
+
 export const getRooms = async (): Promise<Room[]> => {
     try {
         const { data, error } = await supabase.from('rooms').select('*');
@@ -436,6 +454,15 @@ export const updateRoom = async (data: Room): Promise<Room> => {
     } catch (e) { return data; }
 };
 
+export const deleteRoom = async (roomId: string): Promise<void> => {
+    try {
+        const { error } = await supabase.from('rooms').delete().eq('room_id', roomId);
+        if (error) throw error;
+    } catch (e: any) {
+        throw new Error(e.message || "Error al eliminar habitación");
+    }
+};
+
 export const getTasks = async (): Promise<Task[]> => {
     try {
         const { data, error } = await supabase.from('tasks').select('*');
@@ -458,6 +485,15 @@ export const updateTask = async (data: Task): Promise<Task> => {
         if (error) throw error;
         return updated;
     } catch (e) { return data; }
+};
+
+export const deleteTask = async (taskId: string): Promise<void> => {
+    try {
+        const { error } = await supabase.from('tasks').delete().eq('task_id', taskId);
+        if (error) throw error;
+    } catch (e: any) {
+        throw new Error(e.message || "Error al eliminar tarea");
+    }
 };
 
 export const getTaskTimeLogs = async (): Promise<TaskTimeLog[]> => {
@@ -516,6 +552,15 @@ export const updateIncident = async (data: Incident): Promise<Incident> => {
         if (error) throw error;
         return updated;
     } catch(e) { return data; }
+};
+
+export const deleteIncident = async (incidentId: string): Promise<void> => {
+    try {
+        const { error } = await supabase.from('incidents').delete().eq('incident_id', incidentId);
+        if (error) throw error;
+    } catch (e: any) {
+        throw new Error(e.message || "Error al eliminar incidencia");
+    }
 };
 
 export const getShiftLog = async (): Promise<ShiftLogEntry[]> => {

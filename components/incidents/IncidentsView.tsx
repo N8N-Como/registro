@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useContext } from 'react';
-import { getIncidents, getEmployees, getLocations, getRooms, addIncident, updateIncident } from '../../services/mockApi';
+import { getIncidents, getEmployees, getLocations, getRooms, addIncident, updateIncident, deleteIncident } from '../../services/mockApi';
 import { Incident, Employee, Location, Room } from '../../types';
 import { AuthContext } from '../../App';
 import Card from '../shared/Card';
@@ -10,6 +10,7 @@ import IncidentFormModal from './IncidentFormModal';
 import { formatDate } from '../../utils/helpers';
 import AIAssistant, { InputMode } from '../shared/AIAssistant';
 import { AIResponse } from '../../services/geminiService';
+import { TrashIcon } from '../icons';
 
 const IncidentsView: React.FC = () => {
     const auth = useContext(AuthContext);
@@ -22,6 +23,7 @@ const IncidentsView: React.FC = () => {
     const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
 
     const canManage = auth?.role?.permissions.includes('manage_incidents') ?? false;
+    const isAdmin = auth?.role?.role_id === 'admin';
 
     const fetchData = useCallback(async () => {
         setIsLoading(true);
@@ -55,6 +57,17 @@ const IncidentsView: React.FC = () => {
         }
         fetchData();
         setIsModalOpen(false);
+    };
+
+    const handleDeleteIncident = async (incident: Incident) => {
+        if (window.confirm("¿Estás seguro de eliminar esta incidencia?")) {
+            try {
+                await deleteIncident(incident.incident_id);
+                fetchData();
+            } catch (e: any) {
+                alert(e.message);
+            }
+        }
     };
 
     const handleAIAction = async (response: AIResponse) => {
@@ -155,10 +168,15 @@ const IncidentsView: React.FC = () => {
                                     </td>
                                     <td className="p-3 text-sm">{getEmployeeName(incident.reported_by)}</td>
                                     <td className="p-3"><span className={getStatusPill(incident.status)}>{incident.status.replace('_', ' ')}</span></td>
-                                    <td className="p-3">
+                                    <td className="p-3 flex space-x-2">
                                         <Button size="sm" variant="secondary" onClick={() => handleOpenModal(incident)}>
                                             {canManage ? 'Gestionar' : 'Ver'}
                                         </Button>
+                                        {isAdmin && (
+                                            <button onClick={() => handleDeleteIncident(incident)} className="text-red-500 hover:text-red-700" title="Eliminar">
+                                                <TrashIcon className="w-5 h-5"/>
+                                            </button>
+                                        )}
                                     </td>
                                 </tr>
                             ))}
