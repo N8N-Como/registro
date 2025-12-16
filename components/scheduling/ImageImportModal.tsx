@@ -56,21 +56,22 @@ const ImageImportModal: React.FC<ImageImportModalProps> = ({
                 let color = '#9ca3af'; // default grey
                 let shiftConfigId = undefined;
                 let locationId = undefined;
+                
+                // Clean code (remove whitespace)
+                const code = item.shift_code.trim().toUpperCase();
 
                 // Match with Shift Configs (M, T, MM, etc.)
-                const config = shiftConfigs.find(c => c.code === item.shift_code);
+                // Priority exact match
+                const config = shiftConfigs.find(c => c.code.toUpperCase() === code);
                 
                 if (config) {
                     startISO = `${dateStr}T${config.start_time}:00`;
                     endISO = `${dateStr}T${config.end_time}:00`;
                     color = config.color;
                     shiftConfigId = config.config_id;
-                    // IF config has a default location, use it. IF NOT, leave undefined (handles telework)
                     locationId = config.location_id; 
                 } else {
-                    // Handle Special Codes (L, V, etc.)
-                    const code = item.shift_code.toUpperCase();
-                    
+                    // Handle Special Codes (L, V, etc.) if not in config
                     if (code.startsWith('L')) { // Libre
                         type = 'off';
                         startISO = `${dateStr}T00:00:00`;
@@ -85,14 +86,13 @@ const ImageImportModal: React.FC<ImageImportModalProps> = ({
                         color = '#ef4444';
                         startISO = `${dateStr}T00:00:00`;
                         endISO = `${dateStr}T23:59:59`;
-                    } else if (code.startsWith('P')) { // Partido or Permiso? Assume config P if exists, else generic
-                         // Check if P is in config, if not assume generic work
+                    } else if (code.startsWith('P')) { // Partido default
                          type = 'work';
-                         startISO = `${dateStr}T09:00:00`; // Fallback
+                         startISO = `${dateStr}T09:00:00`; 
                          endISO = `${dateStr}T18:00:00`;
                          color = '#86efac';
                     } else {
-                        // Unknown code, default to generic work or leave empty to prompt user
+                        // Fallback for unknown work codes
                         type = 'work';
                         startISO = `${dateStr}T09:00:00`; 
                         endISO = `${dateStr}T17:00:00`;
@@ -106,8 +106,9 @@ const ImageImportModal: React.FC<ImageImportModalProps> = ({
                     type,
                     color,
                     shift_config_id: shiftConfigId,
-                    location_id: locationId || undefined, // undefined allow for telework
-                    notes: `Importado IA (${item.shift_code})`
+                    location_id: locationId || undefined, 
+                    // CRITICAL FIX: Store the CODE in notes so it persists even if DB schema strips the config relation
+                    notes: code 
                 };
             });
 
@@ -208,14 +209,13 @@ const ImageImportModal: React.FC<ImageImportModalProps> = ({
                                     {parsedShifts.map((shift, idx) => {
                                         const emp = employees.find(e => e.employee_id === shift.employee_id);
                                         const loc = locations.find(l => l.location_id === shift.location_id);
-                                        const config = shiftConfigs.find(c => c.config_id === shift.shift_config_id);
                                         
                                         return (
                                             <tr key={idx} className="border-b last:border-0 hover:bg-gray-50">
                                                 <td className="p-2 font-medium">{emp?.first_name}</td>
                                                 <td className="p-2">{new Date(shift.start_time).getDate()}</td>
-                                                <td className="p-2">
-                                                    {config ? <span className="font-bold">{config.code}</span> : shift.type === 'work' ? 'Trabajo' : 'Ausencia'}
+                                                <td className="p-2 font-bold text-blue-600">
+                                                    {shift.notes}
                                                 </td>
                                                 <td className="p-2 text-gray-500 italic">
                                                     {loc ? loc.name : 'Virtual / Teletrabajo'}

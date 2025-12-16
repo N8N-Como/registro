@@ -193,7 +193,10 @@ export const parseScheduleImage = async (
         KNOWN CODES: ${configContext}, L, V, V25, B, P.
 
         INSTRUCTIONS:
-        1. Identify the row for each employee name. Fuzzy match names (e.g., "ANXO" = "Anxo Bernárdez").
+        1. Look for employee names in the left-most column. 
+           CRITICAL: The visual order of names in the image usually matches the provided list order, but check closely.
+           "Maria Laura" is NOT the same as "Laura". Use strict name matching.
+           "Dolores Varela" (V25 shift usually) vs "Dolores Escalante".
         2. Identify the columns as days (1..31).
         3. Extract the code for each day.
         

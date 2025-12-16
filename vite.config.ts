@@ -16,6 +16,10 @@ export default defineConfig(({ mode }) => {
       // Inyectar la API Key explícitamente en el objeto process.env.API_KEY
       // Esto reemplaza cualquier ocurrencia de 'process.env.API_KEY' en el código cliente con el valor de la cadena.
       'process.env.API_KEY': JSON.stringify(apiKey),
+      // Definir un objeto process.env vacío por seguridad para otras librerías
+      'process.env': {
+        API_KEY: apiKey
+      }
     },
     build: {
       rollupOptions: {
