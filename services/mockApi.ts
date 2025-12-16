@@ -713,11 +713,12 @@ export const createBulkWorkShifts = async (shifts: any[]): Promise<void> => {
 
             // Handle "Column does not exist" error (Schema mismatch)
             if (isSchemaError(error)) {
-                console.warn("Schema mismatch detected during bulk insert. Retrying without 'shift_config_id'...");
+                console.warn("Schema mismatch detected during bulk insert. Retrying without 'shift_config_id' and 'type'...");
                 
-                // Retry batch stripping the problematic column
+                // Retry batch stripping the problematic columns
                 const safeBatch = batch.map(s => {
-                    const { shift_config_id, ...rest } = s; 
+                    // Create a copy without the problematic keys
+                    const { shift_config_id, type, ...rest } = s; 
                     return rest;
                 });
                 

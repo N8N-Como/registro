@@ -7,17 +7,15 @@ export default defineConfig(({ mode }) => {
   // Cargar variables de entorno (incluyendo las del sistema)
   const env = loadEnv(mode, (process as any).cwd(), '');
   
-  // Detectar la API Key
+  // Detectar la API Key con prioridad al entorno del sistema, luego al archivo .env
   const apiKey = process.env.API_KEY || env.API_KEY || '';
 
   return {
     plugins: [react()],
     define: {
-      // Definir process.env como un objeto que contiene la API_KEY.
-      // Esto previene "process is not defined" y asegura que process.env.API_KEY funcione.
-      'process.env': {
-        API_KEY: apiKey
-      }
+      // Inyectar la API Key explícitamente en el objeto process.env.API_KEY
+      // Esto reemplaza cualquier ocurrencia de 'process.env.API_KEY' en el código cliente con el valor de la cadena.
+      'process.env.API_KEY': JSON.stringify(apiKey),
     },
     build: {
       rollupOptions: {
