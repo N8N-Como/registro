@@ -20,7 +20,8 @@ import Button from '../shared/Button';
 import ShiftFormModal from './ShiftFormModal';
 import ShiftConfigFormModal from '../admin/ShiftConfigFormModal';
 import ExcelImportModal from './ExcelImportModal';
-import { CalendarIcon, DocumentIcon } from '../icons';
+import ImageImportModal from './ImageImportModal';
+import { CalendarIcon, DocumentIcon, SparklesIcon } from '../icons';
 import AIAssistant, { InputMode } from '../shared/AIAssistant';
 import { AIResponse } from '../../services/geminiService';
 
@@ -46,6 +47,7 @@ const ShiftSchedulerView: React.FC = () => {
     // Estados de Modales
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+    const [isImageImportModalOpen, setIsImageImportModalOpen] = useState(false);
     const [selectedShift, setSelectedShift] = useState<WorkShift | null>(null);
     const [modalContext, setModalContext] = useState<{ employeeId: string, date: Date } | null>(null);
     const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
@@ -91,9 +93,10 @@ const ShiftSchedulerView: React.FC = () => {
         try {
             const [emps, locs] = await Promise.all([getEmployees(), getLocations()]);
             
+            // CORRECCIÓN: No filtrar por rol 'admin', solo filtrar el usuario genérico "Sistema"
+            // Esto permite que Anxo (que puede ser admin) aparezca en el cuadrante.
             let operationalStaff = emps.filter(e => 
-                e.role_id !== 'admin' && 
-                !e.first_name.toLowerCase().includes('admin')
+                e.employee_id !== 'emp_admin'
             );
 
             // Filtrado de visibilidad para no-managers
@@ -272,12 +275,21 @@ const ShiftSchedulerView: React.FC = () => {
                     <div className="flex gap-2">
                         <Button 
                             size="sm" 
-                            variant="success" 
+                            variant="secondary" 
                             onClick={() => setIsImportModalOpen(true)}
                             className="flex items-center justify-center gap-2"
                         >
                             <DocumentIcon className="w-4 h-4" />
-                            Importar Excel
+                            Excel
+                        </Button>
+                        <Button 
+                            size="sm" 
+                            variant="success" 
+                            onClick={() => setIsImageImportModalOpen(true)}
+                            className="flex items-center justify-center gap-2"
+                        >
+                            <SparklesIcon className="w-4 h-4" />
+                            Importar Foto IA
                         </Button>
                     </div>
                 )}
@@ -430,6 +442,19 @@ const ShiftSchedulerView: React.FC = () => {
                     onImport={handleBulkImport}
                     employees={employees}
                     locations={locations}
+                />
+            )}
+
+            {isImageImportModalOpen && canManage && (
+                <ImageImportModal
+                    isOpen={isImageImportModalOpen}
+                    onClose={() => setIsImageImportModalOpen(false)}
+                    onImport={handleBulkImport}
+                    employees={employees}
+                    locations={locations}
+                    shiftConfigs={shiftConfigs}
+                    currentMonth={currentWeekStart.getMonth()}
+                    currentYear={currentWeekStart.getFullYear()}
                 />
             )}
 

@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, FunctionDeclaration, Type } from "@google/genai";
-import { Employee, Room, Location, InventoryItem, MaintenancePlan } from '../types';
+import { Employee, Room, Location, InventoryItem, MaintenancePlan, ShiftConfig } from '../types';
 
 // Define interfaces for context
 export interface ContextData {
@@ -145,11 +145,92 @@ export interface AIResponse {
     message: string;
 }
 
+export interface ParsedShiftFromImage {
+    employee_id: string;
+    day: number;
+    shift_code: string; // "M", "T", "L", "V", etc.
+    original_text_in_cell?: string;
+}
+
 const getAIClient = () => {
     const apiKey = process.env.API_KEY;
     if (!apiKey) throw new Error("API Key not configured");
     return new GoogleGenAI({ apiKey });
 };
+
+// --- IMAGE ANALYSIS FOR SCHEDULES ---
+
+export const parseScheduleImage = async (
+    imageBase64: string, 
+    employees: Employee[], 
+    shiftConfigs: ShiftConfig[],
+    month: number,
+    year: number
+): Promise<ParsedShiftFromImage[]> => {
+    try {
+        const ai = getAIClient();
+        
+        // Remove header if present (data:image/png;base64,...)
+        const base64Data = imageBase64.split(',')[1] || imageBase64;
+
+        // Context Construction
+        const employeeContext = employees.map(e => `"${e.first_name} ${e.last_name}" (ID: ${e.employee_id})`).join('\n');
+        const configContext = shiftConfigs.map(c => `Code "${c.code}": ${c.name}`).join('\n');
+        
+        const prompt = `
+        Analyze the attached image of a work schedule (cuadrante).
+        Context:
+        - Month: ${month}, Year: ${year}
+        - Valid Employees:\n${employeeContext}
+        - Valid Shift Codes:\n${configContext}
+        - Special Codes: 'L' = Day Off, 'V' or 'V25' = Vacation, 'B' = Sick Leave.
+
+        Instructions:
+        1. Identify the rows corresponding to employees. Fuzzy match the names in the image to the provided Employee IDs.
+        2. Identify the columns as days of the month (1, 2, 3...).
+        3. Extract the text/code from each cell.
+        4. Return a JSON ARRAY containing objects with:
+           - employee_id: The ID from the provided list.
+           - day: The numeric day of the month.
+           - shift_code: The code found (e.g., 'M', 'T', 'L', 'V25').
+        
+        Important:
+        - Ignore empty cells.
+        - If a cell spans multiple days, output multiple entries.
+        - Be precise with row alignment.
+        - Output ONLY the raw JSON array, no markdown formatting.
+        `;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: [
+                {
+                    role: 'user',
+                    parts: [
+                        { text: prompt },
+                        { inlineData: { mimeType: 'image/png', data: base64Data } }
+                    ]
+                }
+            ],
+            config: {
+                responseMimeType: 'application/json'
+            }
+        });
+
+        const text = response.text();
+        if (!text) return [];
+        
+        // Clean JSON string just in case
+        const jsonStr = text.replace(/```json/g, '').replace(/```/g, '').trim();
+        return JSON.parse(jsonStr) as ParsedShiftFromImage[];
+
+    } catch (error) {
+        console.error("Gemini Image Parsing Error:", error);
+        throw new Error("No se pudo analizar la imagen. Inténtalo de nuevo o comprueba la calidad.");
+    }
+};
+
+// --- EXISTING NLP ---
 
 export const processNaturalLanguageCommand = async (
     history: ChatMessage[], 
