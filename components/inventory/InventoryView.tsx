@@ -9,6 +9,8 @@ import Spinner from '../shared/Spinner';
 import { BoxIcon, ShoppingCartIcon, BuildingIcon } from '../icons';
 import StockMovementModal from './StockMovementModal';
 import StockHistoryModal from './StockHistoryModal';
+import AIAssistant, { InputMode } from '../shared/AIAssistant';
+import { AIResponse } from '../../services/geminiService';
 
 const InventoryView: React.FC = () => {
     const auth = useContext(AuthContext);
@@ -56,7 +58,6 @@ const InventoryView: React.FC = () => {
                 location_id: newItemLocation || null
             });
             setIsCreateModalOpen(false);
-            // Reset form
             setNewItemName('');
             setNewItemLocation('');
             loadData();
@@ -80,6 +81,22 @@ const InventoryView: React.FC = () => {
         } catch(e) { alert("Error actualizando stock"); }
     };
 
+    const handleAIAction = async (response: AIResponse) => {
+        if (response.action === 'updateInventory' && response.data && auth?.employee && response.data.item_id) {
+            try {
+                const item = items.find(i => i.item_id === response.data.item_id);
+                if (item) {
+                    const amount = response.data.quantity_change;
+                    const newQty = item.quantity + amount;
+                    if (newQty < 0) return; // Prevent negative
+                    await updateInventoryItem({ ...item, quantity: newQty });
+                    await logStockMovement(item.item_id, amount, response.data.reason || 'AI Update', auth.employee.employee_id);
+                    loadData();
+                }
+            } catch (e) { console.error(e); }
+        }
+    };
+
     const categories = {
         cleaning: 'Limpieza',
         amenities: 'Amenities',
@@ -93,13 +110,19 @@ const InventoryView: React.FC = () => {
         return locations.find(l => l.location_id === id)?.name || "Ubicación Desconocida";
     };
 
-    // --- Filter Logic ---
     const filteredItems = items.filter(item => {
         const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase());
         const matchesLocation = filterLocation === 'all' || 
             (filterLocation === 'central' ? !item.location_id : item.location_id === filterLocation);
         return matchesSearch && matchesLocation;
     });
+
+    // AI Config
+    let allowedInputs: InputMode[] = ['voice']; // Default strict for cleaner/maintenance
+    const role = auth?.role?.role_id || '';
+    if (['admin', 'receptionist', 'gobernanta', 'revenue'].includes(role)) {
+        allowedInputs = ['text', 'voice', 'image'];
+    }
 
     if (isLoading) return <Spinner />;
 
@@ -113,7 +136,6 @@ const InventoryView: React.FC = () => {
                 <Button onClick={() => setIsCreateModalOpen(true)}>+ Nuevo Producto</Button>
             </div>
 
-            {/* --- Filter Bar --- */}
             <Card className="p-4">
                 <div className="flex flex-col md:flex-row gap-4">
                     <div className="flex-1">
@@ -156,7 +178,6 @@ const InventoryView: React.FC = () => {
                                             <span className="text-xs uppercase text-gray-500 font-semibold bg-gray-100 px-2 py-0.5 rounded border">
                                                 {categories[item.category as keyof typeof categories]}
                                             </span>
-                                            {/* Location Badge */}
                                             <span className={`text-xs font-semibold px-2 py-0.5 rounded flex items-center border ${item.location_id ? 'bg-blue-100 text-blue-800 border-blue-200' : 'bg-purple-100 text-purple-800 border-purple-200'}`}>
                                                 <BuildingIcon className="w-3 h-3 mr-1"/>
                                                 {getLocationName(item.location_id)}
@@ -192,21 +213,14 @@ const InventoryView: React.FC = () => {
                         </div>
                     );
                 })}
-                
-                {filteredItems.length === 0 && (
-                    <div className="col-span-full text-center py-10 text-gray-500">
-                        No se encontraron productos con estos criterios.
-                    </div>
-                )}
             </div>
 
-            {/* Create Modal */}
             {isCreateModalOpen && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center">
                     <div className="bg-white p-6 rounded-lg w-full max-w-md">
                         <h3 className="text-lg font-bold mb-4">Nuevo Producto</h3>
                         <form onSubmit={handleCreateItem} className="space-y-4">
-                            <input type="text" placeholder="Nombre (ej: Gel de Baño)" className="w-full border p-2 rounded" value={newItemName} onChange={e => setNewItemName(e.target.value)} required />
+                            <input type="text" placeholder="Nombre" className="w-full border p-2 rounded" value={newItemName} onChange={e => setNewItemName(e.target.value)} required />
                             <select className="w-full border p-2 rounded" value={newItemCategory} onChange={e => setNewItemCategory(e.target.value)}>
                                 {Object.entries(categories).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
                             </select>
@@ -222,7 +236,7 @@ const InventoryView: React.FC = () => {
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
-                                <input type="text" placeholder="Unidad (ej: Botellas)" className="w-full border p-2 rounded" value={newItemUnit} onChange={e => setNewItemUnit(e.target.value)} required />
+                                <input type="text" placeholder="Unidad" className="w-full border p-2 rounded" value={newItemUnit} onChange={e => setNewItemUnit(e.target.value)} required />
                                 <input type="number" placeholder="Alerta Mínimo" className="w-full border p-2 rounded" value={newItemMin} onChange={e => setNewItemMin(parseInt(e.target.value))} required />
                             </div>
                             <div className="flex justify-end gap-2 mt-4">
@@ -250,6 +264,12 @@ const InventoryView: React.FC = () => {
                     item={historyItem}
                 />
             )}
+
+            <AIAssistant 
+                context={{ employees: [], locations, inventory: items, currentUser: auth?.employee || undefined }} 
+                onAction={handleAIAction}
+                allowedInputs={allowedInputs}
+            />
         </div>
     );
 };

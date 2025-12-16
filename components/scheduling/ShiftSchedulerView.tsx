@@ -34,7 +34,7 @@ const NAME_SORT_ORDER = [
 
 const ShiftSchedulerView: React.FC = () => {
     const auth = useContext(AuthContext);
-    const [currentWeekStart, setCurrentWeekStart] = useState(new Date(2025, 0, 1)); // Enero 2025 por defecto para demo
+    const [currentWeekStart, setCurrentWeekStart] = useState(new Date(2025, 0, 1)); // Enero 2025 por defecto
     const [shifts, setShifts] = useState<WorkShift[]>([]);
     const [yearShifts, setYearShifts] = useState<WorkShift[]>([]); 
     const [employees, setEmployees] = useState<Employee[]>([]);
@@ -51,8 +51,6 @@ const ShiftSchedulerView: React.FC = () => {
     const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
     const [selectedConfig, setSelectedConfig] = useState<ShiftConfig | null>(null);
 
-    const daysInView = 31; // Vista mensual completa
-    
     // --- PERMISOS ---
     const canManage = useMemo(() => {
         const role = auth?.role?.role_id || '';
@@ -63,8 +61,6 @@ const ShiftSchedulerView: React.FC = () => {
     const viewDays = useMemo(() => {
         const days = [];
         const start = new Date(currentWeekStart.getFullYear(), currentWeekStart.getMonth(), 1);
-        
-        // Obtener último día del mes
         const lastDay = new Date(currentWeekStart.getFullYear(), currentWeekStart.getMonth() + 1, 0).getDate();
 
         for (let i = 0; i < lastDay; i++) {
@@ -75,16 +71,18 @@ const ShiftSchedulerView: React.FC = () => {
         return days;
     }, [currentWeekStart]);
 
-    // Función de ordenación
+    // Función de ordenación (Estricta según lista)
     const getSortIndex = (employee: Employee) => {
         const fullName = `${employee.first_name} ${employee.last_name}`.toLowerCase();
         
-        // Mapeos específicos
         if (fullName.includes('dolores') && fullName.includes('varela')) return NAME_SORT_ORDER.indexOf('dolores varela');
         if (fullName.includes('dolores') && fullName.includes('escalante')) return NAME_SORT_ORDER.indexOf('dolores escalante');
         
-        const index = NAME_SORT_ORDER.findIndex(key => fullName.includes(key));
-        return index !== -1 ? index : 999; 
+        // Find partial match
+        for (let i = 0; i < NAME_SORT_ORDER.length; i++) {
+            if (fullName.includes(NAME_SORT_ORDER[i])) return i;
+        }
+        return 999; 
     };
 
     const fetchSchedulerData = async () => {
@@ -93,17 +91,17 @@ const ShiftSchedulerView: React.FC = () => {
         try {
             const [emps, locs] = await Promise.all([getEmployees(), getLocations()]);
             
-            // FILTRADO Y ORDENACIÓN
             let operationalStaff = emps.filter(e => 
                 e.role_id !== 'admin' && 
                 !e.first_name.toLowerCase().includes('admin')
             );
 
-            // Restricción de vista: Empleados normales solo se ven a sí mismos
+            // Filtrado de visibilidad para no-managers
             if (!canManage && auth?.employee) {
                 operationalStaff = operationalStaff.filter(e => e.employee_id === auth.employee!.employee_id);
             }
 
+            // Ordenación
             operationalStaff.sort((a, b) => getSortIndex(a) - getSortIndex(b));
             setEmployees(operationalStaff);
             setLocations(locs);
@@ -183,13 +181,9 @@ const ShiftSchedulerView: React.FC = () => {
     const handleDeleteShift = async (shiftId: string) => {
         try {
             await deleteWorkShift(shiftId);
+            fetchSchedulerData();
             setIsModalOpen(false);
-            // IMPORTANTE: Recargar datos completos para actualizar contadores anuales
-            fetchSchedulerData(); 
-        } catch (error) { 
-            console.error(error);
-            alert("Error al eliminar turno. Inténtalo de nuevo."); 
-        }
+        } catch (error) { alert("Error al eliminar"); }
     };
     
     const handleBulkImport = async (newShifts: Omit<WorkShift, 'shift_id'>[]) => {
@@ -243,6 +237,7 @@ const ShiftSchedulerView: React.FC = () => {
         return totalMs / (1000 * 60 * 60);
     };
 
+    // AI Allowed for Managers
     const allowedAIInputs: InputMode[] | null = canManage ? ['text', 'voice', 'image'] : null;
 
     if (isLoading && employees.length === 0) return <Spinner />;
@@ -294,15 +289,17 @@ const ShiftSchedulerView: React.FC = () => {
                     <table className="w-full border-collapse">
                         <thead>
                             <tr className="bg-blue-600 text-white border-b border-blue-700">
-                                <th className="p-2 text-left font-bold w-48 sticky left-0 bg-blue-600 z-20 border-r border-blue-500 shadow-md text-xs uppercase">
+                                {/* FIXED WIDTH for Employee Column */}
+                                <th className="p-2 text-left font-bold w-40 sticky left-0 bg-blue-600 z-20 border-r border-blue-500 shadow-md text-xs uppercase">
                                     Empleado
                                 </th>
                                 {viewDays.map(day => {
                                     const isToday = day.toDateString() === new Date().toDateString();
                                     return (
-                                        <th key={day.toISOString()} className={`p-1 text-center border-r border-blue-500 min-w-[32px] ${isToday ? 'bg-blue-800' : ''}`}>
-                                            <div className="text-[10px] font-bold">{day.getDate()}</div>
-                                            <div className="text-[9px] opacity-75">{day.toLocaleDateString('es-ES', { weekday: 'narrow' })}</div>
+                                        // MINIMAL WIDTH for Date Columns
+                                        <th key={day.toISOString()} className={`p-0 text-center border-r border-blue-500 w-6 min-w-[24px] ${isToday ? 'bg-blue-800' : ''}`}>
+                                            <div className="text-[10px] font-bold py-1">{day.getDate()}</div>
+                                            <div className="text-[8px] opacity-75 pb-1">{day.toLocaleDateString('es-ES', { weekday: 'narrow' })}</div>
                                         </th>
                                     );
                                 })}
@@ -316,11 +313,11 @@ const ShiftSchedulerView: React.FC = () => {
 
                                 return (
                                 <tr key={emp.employee_id} className={`border-b border-gray-200 ${isRowEven ? 'bg-white' : 'bg-gray-50'} hover:bg-gray-100 transition-colors`}>
-                                    <td className={`p-2 border-r border-gray-200 font-medium text-gray-800 sticky left-0 z-10 shadow-sm text-xs ${isRowEven ? 'bg-white' : 'bg-gray-50'}`}>
-                                        <div className="flex justify-between items-center">
-                                            <span className="truncate max-w-[120px]" title={`${emp.first_name} ${emp.last_name}`}>{emp.first_name}</span>
+                                    <td className={`p-1 border-r border-gray-200 font-medium text-gray-800 sticky left-0 z-10 shadow-sm text-xs ${isRowEven ? 'bg-white' : 'bg-gray-50'}`}>
+                                        <div className="flex flex-col justify-center h-full">
+                                            <span className="truncate max-w-[140px] font-bold text-[11px]" title={`${emp.first_name} ${emp.last_name}`}>{emp.first_name} {emp.last_name.charAt(0)}.</span>
                                             {canManage && (
-                                                <span className={`text-[9px] ${annualHours > limit ? 'text-red-500' : 'text-green-600'}`}>{Math.round(annualHours)}h</span>
+                                                <span className={`text-[9px] ${annualHours > limit ? 'text-red-500' : 'text-green-600'}`}>{Math.round(annualHours)}h / {limit}h</span>
                                             )}
                                         </div>
                                     </td>
@@ -334,28 +331,32 @@ const ShiftSchedulerView: React.FC = () => {
                                         return (
                                             <td 
                                                 key={day.toISOString()} 
-                                                className={`p-0 border-r border-gray-200 h-10 w-8 text-center align-middle relative ${canManage ? 'cursor-pointer' : ''} ${isWeekend ? 'bg-gray-100/50' : ''}`}
+                                                className={`p-0 border-r border-gray-200 h-8 text-center align-middle relative ${canManage ? 'cursor-pointer hover:bg-gray-200' : ''} ${isWeekend ? 'bg-gray-100/50' : ''}`}
                                                 onClick={() => handleCellClick(emp.employee_id, day)}
                                             >
                                                 {dayShifts.map((shift, i) => {
                                                     let displayCode = '';
                                                     if (shift.shift_config_id) {
                                                         const cfg = shiftConfigs.find(c => c.config_id === shift.shift_config_id);
-                                                        displayCode = cfg?.code || shift.notes?.substring(0,2) || '?';
-                                                    } else if (shift.notes && shift.notes.length <= 4) {
-                                                        displayCode = shift.notes;
+                                                        // Show Code only
+                                                        displayCode = cfg?.code || '?';
+                                                    } else if (shift.notes && shift.notes.length <= 3) {
+                                                        displayCode = shift.notes; // Custom short code
                                                     } else if (shift.type === 'off') displayCode = 'L';
                                                     else if (shift.type === 'vacation') displayCode = 'V';
                                                     else if (shift.type === 'sick') displayCode = 'B';
-                                                    else displayCode = new Date(shift.start_time).getHours().toString();
+                                                    else {
+                                                        // Manual work shift: Show Start Hour
+                                                        displayCode = new Date(shift.start_time).getHours().toString();
+                                                    }
 
-                                                    if (i > 0) return null; // Solo muestra 1 turno por celda visualmente
+                                                    if (i > 0) return null; // Only show first shift visually to maintain grid
 
                                                     return (
                                                         <div 
                                                             key={shift.shift_id}
                                                             onClick={(e) => handleShiftClick(e, shift)}
-                                                            className="w-full h-full flex items-center justify-center text-white font-bold text-xs shadow-inner"
+                                                            className="w-full h-full flex items-center justify-center text-white font-bold text-[10px]"
                                                             style={{ backgroundColor: shift.color || '#9ca3af' }}
                                                             title={`${shift.notes || 'Turno'} (${new Date(shift.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - ${new Date(shift.end_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})})`}
                                                         >
@@ -378,8 +379,9 @@ const ShiftSchedulerView: React.FC = () => {
                     {shiftConfigs.map(cfg => (
                         <div 
                             key={cfg.config_id} 
-                            className={`flex items-center space-x-1 p-1 rounded transition-colors ${canManage ? 'cursor-pointer hover:bg-gray-200' : ''}`}
+                            className={`flex items-center space-x-1 p-1 rounded transition-colors ${canManage ? 'cursor-pointer hover:bg-gray-200 border hover:border-gray-400' : ''}`}
                             onClick={() => handleEditConfig(cfg)}
+                            title={canManage ? "Clic para editar este tipo de turno" : ""}
                         >
                             <div className="w-3 h-3 rounded-sm" style={{backgroundColor: cfg.color}}></div>
                             <span>{cfg.code}: {cfg.name}</span>

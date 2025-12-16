@@ -8,6 +8,8 @@ import Button from '../shared/Button';
 import Spinner from '../shared/Spinner';
 import MaintenancePlanFormModal from './MaintenancePlanFormModal';
 import { WrenchIcon, CalendarIcon } from '../icons';
+import AIAssistant, { InputMode } from '../shared/AIAssistant';
+import { AIResponse } from '../../services/geminiService';
 
 const MaintenanceCalendarView: React.FC = () => {
     const auth = useContext(AuthContext);
@@ -55,6 +57,23 @@ const MaintenanceCalendarView: React.FC = () => {
         setIsModalOpen(false);
     };
 
+    const handleAIAction = async (response: AIResponse) => {
+        if (response.action === 'createMaintenancePlan' && response.data && auth?.employee) {
+            try {
+                await addMaintenancePlan({
+                    title: response.data.title,
+                    description: response.data.description || '',
+                    location_id: response.data.location_id,
+                    frequency: response.data.frequency,
+                    next_due_date: response.data.first_due_date,
+                    active: true,
+                    created_by: auth.employee.employee_id
+                });
+                fetchData();
+            } catch (e) { console.error(e); }
+        }
+    };
+
     const getLocationName = (id: string) => locations.find(l => l.location_id === id)?.name || 'N/A';
 
     const getFrequencyLabel = (freq: string) => {
@@ -66,6 +85,13 @@ const MaintenanceCalendarView: React.FC = () => {
             default: return freq;
         }
     };
+
+    // Role Logic
+    let allowedInputs: InputMode[] = ['voice'];
+    const role = auth?.role?.role_id || '';
+    if (['admin', 'receptionist', 'gobernanta', 'revenue'].includes(role)) {
+        allowedInputs = ['text', 'voice', 'image'];
+    }
 
     if (isLoading) return <Spinner />;
 
@@ -112,7 +138,6 @@ const MaintenanceCalendarView: React.FC = () => {
                 {plans.length === 0 && (
                     <div className="col-span-full text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300 text-gray-500">
                         <p>No hay planes de mantenimiento definidos.</p>
-                        <p className="text-sm mt-1">Crea uno para automatizar la generación de tareas preventivas.</p>
                     </div>
                 )}
             </div>
@@ -128,6 +153,12 @@ const MaintenanceCalendarView: React.FC = () => {
                     employeeId={auth.employee.employee_id}
                 />
             )}
+
+            <AIAssistant 
+                context={{ employees: [], locations, maintenancePlans: plans, currentUser: auth?.employee || undefined }} 
+                onAction={handleAIAction}
+                allowedInputs={allowedInputs}
+            />
         </div>
     );
 };

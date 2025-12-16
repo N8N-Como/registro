@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useContext, useCallback } from 'react';
 import Card from '../shared/Card';
 import Button from '../shared/Button';
@@ -7,6 +6,8 @@ import Spinner from '../shared/Spinner';
 import { AuthContext } from '../../App';
 import { getShiftLog, addShiftLogEntry, getEmployees, getRoles, updateShiftLogEntry } from '../../services/mockApi';
 import { ShiftLogEntry, Employee, Role } from '../../types';
+import AIAssistant, { InputMode } from '../shared/AIAssistant';
+import { AIResponse } from '../../services/geminiService';
 
 const ShiftLogView: React.FC = () => {
     const auth = useContext(AuthContext);
@@ -28,11 +29,9 @@ const ShiftLogView: React.FC = () => {
                 switch (auth.role.role_id) {
                     case 'admin':
                     case 'administracion':
-                        // Admin y Administración ven todos los mensajes
                         relevantLogs = logs;
                         break;
                     case 'gobernanta':
-                        // Gobernanta ve mensajes para 'all', 'gobernanta', y 'cleaner'
                         relevantLogs = logs.filter(log => 
                             log.target_role_id === 'all' || 
                             log.target_role_id === 'gobernanta' ||
@@ -40,7 +39,6 @@ const ShiftLogView: React.FC = () => {
                         );
                         break;
                     default:
-                        // El resto ve los mensajes generales y los de su propio rol
                         relevantLogs = logs.filter(log => log.target_role_id === 'all' || log.target_role_id === auth.role.role_id);
                         break;
                 }
@@ -88,16 +86,25 @@ const ShiftLogView: React.FC = () => {
         }
     };
     
+    const handleAIAction = async (response: AIResponse) => {
+        if (response.action === 'addToShiftLog' && response.data && auth?.employee) {
+            try {
+                await addShiftLogEntry({
+                    employee_id: auth.employee.employee_id,
+                    message: response.data.message,
+                    target_role_id: response.data.target_role || 'all',
+                });
+                fetchData();
+            } catch (e) { console.error(e); }
+        }
+    };
+    
     const handleStatusChange = async (logEntry: ShiftLogEntry, newStatus: ShiftLogEntry['status']) => {
         const updatedLog = { ...logEntry, status: newStatus };
         try {
-            // Optimistically update UI
             setLogEntries(prev => prev.map(l => l.log_id === updatedLog.log_id ? updatedLog : l));
             await updateShiftLogEntry(updatedLog);
-            // fetchData(); // Can refetch for consistency, but optimistic is faster
         } catch (error) {
-            console.error("Failed to update status", error);
-            // Rollback on error
             setLogEntries(prev => prev.map(l => l.log_id === logEntry.log_id ? logEntry : l));
         }
     };
@@ -122,7 +129,7 @@ const ShiftLogView: React.FC = () => {
     const getNextStatus = (currentStatus: ShiftLogEntry['status']): ShiftLogEntry['status'] => {
         if (currentStatus === 'pending') return 'in_progress';
         if (currentStatus === 'in_progress') return 'resolved';
-        return 'pending'; // 'resolved' cycles back to 'pending'
+        return 'pending';
     };
 
     const handleCycleStatus = (logEntry: ShiftLogEntry) => {
@@ -130,6 +137,12 @@ const ShiftLogView: React.FC = () => {
         handleStatusChange(logEntry, newStatus);
     };
 
+    // Role Logic
+    let allowedInputs: InputMode[] = ['voice'];
+    const role = auth?.role?.role_id || '';
+    if (['admin', 'receptionist', 'gobernanta', 'revenue'].includes(role)) {
+        allowedInputs = ['text', 'voice', 'image'];
+    }
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -206,6 +219,12 @@ const ShiftLogView: React.FC = () => {
             )}
         </Card>
       </div>
+
+      <AIAssistant 
+        context={{ employees, locations: [], currentUser: auth?.employee || undefined }} 
+        onAction={handleAIAction}
+        allowedInputs={allowedInputs}
+      />
     </div>
   );
 };

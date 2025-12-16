@@ -9,6 +9,8 @@ import Spinner from '../shared/Spinner';
 import { DocumentIcon, PaperClipIcon, CheckIcon, XMarkIcon } from '../icons';
 import DocumentUploadModal from './DocumentUploadModal';
 import SignDocumentModal from './SignDocumentModal';
+import AIAssistant, { InputMode } from '../shared/AIAssistant';
+import { AIResponse } from '../../services/geminiService';
 
 const DocumentsView: React.FC = () => {
     const auth = useContext(AuthContext);
@@ -19,7 +21,7 @@ const DocumentsView: React.FC = () => {
     const [adminDocuments, setAdminDocuments] = useState<CompanyDocument[]>([]);
     const [myDocuments, setMyDocuments] = useState<(DocumentSignature & { document: CompanyDocument })[]>([]);
     const [employees, setEmployees] = useState<Employee[]>([]);
-    const [signaturesMap, setSignaturesMap] = useState<Record<string, DocumentSignature[]>>({}); // Map docId -> signatures
+    const [signaturesMap, setSignaturesMap] = useState<Record<string, DocumentSignature[]>>({});
 
     // UI
     const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -40,7 +42,6 @@ const DocumentsView: React.FC = () => {
                     setAdminDocuments(docs);
                     setEmployees(emps);
                     
-                    // Lazy load signatures for kpis
                     const sigs: Record<string, DocumentSignature[]> = {};
                     for (const doc of docs) {
                         sigs[doc.document_id] = await getDocumentSignatures(doc.document_id);
@@ -68,10 +69,8 @@ const DocumentsView: React.FC = () => {
                 created_by: auth.employee.employee_id
             }, data.target_employee_ids);
             
-            // Refresh
             const docs = await getDocuments();
             setAdminDocuments(docs);
-            // Refresh signatures map for new doc
             const newSigs = await getDocumentSignatures(docs[0].document_id);
             setSignaturesMap(prev => ({...prev, [docs[0].document_id]: newSigs}));
 
@@ -81,13 +80,33 @@ const DocumentsView: React.FC = () => {
         }
     };
 
+    const handleAIAction = async (response: AIResponse) => {
+        if (response.action === 'createDocument' && response.data && auth?.employee) {
+            try {
+                // Default target: all employees
+                const allIds = employees.map(e => e.employee_id);
+                await createDocument({
+                    title: response.data.title,
+                    description: response.data.description || '',
+                    type: response.data.type || 'link',
+                    content_url: response.data.url || '#',
+                    requires_signature: response.data.requires_signature || false,
+                    created_by: auth.employee.employee_id
+                }, allIds);
+                
+                // Refresh
+                const docs = await getDocuments();
+                setAdminDocuments(docs);
+            } catch (e) { console.error(e); }
+        }
+    };
+
     const handleSignDocument = async (sigId: string, url?: string) => {
         if (url) {
             await signDocument(sigId, url);
         } else {
             await markDocumentAsViewed(sigId);
         }
-        // Refresh local
         if (auth?.employee) {
             const myDocs = await getEmployeeDocuments(auth.employee.employee_id);
             setMyDocuments(myDocs.sort((a,b) => new Date(b.document.created_at).getTime() - new Date(a.document.created_at).getTime()));
@@ -98,6 +117,13 @@ const DocumentsView: React.FC = () => {
         setSelectedDocToSign({ doc: item.document, sig: item });
         setIsSignModalOpen(true);
     };
+
+    // Role Logic
+    let allowedInputs: InputMode[] = ['voice'];
+    const role = auth?.role?.role_id || '';
+    if (['admin', 'receptionist', 'gobernanta', 'revenue'].includes(role)) {
+        allowedInputs = ['text', 'voice', 'image'];
+    }
 
     if (isLoading) return <Spinner />;
 
@@ -140,8 +166,6 @@ const DocumentsView: React.FC = () => {
                                         <div className="text-xs text-right mt-1">{signed} de {total} ({percentage}%)</div>
                                     </div>
                                 </div>
-                                
-                                {/* Accordion / Details (Simplified) */}
                                 <div className="p-4 max-h-40 overflow-y-auto bg-white">
                                     <table className="w-full text-sm text-left">
                                         <thead>
@@ -163,9 +187,6 @@ const DocumentsView: React.FC = () => {
                                                                 <span className="text-green-600 font-semibold text-xs flex justify-end items-center gap-1">
                                                                     <CheckIcon className="w-3 h-3" /> 
                                                                     {sig.status === 'signed' ? 'Firmado' : 'Leído'}
-                                                                    <span className="text-gray-400 font-normal ml-1">
-                                                                        {new Date(sig.signed_at || sig.viewed_at || '').toLocaleDateString()}
-                                                                    </span>
                                                                 </span>
                                                             )}
                                                         </td>
@@ -188,6 +209,12 @@ const DocumentsView: React.FC = () => {
                         employees={employees}
                     />
                 )}
+
+                <AIAssistant 
+                    context={{ employees, locations: [], currentUser: auth?.employee || undefined }} 
+                    onAction={handleAIAction}
+                    allowedInputs={allowedInputs}
+                />
             </div>
         );
     }

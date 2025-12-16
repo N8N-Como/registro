@@ -95,7 +95,6 @@ export const getEmployees = async (): Promise<Employee[]> => {
     try {
         const { data, error } = await supabase.from('employees').select('*');
         
-        // Comprobación de integridad básica
         const hasKeyStaff = data && data.some((e: any) => e.first_name.toLowerCase() === 'noelia');
         if (error || !data || data.length <= 1 || !hasKeyStaff) return FALLBACK_EMPLOYEES;
         
@@ -129,7 +128,6 @@ export const updateEmployee = async (employeeData: Employee): Promise<Employee> 
     } catch (e) { return employeeData; }
 };
 
-// --- NEW: DELETE EMPLOYEE ---
 export const deleteEmployee = async (employeeId: string): Promise<void> => {
     try {
         const { error } = await supabase.from('employees').delete().eq('employee_id', employeeId);
@@ -651,6 +649,7 @@ export const getShiftConfigs = async (): Promise<ShiftConfig[]> => {
     } catch(e) { return FALLBACK_SHIFT_CONFIGS; }
 };
 
+// FIX: Ensure null is sent for empty strings for UUID fields
 export const addShiftConfig = async (data: any): Promise<ShiftConfig> => {
     try {
         if (!data.location_id || data.location_id === '') {
@@ -664,7 +663,6 @@ export const addShiftConfig = async (data: any): Promise<ShiftConfig> => {
 
 export const updateShiftConfig = async (data: ShiftConfig): Promise<ShiftConfig> => {
     try {
-        // Fix for empty string location_id causing UUID errors
         const payload = { ...data };
         if (!payload.location_id || payload.location_id === '') {
             (payload as any).location_id = null;

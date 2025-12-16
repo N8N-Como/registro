@@ -38,7 +38,20 @@ const ShiftConfigFormModal: React.FC<ShiftConfigFormModalProps> = ({ isOpen, onC
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        onSave(formData as ShiftConfig);
+        
+        // Ensure required fields
+        if (!formData.code || !formData.name || !formData.start_time || !formData.end_time) {
+            alert("Por favor, rellena todos los campos obligatorios.");
+            return;
+        }
+
+        // Clean location_id before saving
+        const payload = { ...formData };
+        if (payload.location_id === '') {
+            (payload as any).location_id = null;
+        }
+
+        onSave(payload as ShiftConfig);
     };
 
     const handleDelete = () => {
@@ -115,7 +128,7 @@ const ShiftConfigFormModal: React.FC<ShiftConfigFormModalProps> = ({ isOpen, onC
                         onChange={handleChange}
                         className="mt-1 block w-full rounded-md border-gray-300 shadow-sm"
                     >
-                        <option value="">-- Seleccionar --</option>
+                        <option value="">-- Cualquiera / Sin Asignar --</option>
                         {locations.map(loc => (
                             <option key={loc.location_id} value={loc.location_id}>{loc.name}</option>
                         ))}

@@ -10,12 +10,11 @@ interface EmployeeFormModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (employee: Omit<Employee, 'employee_id'> | Employee) => void;
-  onDelete?: (employeeId: string) => void;
   employee: Employee | null;
   roles: Role[];
 }
 
-const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({ isOpen, onClose, onSave, onDelete, employee, roles }) => {
+const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({ isOpen, onClose, onSave, employee, roles }) => {
   const [formData, setFormData] = useState<Partial<Employee>>({});
   const [locations, setLocations] = useState<Location[]>([]);
   const [activeTab, setActiveTab] = useState<'info' | 'docs' | 'devices'>('info');
@@ -94,14 +93,6 @@ const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({ isOpen, onClose, 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSave(formData as Employee);
-  };
-
-  const handleDelete = () => {
-      if (employee && onDelete) {
-          if (window.confirm(`¿Estás seguro de que quieres eliminar a ${employee.first_name} ${employee.last_name}?\n\nSi tiene historial de fichajes o turnos, esta acción podría fallar o dejar datos huérfanos. Se recomienda cambiar el estado a "Inactivo" en su lugar.`)) {
-              onDelete(employee.employee_id);
-          }
-      }
   };
   
   const title = employee ? 'Editar Empleado' : 'Añadir Empleado';
@@ -205,14 +196,9 @@ const EmployeeFormModal: React.FC<EmployeeFormModalProps> = ({ isOpen, onClose, 
                     </div>
                 </div>
                 
-                <div className="pt-4 flex justify-between space-x-2">
-                    {employee && onDelete ? (
-                        <Button type="button" variant="danger" onClick={handleDelete}>Eliminar</Button>
-                    ) : <div></div>}
-                    <div className="flex space-x-2">
-                        <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
-                        <Button type="submit">Guardar Cambios</Button>
-                    </div>
+                <div className="pt-4 flex justify-end space-x-2">
+                    <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
+                    <Button type="submit">Guardar Cambios</Button>
                 </div>
             </form>
         ) : activeTab === 'docs' ? (

@@ -12,12 +12,16 @@ interface AIAssistantProps {
 }
 
 const AIAssistant: React.FC<AIAssistantProps> = ({ context, onAction, allowedInputs }) => {
+    // Determine strict modes
+    const canType = allowedInputs?.includes('text') ?? true;
+    const canVoice = allowedInputs?.includes('voice') ?? true;
+    
     // Visibility state
     const [isOpen, setIsOpen] = useState(false);
     
     // Chat state
     const [messages, setMessages] = useState<ChatMessage[]>([
-        { role: 'model', text: 'Hola, soy tu asistente. Puedes pedirme crear tareas, reportar incidencias o consultarme algo. ¿En qué te ayudo?' }
+        { role: 'model', text: 'Hola, soy tu asistente. ¿En qué te ayudo?' }
     ]);
     const [inputText, setInputText] = useState('');
     
@@ -47,22 +51,26 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ context, onAction, allowedInp
 
             recognitionRef.current.onresult = (event: any) => {
                 const text = event.results[0][0].transcript;
-                setInputText(text);
-                setIsListening(false);
-                handleProcess(text);
+                if (canType) {
+                    setInputText(text); // If typing allowed, put in box to edit
+                    setIsListening(false);
+                } else {
+                    // If voice-only, send immediately
+                    setIsListening(false);
+                    handleProcess(text);
+                }
             };
 
             recognitionRef.current.onerror = (event: any) => {
                 console.error("Speech recognition error", event.error);
                 setIsListening(false);
-                // Don't alert, just stop visual indicator
             };
             
             recognitionRef.current.onend = () => {
                 setIsListening(false);
             };
         }
-    }, []);
+    }, [canType]);
 
     const toggleListening = () => {
         if (isListening) {
@@ -72,7 +80,6 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ context, onAction, allowedInp
                 recognitionRef.current?.start();
                 setIsListening(true);
             } catch (e) {
-                console.error("Mic error", e);
                 alert("No se puede acceder al micrófono.");
             }
         }
@@ -81,7 +88,6 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ context, onAction, allowedInp
     const handleProcess = async (text: string) => {
         if (!text.trim()) return;
         
-        // 1. Add User Message immediately
         const userMsg: ChatMessage = { role: 'user', text };
         const newHistory = [...messages, userMsg];
         setMessages(newHistory);
@@ -89,30 +95,32 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ context, onAction, allowedInp
         setIsProcessing(true);
         
         try {
-            // 2. Call API with full history
             const result = await processNaturalLanguageCommand(newHistory, context);
             
             let modelText = result.message;
-            
             if (result.action !== 'none') {
-                // Execute action
                 onAction(result);
-                
-                // Formulate a success message based on action
-                if (result.action === 'createTask') {
-                    modelText = `✅ He creado la tarea: "${result.data.description}".`;
-                } else if (result.action === 'createIncident') {
-                    modelText = `✅ He reportado la incidencia en: "${result.data.description}".`;
-                } else if (result.action === 'createShift') {
-                    modelText = `✅ He creado el turno para el empleado.`;
+                // Custom success messages
+                switch(result.action) {
+                    case 'createTask': modelText = "✅ Tarea creada."; break;
+                    case 'createIncident': modelText = "✅ Incidencia reportada."; break;
+                    case 'createShift': modelText = "✅ Turno asignado."; break;
+                    case 'updateInventory': modelText = "✅ Inventario actualizado."; break;
+                    case 'logLostItem': modelText = "✅ Objeto registrado."; break;
+                    case 'addToShiftLog': modelText = "✅ Nota añadida al libro."; break;
                 }
             }
-
-            // 3. Add Model Response
             setMessages(prev => [...prev, { role: 'model', text: modelText }]);
             
+            // Text To Speech for Voice-Only Users
+            if (!canType && 'speechSynthesis' in window) {
+                const utterance = new SpeechSynthesisUtterance(modelText);
+                utterance.lang = 'es-ES';
+                window.speechSynthesis.speak(utterance);
+            }
+
         } catch (e) {
-            setMessages(prev => [...prev, { role: 'model', text: "Lo siento, tuve un problema de conexión." }]);
+            setMessages(prev => [...prev, { role: 'model', text: "Error de conexión." }]);
         } finally {
             setIsProcessing(false);
         }
@@ -125,7 +133,6 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ context, onAction, allowedInp
 
     return (
         <>
-            {/* Floating Action Button */}
             <button
                 onClick={() => setIsOpen(true)}
                 className="fixed bottom-6 right-6 bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-4 rounded-full shadow-xl hover:shadow-2xl transition-transform hover:scale-105 z-40 flex items-center justify-center border-2 border-white"
@@ -134,20 +141,14 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ context, onAction, allowedInp
                 <SparklesIcon className="w-8 h-8" />
             </button>
 
-            {/* Modal - Using display:none instead of conditional rendering to persist state */}
             <div className={`fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 backdrop-blur-sm bg-black/40 transition-opacity duration-200 ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
-                
-                {/* Modal Content */}
-                <div 
-                    className={`bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col h-[600px] max-h-[85vh] transition-transform duration-300 ${isOpen ? 'translate-y-0 scale-100' : 'translate-y-10 scale-95'}`}
-                >
-                    {/* Header */}
+                <div className={`bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col h-[600px] max-h-[85vh] transition-transform duration-300 ${isOpen ? 'translate-y-0 scale-100' : 'translate-y-10 scale-95'}`}>
                     <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-4 flex justify-between items-center text-white shadow-md">
                         <div className="flex items-center space-x-2">
                             <SparklesIcon className="w-6 h-6" />
                             <div>
                                 <h3 className="font-bold text-lg leading-tight">Asistente IA</h3>
-                                <p className="text-xs text-indigo-100">Memoria activa</p>
+                                <p className="text-xs text-indigo-100">{!canType ? 'Modo Solo Voz' : 'Asistente Virtual'}</p>
                             </div>
                         </div>
                         <button onClick={() => setIsOpen(false)} className="hover:bg-white/20 rounded-full p-1 transition-colors">
@@ -155,15 +156,10 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ context, onAction, allowedInp
                         </button>
                     </div>
 
-                    {/* Chat Area */}
                     <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50 custom-scrollbar">
                         {messages.map((msg, idx) => (
                             <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 shadow-sm text-sm ${
-                                    msg.role === 'user' 
-                                        ? 'bg-indigo-600 text-white rounded-br-none' 
-                                        : 'bg-white text-gray-800 border border-gray-100 rounded-bl-none'
-                                }`}>
+                                <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 shadow-sm text-sm ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-white text-gray-800 border border-gray-100 rounded-bl-none'}`}>
                                     {msg.text}
                                 </div>
                             </div>
@@ -180,41 +176,39 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ context, onAction, allowedInp
                         <div ref={messagesEndRef} />
                     </div>
 
-                    {/* Input Area */}
                     <div className="p-4 bg-white border-t border-gray-100">
-                        <div className="flex items-center space-x-2">
-                            <button
-                                onClick={toggleListening}
-                                className={`p-3 rounded-full transition-all flex-shrink-0 ${
-                                    isListening 
-                                        ? 'bg-red-500 text-white animate-pulse ring-4 ring-red-100' 
-                                        : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                                }`}
-                                title="Dictar por voz"
-                            >
-                                <MicrophoneIcon className="w-5 h-5" />
-                            </button>
-                            
-                            <form onSubmit={handleSubmitText} className="flex-1 relative">
-                                <input
-                                    type="text"
-                                    value={inputText}
-                                    onChange={(e) => setInputText(e.target.value)}
-                                    placeholder="Escribe una orden..."
-                                    className="w-full border-gray-200 bg-gray-50 rounded-full pl-5 pr-12 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-white transition-all shadow-inner"
-                                    disabled={isProcessing}
-                                />
-                                <button 
-                                    type="submit" 
-                                    disabled={!inputText.trim() || isProcessing}
-                                    className="absolute right-2 top-1.5 bottom-1.5 bg-indigo-600 text-white rounded-full w-9 h-9 flex items-center justify-center hover:bg-indigo-700 disabled:opacity-50 disabled:hover:bg-indigo-600 transition-colors shadow-sm"
+                        {canType ? (
+                            <div className="flex items-center space-x-2">
+                                {canVoice && (
+                                    <button onClick={toggleListening} className={`p-3 rounded-full transition-all flex-shrink-0 ${isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+                                        <MicrophoneIcon className="w-5 h-5" />
+                                    </button>
+                                )}
+                                <form onSubmit={handleSubmitText} className="flex-1 relative">
+                                    <input
+                                        type="text"
+                                        value={inputText}
+                                        onChange={(e) => setInputText(e.target.value)}
+                                        placeholder="Escribe una orden..."
+                                        className="w-full border-gray-200 bg-gray-50 rounded-full pl-5 pr-12 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-white transition-all shadow-inner"
+                                        disabled={isProcessing}
+                                    />
+                                    <button type="submit" disabled={!inputText.trim() || isProcessing} className="absolute right-2 top-1.5 bottom-1.5 bg-indigo-600 text-white rounded-full w-9 h-9 flex items-center justify-center hover:bg-indigo-700">
+                                        <svg className="w-4 h-4 transform rotate-90" fill="currentColor" viewBox="0 0 20 20"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" /></svg>
+                                    </button>
+                                </form>
+                            </div>
+                        ) : (
+                            <div className="flex justify-center">
+                                <button
+                                    onClick={toggleListening}
+                                    className={`p-6 rounded-full transition-all shadow-lg ${isListening ? 'bg-red-500 text-white animate-pulse ring-8 ring-red-100' : 'bg-indigo-600 text-white hover:scale-110 hover:shadow-xl'}`}
                                 >
-                                    <svg className="w-4 h-4 transform rotate-90" fill="currentColor" viewBox="0 0 20 20">
-                                        <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
-                                    </svg>
+                                    <MicrophoneIcon className="w-10 h-10" />
                                 </button>
-                            </form>
-                        </div>
+                                <p className="absolute bottom-2 text-xs text-gray-400">{isListening ? 'Escuchando...' : 'Pulsa para hablar'}</p>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

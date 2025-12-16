@@ -9,6 +9,8 @@ import Spinner from '../shared/Spinner';
 import LostItemFormModal from './LostItemFormModal';
 import { ArchiveBoxIcon } from '../icons';
 import { formatDate } from '../../utils/helpers';
+import AIAssistant, { InputMode } from '../shared/AIAssistant';
+import { AIResponse } from '../../services/geminiService';
 
 const LostFoundView: React.FC = () => {
     const auth = useContext(AuthContext);
@@ -63,6 +65,20 @@ const LostFoundView: React.FC = () => {
         setIsModalOpen(false);
     };
 
+    const handleAIAction = async (response: AIResponse) => {
+        if (response.action === 'logLostItem' && response.data && auth?.employee) {
+            try {
+                await addLostItem({
+                    description: response.data.description,
+                    found_at_location_id: response.data.location_id,
+                    found_at_room_id: response.data.room_id || '',
+                    found_by_employee_id: auth.employee.employee_id
+                });
+                fetchData();
+            } catch (e) { console.error(e); }
+        }
+    };
+
     const getEmployeeName = (id: string) => {
         const emp = employees.find(e => e.employee_id === id);
         return emp ? `${emp.first_name} ${emp.last_name}` : 'Desconocido';
@@ -75,6 +91,13 @@ const LostFoundView: React.FC = () => {
         if (filter === 'all') return true;
         return item.status === filter;
     });
+
+    // Role Logic
+    let allowedInputs: InputMode[] = ['voice'];
+    const role = auth?.role?.role_id || '';
+    if (['admin', 'receptionist', 'gobernanta', 'revenue'].includes(role)) {
+        allowedInputs = ['text', 'voice', 'image'];
+    }
 
     if (isLoading) return <Spinner />;
 
@@ -169,6 +192,12 @@ const LostFoundView: React.FC = () => {
                     rooms={rooms}
                 />
             )}
+
+            <AIAssistant 
+                context={{ employees: [], locations, rooms, currentUser: auth?.employee || undefined }} 
+                onAction={handleAIAction}
+                allowedInputs={allowedInputs}
+            />
         </div>
     );
 };
