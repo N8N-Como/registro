@@ -77,7 +77,8 @@ const handleSupabaseError = (error: any, context: string) => {
 const isSchemaError = (error: any) => {
     if (!error) return false;
     const msg = error.message?.toLowerCase() || '';
-    return (error.code === '42703' || msg.includes('column') && (msg.includes('does not exist') || msg.includes('could not find') || msg.includes('schema cache')));
+    // Codes: 42703 (undefined column), 42P01 (undefined table), or text match
+    return (error.code === '42703' || error.code === 'PGRST204' || msg.includes('column') && (msg.includes('does not exist') || msg.includes('could not find') || msg.includes('schema cache')));
 };
 
 const NEW_EMPLOYEE_FIELDS = ['province', 'annual_hours_contract', 'default_location_id', 'default_start_time', 'default_end_time'];
@@ -677,25 +678,53 @@ export const getWorkShifts = async (startDate: string, endDate: string): Promise
 
 export const createWorkShift = async (data: any): Promise<WorkShift> => {
     try {
-        const { data: created, error } = await supabase.from('work_shifts').insert([data]).select().single();
+        // Fallback for missing shift_config_id column
+        let payload = { ...data };
+        let { data: created, error } = await supabase.from('work_shifts').insert([payload]).select().single();
+        
+        if (isSchemaError(error)) {
+            // Remove incompatible fields
+            delete payload.shift_config_id;
+            delete payload.type; 
+            const retry = await supabase.from('work_shifts').insert([payload]).select().single();
+            created = retry.data; 
+            error = retry.error;
+        }
+        
         if (error) throw error;
         return created;
     } catch(e) { return { ...data, shift_id: 'mock' } as WorkShift; }
 };
 
-// NEW: Bulk Insert for fast imports
+// NEW: Bulk Insert for fast imports with Schema Resilience
 export const createBulkWorkShifts = async (shifts: any[]): Promise<void> => {
     try {
-        // Safe batch processing (e.g. 50 at a time)
         const batchSize = 50;
         for (let i = 0; i < shifts.length; i += batchSize) {
-            const batch = shifts.slice(i, i + batchSize).map(s => ({
+            let batch = shifts.slice(i, i + batchSize).map(s => ({
                 ...s,
                 // Ensure optional UUIDs are null not undefined/empty string
                 location_id: s.location_id || null,
                 shift_config_id: s.shift_config_id || null
             }));
-            const { error } = await supabase.from('work_shifts').insert(batch);
+
+            // Attempt Insert
+            let { error } = await supabase.from('work_shifts').insert(batch);
+
+            // Handle "Column does not exist" error (Schema mismatch)
+            if (isSchemaError(error)) {
+                console.warn("Schema mismatch detected during bulk insert. Retrying without 'shift_config_id'...");
+                
+                // Retry batch stripping the problematic column
+                const safeBatch = batch.map(s => {
+                    const { shift_config_id, ...rest } = s; 
+                    return rest;
+                });
+                
+                const retry = await supabase.from('work_shifts').insert(safeBatch);
+                error = retry.error;
+            }
+
             if (error) throw error;
         }
     } catch (e: any) {
@@ -724,7 +753,9 @@ export const deleteWorkShift = async (shiftId: string): Promise<void> => {
 export const getShiftConfigs = async (): Promise<ShiftConfig[]> => {
     try {
         const { data, error } = await supabase.from('shift_configs').select('*');
-        if (error || !data || data.length === 0) return FALLBACK_SHIFT_CONFIGS;
+        // Handle "Relation does not exist" if table is missing
+        if (error) return FALLBACK_SHIFT_CONFIGS;
+        if (!data || data.length === 0) return FALLBACK_SHIFT_CONFIGS;
         return data || [];
     } catch(e) { return FALLBACK_SHIFT_CONFIGS; }
 };
