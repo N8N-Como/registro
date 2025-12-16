@@ -174,31 +174,35 @@ export const parseScheduleImage = async (
         const base64Data = imageBase64.split(',')[1] || imageBase64;
 
         // Context Construction
-        const employeeContext = employees.map(e => `"${e.first_name} ${e.last_name}" (ID: ${e.employee_id})`).join('\n');
+        const employeeContext = employees.map(e => `Name: "${e.first_name} ${e.last_name}", ID: "${e.employee_id}"`).join('\n');
         const configContext = shiftConfigs.map(c => `Code "${c.code}": ${c.name}`).join('\n');
         
         const prompt = `
-        Analyze the attached image of a work schedule (cuadrante).
-        Context:
-        - Month: ${month}, Year: ${year}
-        - Valid Employees:\n${employeeContext}
-        - Valid Shift Codes:\n${configContext}
-        - Special Codes: 'L' = Day Off, 'V' or 'V25' = Vacation, 'B' = Sick Leave.
-
-        Instructions:
-        1. Identify the rows corresponding to employees. Fuzzy match the names in the image to the provided Employee IDs.
-        2. Identify the columns as days of the month (1, 2, 3...).
-        3. Extract the text/code from each cell.
-        4. Return a JSON ARRAY containing objects with:
-           - employee_id: The ID from the provided list.
-           - day: The numeric day of the month.
-           - shift_code: The code found (e.g., 'M', 'T', 'L', 'V25').
+        Analyze the attached image of a monthly work schedule (cuadrante).
         
-        Important:
-        - Ignore empty cells.
-        - If a cell spans multiple days, output multiple entries.
-        - Be precise with row alignment.
-        - Output ONLY the raw JSON array, no markdown formatting.
+        CONTEXT:
+        - Target Month: ${month}, Target Year: ${year}
+        - KNOWN EMPLOYEES (Use these IDs):\n${employeeContext}
+        - KNOWN SHIFT CODES:\n${configContext}
+        - SPECIAL CODES: 'L' (Off), 'V' or 'V25' (Vacation), 'B' (Sick), 'P' (Generic/Split).
+
+        INSTRUCTIONS:
+        1. **Detect Rows**: Match the name in the first column to the "KNOWN EMPLOYEES" list. 
+           - IMPORTANT: Be flexible with names. "ANXO" matches "Anxo Bernárdez". "BEGOÑA" matches "Begoña".
+           - Ignore rows that do not match a known employee.
+        2. **Detect Columns**: The header row contains numbers 1 to 30/31. Map these to the days of the month.
+        3. **Extract Cells**: For each Employee + Day intersection, read the text code.
+           - If cell is empty, ignore it.
+           - Treat "V25", "V", "Vac" as Vacation.
+           - Treat "L", "Libre" as Off.
+        
+        OUTPUT FORMAT:
+        Return ONLY a raw JSON Array. Do not use Markdown code blocks. Do not add explanations.
+        Structure:
+        [
+          { "employee_id": "uuid_from_list", "day": 1, "shift_code": "M" },
+          { "employee_id": "uuid_from_list", "day": 2, "shift_code": "L" }
+        ]
         `;
 
         const response = await ai.models.generateContent({
@@ -213,20 +217,44 @@ export const parseScheduleImage = async (
                 }
             ],
             config: {
-                responseMimeType: 'application/json'
+                responseMimeType: 'application/json',
+                temperature: 0.1 // Lower temperature for more deterministic output
             }
         });
 
         const text = response.text();
-        if (!text) return [];
-        
-        // Clean JSON string just in case
-        const jsonStr = text.replace(/```json/g, '').replace(/```/g, '').trim();
-        return JSON.parse(jsonStr) as ParsedShiftFromImage[];
+        console.log("Gemini Raw Response:", text); // Debugging
 
-    } catch (error) {
+        if (!text) throw new Error("Recibida respuesta vacía de la IA");
+        
+        // ROBUST JSON EXTRACTION
+        // Sometimes AI adds text before/after or markdown ```json ... ```
+        let jsonStr = text;
+        
+        // 1. Find the first '[' and last ']'
+        const firstBracket = text.indexOf('[');
+        const lastBracket = text.lastIndexOf(']');
+        
+        if (firstBracket !== -1 && lastBracket !== -1) {
+            jsonStr = text.substring(firstBracket, lastBracket + 1);
+        } else {
+            // Fallback cleanup if brackets not found (unlikely for valid array)
+            jsonStr = text.replace(/```json/g, '').replace(/```/g, '').trim();
+        }
+
+        try {
+            const parsed = JSON.parse(jsonStr) as ParsedShiftFromImage[];
+            if (!Array.isArray(parsed)) throw new Error("La respuesta no es un array");
+            return parsed;
+        } catch (parseError) {
+            console.error("JSON Parse Error:", parseError);
+            console.error("Failed JSON String:", jsonStr);
+            throw new Error("No se pudo leer el formato de datos devuelto por la IA.");
+        }
+
+    } catch (error: any) {
         console.error("Gemini Image Parsing Error:", error);
-        throw new Error("No se pudo analizar la imagen. Inténtalo de nuevo o comprueba la calidad.");
+        throw new Error(`Error analizando imagen: ${error.message}`);
     }
 };
 
