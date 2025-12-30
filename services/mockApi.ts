@@ -60,38 +60,28 @@ const FALLBACK_SHIFT_CONFIGS: ShiftConfig[] = [
     { config_id: 'conf_D', code: 'D', name: 'Partido (D)', start_time: '08:30', end_time: '18:30', color: '#c4b5fd', location_id: 'loc_main' }
 ];
 
-const FALLBACK_INVENTORY: InventoryItem[] = [
-    { item_id: 'item_1', name: 'Gel de Baño (Garrafa 5L)', category: 'amenities', quantity: 2, unit: 'garrafas', min_threshold: 1, last_updated: new Date().toISOString() },
-    { item_id: 'item_2', name: 'Papel Higiénico Industrial', category: 'amenities', quantity: 15, unit: 'rollos', min_threshold: 10, last_updated: new Date().toISOString() },
-];
+// --- LOCAL STORAGE HELPERS ---
+const LOCAL_SHIFTS_KEY = 'local_work_shifts';
+const LOCAL_CORRECTIONS_KEY = 'local_time_corrections';
 
-const handleSupabaseError = (error: any, context: string) => {
-    console.error(`Error in ${context}:`, error);
-    const isNetworkError = error.message?.includes('Failed to fetch') || error.name === 'TypeError';
-    if (isNetworkError) { console.warn("Network error detected."); }
-    let msg = error.message || "Unknown error";
-    if (error.details) msg += ` (${error.details})`;
-    throw new Error(msg);
+const getLocalShifts = (): WorkShift[] => {
+    try { return JSON.parse(localStorage.getItem(LOCAL_SHIFTS_KEY) || '[]'); } catch { return []; }
+};
+const saveLocalShifts = (shifts: WorkShift[]) => {
+    localStorage.setItem(LOCAL_SHIFTS_KEY, JSON.stringify(shifts));
+};
+
+const getLocalCorrections = (): TimeCorrectionRequest[] => {
+    try { return JSON.parse(localStorage.getItem(LOCAL_CORRECTIONS_KEY) || '[]'); } catch { return []; }
+};
+const saveLocalCorrections = (corrs: TimeCorrectionRequest[]) => {
+    localStorage.setItem(LOCAL_CORRECTIONS_KEY, JSON.stringify(corrs));
 };
 
 const isSchemaError = (error: any) => {
     if (!error) return false;
     const msg = error.message?.toLowerCase() || '';
-    // Codes: 42703 (undefined column), 42P01 (undefined table), or text match
     return (error.code === '42703' || error.code === 'PGRST204' || msg.includes('column') && (msg.includes('does not exist') || msg.includes('could not find') || msg.includes('schema cache')));
-};
-
-// --- LOCAL STORAGE HELPERS ---
-const LOCAL_SHIFTS_KEY = 'local_work_shifts';
-
-const getLocalShifts = (): WorkShift[] => {
-    try {
-        return JSON.parse(localStorage.getItem(LOCAL_SHIFTS_KEY) || '[]');
-    } catch { return []; }
-};
-
-const saveLocalShifts = (shifts: WorkShift[]) => {
-    localStorage.setItem(LOCAL_SHIFTS_KEY, JSON.stringify(shifts));
 };
 
 const cleanData = (data: any, fieldsToRemove: string[]) => {
@@ -102,7 +92,6 @@ const cleanData = (data: any, fieldsToRemove: string[]) => {
 
 // --- API Functions ---
 
-// ... (previous functions for roles, employees, locations remain the same) ...
 export const getRoles = async (): Promise<Role[]> => {
     try {
         const { data, error } = await supabase.from('roles').select('*');
@@ -128,7 +117,6 @@ export const getEmployees = async (): Promise<Employee[]> => {
     } catch (error) { return FALLBACK_EMPLOYEES; }
 };
 
-// ... (keep addEmployee, updateEmployee, deleteEmployee, acceptPolicy, getLocations, addLocation, updateLocation, deleteLocation) ...
 export const addEmployee = async (employeeData: Omit<Employee, 'employee_id'>): Promise<Employee> => {
     try {
         let { data, error } = await supabase.from('employees').insert([employeeData]).select().single();
@@ -159,9 +147,7 @@ export const deleteEmployee = async (employeeId: string): Promise<void> => {
     try {
         const { error } = await supabase.from('employees').delete().eq('employee_id', employeeId);
         if (error) throw new Error(error.message);
-    } catch (e: any) { 
-        throw new Error("No se pudo eliminar el empleado.");
-    }
+    } catch (e: any) { throw new Error("No se pudo eliminar el empleado."); }
 };
 
 export const acceptPolicy = async (employeeId: string): Promise<void> => {
@@ -199,7 +185,6 @@ export const deleteLocation = async (locationId: string): Promise<void> => {
     } catch (e: any) { throw new Error(e.message); }
 };
 
-// ... (time tracking functions remain the same) ...
 export const getTimeEntriesForEmployee = async (employeeId: string): Promise<TimeEntry[]> => {
     try {
         const { data, error } = await supabase.from('time_entries').select('*').eq('employee_id', employeeId).order('clock_in_time', { ascending: false });
@@ -271,41 +256,79 @@ export const clockOut = async (entryId: string, locationId?: string, isSyncing =
 };
 
 export const createTimeCorrectionRequest = async (data: Omit<TimeCorrectionRequest, 'request_id' | 'created_at' | 'status'>): Promise<TimeCorrectionRequest> => {
+    const newRequest: TimeCorrectionRequest = { 
+        ...data, 
+        request_id: crypto.randomUUID(), 
+        status: 'pending', 
+        created_at: new Date().toISOString() 
+    };
+
+    // Siempre guardamos localmente para asegurar visibilidad en este entorno de demo
+    const local = getLocalCorrections();
+    local.push(newRequest);
+    saveLocalCorrections(local);
+
     try {
-        const { data: created, error } = await supabase.from('time_correction_requests').insert([{...data, status: 'pending', created_at: new Date().toISOString()}]).select().single();
+        const { data: created, error } = await supabase.from('time_correction_requests').insert([newRequest]).select().single();
         if (error) throw error;
         return created;
-    } catch(e) { return { ...data, request_id: 'mock', status: 'pending', created_at: new Date().toISOString() } as TimeCorrectionRequest; }
+    } catch(e) { 
+        return newRequest;
+    }
 };
 
 export const getTimeCorrectionRequests = async (): Promise<TimeCorrectionRequest[]> => {
+    const local = getLocalCorrections();
     try {
         const { data, error } = await supabase.from('time_correction_requests').select('*').order('created_at', { ascending: false });
-        if (error) throw error;
-        return data || [];
-    } catch(e) { return []; }
+        if (error || !data) return local;
+        
+        // Merge DB data with local data, removing duplicates by ID
+        const dbIds = new Set(data.map(d => d.request_id));
+        const uniqueLocal = local.filter(l => !dbIds.has(l.request_id));
+        return [...data, ...uniqueLocal].sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    } catch(e) { 
+        return local; 
+    }
 };
 
 export const resolveTimeCorrectionRequest = async (requestId: string, status: 'approved' | 'rejected', reviewerId: string): Promise<void> => {
+    // 1. Actualizar localmente
+    const local = getLocalCorrections();
+    const idx = local.findIndex(r => r.request_id === requestId);
+    let requestToProcess = idx !== -1 ? local[idx] : null;
+
+    if (idx !== -1) {
+        local[idx].status = status;
+        local[idx].reviewed_by = reviewerId;
+        local[idx].reviewed_at = new Date().toISOString();
+        saveLocalCorrections(local);
+    }
+
     try {
-        const { data: request } = await supabase.from('time_correction_requests').select('*').eq('request_id', requestId).single();
+        const { data: requestFromDB } = await supabase.from('time_correction_requests').select('*').eq('request_id', requestId).maybeSingle();
+        const request = requestFromDB || requestToProcess;
         if (!request) throw new Error("Request not found");
+
         await supabase.from('time_correction_requests').update({ status, reviewed_by: reviewerId, reviewed_at: new Date().toISOString() }).eq('request_id', requestId);
+        
         if (status === 'approved') {
             if (request.correction_type === 'create_entry') {
                 const startTime = `${request.requested_date}T${request.requested_clock_in}:00`;
                 const endTime = request.requested_clock_out ? `${request.requested_date}T${request.requested_clock_out}:00` : undefined;
                 await supabase.from('time_entries').insert([{ employee_id: request.employee_id, clock_in_time: startTime, clock_out_time: endTime, status: endTime ? 'completed' : 'running', work_type: 'ordinaria', work_mode: 'presencial', is_manual: true }]);
             } else if (request.correction_type === 'fix_time' && request.original_entry_id) {
-                const startTime = `${request.requested_date}T${request.requested_clock_in}:00`;
+                const startTime = `${request.requested_date}T${request.requested_clock_in || '00:00'}:00`;
                 const endTime = request.requested_clock_out ? `${request.requested_date}T${request.requested_clock_out}:00` : null;
-                await supabase.from('time_entries').update({ clock_in_time: startTime, clock_out_time: endTime, is_manual: true }).eq('entry_id', request.original_entry_id);
+                const updates: any = { is_manual: true };
+                if (request.requested_clock_in) updates.clock_in_time = startTime;
+                if (request.requested_clock_out) updates.clock_out_time = endTime;
+                await supabase.from('time_entries').update(updates).eq('entry_id', request.original_entry_id);
             }
         }
     } catch(e) { console.error("Error resolving correction", e); }
 };
 
-// ... (Breaks, Activity Logs, Policies, Announcements, Rooms, Tasks, Incidents, ShiftLog, LostItems, MonthlySig, TimeOff) ...
 export const getBreaksForTimeEntry = async (timeEntryId: string): Promise<BreakLog[]> => {
     if (timeEntryId.startsWith('offline-')) return [];
     try {
@@ -314,8 +337,6 @@ export const getBreaksForTimeEntry = async (timeEntryId: string): Promise<BreakL
         return data || [];
     } catch(e) { return []; }
 };
-
-export const getAllBreaksForEmployee = async (employeeId: string): Promise<BreakLog[]> => { return []; }
 
 export const getBreaksForTimeEntries = async (timeEntryIds: string[]): Promise<BreakLog[]> => {
     if (timeEntryIds.length === 0) return [];
@@ -669,48 +690,29 @@ export const updateTimeOffRequestStatus = async (requestId: string, status: 'app
 
 export const getWorkShifts = async (startDate: string, endDate: string): Promise<WorkShift[]> => {
     try {
-        // Try Supabase first
         const { data, error } = await supabase.from('work_shifts').select('*').gte('start_time', startDate).lte('end_time', endDate);
-        
-        // If DB fails (schema or network), try LocalStorage
         if (error || !data) {
-            console.warn("Falling back to local shifts");
             const local = getLocalShifts();
             return local.filter(s => s.start_time >= startDate && s.end_time <= endDate);
         }
         return data;
-    } catch(e) {
-        // Fallback catch-all
-        return getLocalShifts().filter(s => s.start_time >= startDate && s.end_time <= endDate);
-    }
+    } catch(e) { return getLocalShifts().filter(s => s.start_time >= startDate && s.end_time <= endDate); }
 };
 
 export const createWorkShift = async (data: any): Promise<WorkShift> => {
-    // 1. Try Local Save FIRST (Offline Mode Logic) to ensure it works "outside"
-    // However, if we want sync, we should try DB first.
-    // For this request "make it work outside", we'll do fallback.
-    
     try {
         let payload = { ...data };
         let { data: created, error } = await supabase.from('work_shifts').insert([payload]).select().single();
-        
         if (isSchemaError(error)) {
-            // Strip fields
-            delete payload.shift_config_id;
-            delete payload.type; 
+            delete payload.shift_config_id; delete payload.type; 
             const retry = await supabase.from('work_shifts').insert([payload]).select().single();
-            created = retry.data; 
-            error = retry.error;
+            created = retry.data; error = retry.error;
         }
-        
         if (error) throw error;
         return created;
     } catch(e) { 
-        // Fallback to LocalStorage
         const newShift = { ...data, shift_id: 'local-' + crypto.randomUUID() };
-        const local = getLocalShifts();
-        local.push(newShift);
-        saveLocalShifts(local);
+        const local = getLocalShifts(); local.push(newShift); saveLocalShifts(local);
         return newShift;
     }
 };
@@ -719,34 +721,16 @@ export const createBulkWorkShifts = async (shifts: any[]): Promise<void> => {
     try {
         const batchSize = 50;
         for (let i = 0; i < shifts.length; i += batchSize) {
-            let batch = shifts.slice(i, i + batchSize).map(s => ({
-                ...s,
-                location_id: s.location_id || null,
-                shift_config_id: s.shift_config_id || null
-            }));
-
+            let batch = shifts.slice(i, i + batchSize).map(s => ({ ...s, location_id: s.location_id || null, shift_config_id: s.shift_config_id || null }));
             let { error } = await supabase.from('work_shifts').insert(batch);
-
             if (isSchemaError(error)) {
-                // FALLBACK STRATEGY:
-                // If schema doesn't have 'shift_config_id' or 'type',
-                // we assume we can't save them. However, we want to KEEP the info visible.
-                // We'll map the code/info to 'notes' if it's not already there.
-                
-                const safeBatch = batch.map(s => {
-                    const { shift_config_id, type, ...rest } = s; 
-                    return rest;
-                });
-                
+                const safeBatch = batch.map(s => { const { shift_config_id, type, ...rest } = s; return rest; });
                 const retry = await supabase.from('work_shifts').insert(safeBatch);
                 error = retry.error;
             }
-
             if (error) throw error;
         }
     } catch (e: any) {
-        // FULL LOCAL FALLBACK
-        console.warn("DB Bulk Insert failed, saving locally:", e);
         const local = getLocalShifts();
         const newLocalShifts = shifts.map(s => ({...s, shift_id: 'local-' + crypto.randomUUID()}));
         saveLocalShifts([...local, ...newLocalShifts]);
@@ -758,13 +742,8 @@ export const updateWorkShift = async (data: WorkShift): Promise<WorkShift> => {
         if (data.shift_id.startsWith('local-')) {
             const local = getLocalShifts();
             const idx = local.findIndex(s => s.shift_id === data.shift_id);
-            if (idx !== -1) {
-                local[idx] = data;
-                saveLocalShifts(local);
-                return data;
-            }
+            if (idx !== -1) { local[idx] = data; saveLocalShifts(local); return data; }
         }
-        
         const { data: updated, error } = await supabase.from('work_shifts').update(data).eq('shift_id', data.shift_id).select().single();
         if (error) throw error;
         return updated;
@@ -774,20 +753,14 @@ export const updateWorkShift = async (data: WorkShift): Promise<WorkShift> => {
 export const deleteWorkShift = async (shiftId: string): Promise<void> => {
     try {
         if (shiftId.startsWith('local-')) {
-            const local = getLocalShifts();
-            const newLocal = local.filter(s => s.shift_id !== shiftId);
-            saveLocalShifts(newLocal);
+            const local = getLocalShifts(); saveLocalShifts(local.filter(s => s.shift_id !== shiftId));
             return;
         }
-
         const { error } = await supabase.from('work_shifts').delete().eq('shift_id', shiftId);
         if (error) throw error;
-    } catch(e: any) { 
-        console.error("Delete failed", e);
-    }
+    } catch(e: any) { console.error("Delete failed", e); }
 };
 
-// ... (Other functions remain mostly the same, or could have similar fallback added) ...
 export const getShiftConfigs = async (): Promise<ShiftConfig[]> => {
     try {
         const { data, error } = await supabase.from('shift_configs').select('*');
@@ -816,13 +789,9 @@ export const updateShiftConfig = async (data: ShiftConfig): Promise<ShiftConfig>
 };
 
 export const deleteShiftConfig = async (configId: string): Promise<void> => {
-    try {
-        const { error } = await supabase.from('shift_configs').delete().eq('config_id', configId);
-        if (error) throw error;
-    } catch(e) { }
+    try { const { error } = await supabase.from('shift_configs').delete().eq('config_id', configId); if (error) throw error; } catch(e) { }
 };
 
-// ... (Documents, Maintenance, Inventory remain same for brevity, can apply same pattern if needed) ...
 export const getDocuments = async (): Promise<CompanyDocument[]> => {
     try {
         const { data, error } = await supabase.from('documents').select('*').order('created_at', { ascending: false });
@@ -898,21 +867,15 @@ export const updateMaintenancePlan = async (planData: MaintenancePlan): Promise<
 };
 
 export const deleteMaintenancePlan = async (planId: string): Promise<void> => {
-    try {
-        const { error } = await supabase.from('maintenance_plans').delete().eq('plan_id', planId);
-        if (error) throw error;
-    } catch(e) { }
+    try { const { error } = await supabase.from('maintenance_plans').delete().eq('plan_id', planId); if (error) throw error; } catch(e) { }
 };
 
 export const checkAndGenerateMaintenanceTasks = async (): Promise<void> => {
     try {
-        const plans = await getMaintenancePlans();
-        const today = new Date();
-        today.setHours(0,0,0,0);
+        const plans = await getMaintenancePlans(); const today = new Date(); today.setHours(0,0,0,0);
         for (const plan of plans) {
             if (!plan.active) continue;
-            const dueDate = new Date(plan.next_due_date);
-            dueDate.setHours(0,0,0,0);
+            const dueDate = new Date(plan.next_due_date); dueDate.setHours(0,0,0,0);
             const diffTime = dueDate.getTime() - today.getTime();
             const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
             if (diffDays <= 7) {
@@ -935,7 +898,7 @@ export const getInventoryItems = async (): Promise<InventoryItem[]> => {
         const { data, error } = await supabase.from('inventory_items').select('*');
         if (error || !data || data.length === 0) return FALLBACK_INVENTORY;
         return data;
-    } catch(e) { console.warn("Supabase unreachable (Inventory), using fallback data."); return FALLBACK_INVENTORY; }
+    } catch(e) { return FALLBACK_INVENTORY; }
 };
 
 export const addInventoryItem = async (data: any): Promise<InventoryItem> => {
@@ -965,3 +928,7 @@ export const getStockLogs = async (itemId: string): Promise<StockLog[]> => {
         return data || [];
     } catch(e) { return []; }
 }
+const FALLBACK_INVENTORY: InventoryItem[] = [
+    { item_id: 'item_1', name: 'Gel de Baño (Garrafa 5L)', category: 'amenities', quantity: 2, unit: 'garrafas', min_threshold: 1, last_updated: new Date().toISOString() },
+    { item_id: 'item_2', name: 'Papel Higiénico Industrial', category: 'amenities', quantity: 15, unit: 'rollos', min_threshold: 10, last_updated: new Date().toISOString() },
+];

@@ -136,7 +136,6 @@ const ShiftSchedulerView: React.FC = () => {
     };
 
     const calculateAnnualHours = (employeeId: string) => {
-        // CORRECCIÓN: Solo sumamos turnos de tipo 'work'. Libranzas (off), Vacaciones, etc son 0h.
         const empShifts = yearShifts.filter(s => s.employee_id === employeeId && s.type === 'work');
         let totalMs = 0;
         empShifts.forEach(s => {
@@ -233,15 +232,15 @@ const ShiftSchedulerView: React.FC = () => {
                                                 {dayShifts.map((shift, i) => {
                                                     if (i > 0) return null; // Solo mostrar el primero visualmente
                                                     
-                                                    // DETERMINACIÓN DE LETRA CÓDIGO
+                                                    // DETERMINACIÓN DE LETRA CÓDIGO (Novedad Auditoría)
                                                     let displayCode = '';
-                                                    if (shift.notes && shift.notes.length <= 4) {
-                                                        displayCode = shift.notes; // Usar código de importación (M, T, V25...)
+                                                    if (shift.notes && shift.notes.length <= 3) {
+                                                        displayCode = shift.notes; // Usar código de importación (M, T, L...)
                                                     } else if (shift.shift_config_id) {
                                                         const cfg = shiftConfigs.find(c => c.config_id === shift.shift_config_id);
                                                         displayCode = cfg?.code || '?';
                                                     } else {
-                                                        // Heurística si no hay datos
+                                                        // Heurística
                                                         if (shift.type === 'off') displayCode = 'L';
                                                         else if (shift.type === 'vacation') displayCode = 'V';
                                                         else displayCode = 'W';

@@ -46,7 +46,7 @@ const ImageImportModal: React.FC<ImageImportModalProps> = ({
                 const dateStr = `${currentYear}-${(currentMonth + 1).toString().padStart(2, '0')}-${item.day.toString().padStart(2, '0')}`;
                 const code = item.shift_code.trim().toUpperCase();
                 
-                // BUSCAR SI ES UN TURNO CONFIGURADO (M, T, P...)
+                // BUSCAR COINCIDENCIA CON TIPOS DE TURNO CONFIGURADOS (M, T, P, etc.)
                 const config = shiftConfigs.find(c => c.code.toUpperCase() === code);
                 
                 let type: ShiftType = 'work';
@@ -56,18 +56,19 @@ const ImageImportModal: React.FC<ImageImportModalProps> = ({
                 let configId = undefined;
 
                 if (config) {
-                    // ES TRABAJO: Usar horas del tipo de turno
+                    // SI COINCIDE CON UN TURNO DE TRABAJO
                     startISO = `${dateStr}T${config.start_time}:00`;
                     endISO = `${dateStr}T${config.end_time}:00`;
                     color = config.color;
                     configId = config.config_id;
                     type = 'work';
                 } else {
-                    // NO ES TRABAJO: Es una libranza, vacaciones o baja (0 HORAS)
-                    type = code.startsWith('V') ? 'vacation' : code.startsWith('B') ? 'sick' : 'off';
+                    // SI ES LIBRANZA O DESCONOCIDO (Duración 0 para cómputo)
+                    type = code === 'L' ? 'off' : code === 'V' ? 'vacation' : 'off';
                     startISO = `${dateStr}T00:00:00`;
-                    endISO = `${dateStr}T00:00:00`; // Duración 0
-                    color = type === 'vacation' ? '#10b981' : type === 'sick' ? '#ef4444' : '#9ca3af';
+                    endISO = `${dateStr}T00:00:00`; // Salida = Entrada significa 0 horas
+                    color = type === 'vacation' ? '#10b981' : '#9ca3af';
+                    configId = undefined;
                 }
 
                 return {
@@ -77,7 +78,7 @@ const ImageImportModal: React.FC<ImageImportModalProps> = ({
                     type,
                     color,
                     shift_config_id: configId,
-                    notes: code // Guardamos la letra original para mostrarla en el cuadrante
+                    notes: code // Guardamos solo la letra para que se vea en el cuadrante
                 };
             });
 
