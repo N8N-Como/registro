@@ -160,8 +160,24 @@ interface CompactSchedule {
 }
 
 const getAIClient = () => {
-    const apiKey = process.env.API_KEY;
-    if (!apiKey) throw new Error("API Key not configured");
+    let apiKey = '';
+    
+    // 1. Try process.env (Standard in this environment & DefinePlugin)
+    if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
+        apiKey = process.env.API_KEY;
+    }
+    
+    // 2. Try import.meta.env (Standard Vite in local dev)
+    // Using explicit casting to avoid TS errors if types aren't set
+    if (!apiKey && (import.meta as any).env && (import.meta as any).env.VITE_API_KEY) {
+        apiKey = (import.meta as any).env.VITE_API_KEY;
+    }
+
+    if (!apiKey) {
+        console.error("API Key Configuration Error: No API Key found in process.env.API_KEY or VITE_API_KEY.");
+        throw new Error("API Key not configured. Please check your .env file.");
+    }
+    
     return new GoogleGenAI({ apiKey });
 };
 
@@ -366,8 +382,8 @@ export const processNaturalLanguageCommand = async (
 
         return { action: 'none', message: "No he entendido la orden." };
 
-    } catch (error) {
+    } catch (error: any) {
         console.error("Gemini API Error:", error);
-        return { action: 'none', message: "Error de conexión con el asistente." };
+        return { action: 'none', message: `Error de conexión con el asistente: ${error.message}` };
     }
 };

@@ -12,7 +12,7 @@ interface DailyLog {
         clockIn: string;
         clockOut: string;
         duration: number;
-        isManual: boolean; // New prop to detect manual change
+        isManual: boolean; 
     }[];
     totalDuration: number;
 }
@@ -33,88 +33,93 @@ interface PrintableMonthlyLogProps {
 const PrintableMonthlyLog: React.FC<PrintableMonthlyLogProps> = ({ data, month, year }) => {
     const monthName = new Date(year, month - 1, 1).toLocaleString('es-ES', { month: 'long' });
 
-    const handlePrint = () => {
-        window.print();
-    };
-
     return (
         <div className="bg-white p-4">
             <div className="flex justify-end mb-4 no-print">
-                <Button onClick={handlePrint}>Imprimir Informe Completo</Button>
+                <Button onClick={() => window.print()}>🖨️ Imprimir Registro Oficial</Button>
             </div>
-            <div id="print-area" className="text-xs">
+            <div id="print-area" className="text-[9px] leading-tight font-sans">
                 {data.map(({ employee, dailyLogs, monthlyTotal, signature }, index) => (
-                    <div key={employee.employee_id} className={`mb-12 ${index < data.length - 1 ? 'break-after-page' : ''}`}>
-                        <header className="flex justify-between items-center pb-4 border-b mb-4">
+                    <div key={employee.employee_id} className={`mb-10 ${index < data.length - 1 ? 'break-after-page' : ''}`}>
+                        <header className="flex justify-between items-center pb-2 border-b-2 border-gray-800 mb-4">
                             <div>
-                                <h1 className="text-xl font-bold text-primary">{COMPANY_NAME}</h1>
-                                <p className="text-gray-600">Registro de Jornada Laboral</p>
+                                <h1 className="text-lg font-bold text-primary">{COMPANY_NAME}</h1>
+                                <p className="text-[10px] font-semibold text-gray-600 uppercase">Registro Individual de Jornada - Art. 34.9 ET</p>
                             </div>
                             <div className="text-right">
-                                <p className="font-semibold">{employee.first_name} {employee.last_name}</p>
-                                <p className="text-sm text-gray-500 capitalize">{monthName} {year}</p>
+                                <p className="text-sm font-bold uppercase">{employee.first_name} {employee.last_name}</p>
+                                <p className="text-[10px] text-gray-500 capitalize">{monthName} {year}</p>
                             </div>
                         </header>
 
-                        <main className="overflow-x-auto">
-                            <table className="w-full text-left border-collapse min-w-[600px]">
-                                <thead>
-                                    <tr className="border-b-2 border-gray-300 bg-gray-100">
-                                        <th className="p-2 font-semibold">Día</th>
-                                        <th className="p-2 font-semibold">Fecha</th>
-                                        <th className="p-2 font-semibold">Hora Entrada</th>
-                                        <th className="p-2 font-semibold">Hora Salida</th>
-                                        <th className="p-2 font-semibold text-right">Total Horas Día</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {dailyLogs.map(log => (
-                                        <tr key={log.day} className="border-b hover:bg-gray-50">
-                                            <td className="p-2">{log.day}</td>
-                                            <td className="p-2">{log.date}</td>
-                                            <td className="p-2">
+                        <table className="w-full border-collapse border border-gray-400">
+                            <thead>
+                                <tr className="bg-gray-100 border-b border-gray-400">
+                                    <th className="p-1 border-r border-gray-400 w-8">Día</th>
+                                    <th className="p-1 border-r border-gray-400 w-16">Fecha</th>
+                                    <th className="p-1 border-r border-gray-400">H. Entrada</th>
+                                    <th className="p-1 border-r border-gray-400">H. Salida</th>
+                                    <th className="p-1 font-bold text-right w-20">Total Jornada</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {dailyLogs.map(log => {
+                                    const hasManual = log.entries.some(e => e.isManual);
+                                    return (
+                                        <tr key={log.day} className={`border-b border-gray-300 ${hasManual ? 'bg-red-50' : ''}`}>
+                                            <td className="p-1 border-r border-gray-300 text-center font-bold">{log.day}</td>
+                                            <td className="p-1 border-r border-gray-300 text-center">{log.date}</td>
+                                            <td className="p-1 border-r border-gray-300 text-center">
                                                 {log.entries.map((e, i) => (
-                                                    <span key={i} className={e.isManual ? 'text-red-600 font-bold' : ''}>
+                                                    <span key={i} className={e.isManual ? 'text-red-600 font-bold underline' : ''}>
                                                         {e.clockIn}{i < log.entries.length - 1 ? ', ' : ''}
                                                     </span>
                                                 ))}
                                             </td>
-                                            <td className="p-2">
+                                            <td className="p-1 border-r border-gray-300 text-center">
                                                 {log.entries.map((e, i) => (
-                                                    <span key={i} className={e.isManual ? 'text-red-600 font-bold' : ''}>
+                                                    <span key={i} className={e.isManual ? 'text-red-600 font-bold underline' : ''}>
                                                         {e.clockOut}{i < log.entries.length - 1 ? ', ' : ''}
                                                     </span>
                                                 ))}
                                             </td>
-                                            <td className="p-2 text-right font-medium">{log.totalDuration > 0 ? formatDuration(log.totalDuration) : '-'}</td>
+                                            <td className={`p-1 text-right font-bold ${hasManual ? 'text-red-600' : ''}`}>
+                                                {log.totalDuration > 0 ? formatDuration(log.totalDuration) : '-'}
+                                            </td>
                                         </tr>
-                                    ))}
-                                </tbody>
-                                <tfoot>
-                                    <tr className="border-t-2 border-gray-300 bg-gray-100">
-                                        <td colSpan={4} className="p-2 text-right font-bold">Total Horas del Mes:</td>
-                                        <td className="p-2 text-right font-bold">{formatDuration(monthlyTotal)}</td>
-                                    </tr>
-                                </tfoot>
-                            </table>
-                            <p className="text-[10px] text-gray-500 mt-2">* Los registros en rojo indican correcciones manuales o incidencias en el fichaje.</p>
-                        </main>
+                                    );
+                                })}
+                            </tbody>
+                            <tfoot>
+                                <tr className="bg-gray-100 font-bold border-t-2 border-gray-800">
+                                    <td colSpan={4} className="p-2 text-right uppercase">Cómputo Total Mensual:</td>
+                                    <td className="p-2 text-right text-sm">{formatDuration(monthlyTotal)}</td>
+                                </tr>
+                            </tfoot>
+                        </table>
 
-                        <footer className="mt-16 flex justify-around text-center">
-                            <div className="flex flex-col items-center">
-                                {signature ? (
-                                    <img src={signature.signature_url} alt="Firma Empleado" className="h-16 mb-2 border-b border-gray-300" />
-                                ) : (
-                                    <div className="h-16 w-48 mb-2 border-b border-gray-300 bg-gray-50 flex items-center justify-center text-gray-400 italic">
-                                        Sin Firma Digital
-                                    </div>
-                                )}
-                                <p className="text-gray-700">Firma del Trabajador/a</p>
-                                {signature && <p className="text-[10px] text-gray-400">Firmado digitalmente: {new Date(signature.signed_at).toLocaleString()}</p>}
+                        <div className="mt-4 flex justify-between items-start text-[8px] italic text-gray-500">
+                            <div>
+                                <p>* Registro automatizado vía App con verificación de ubicación y huella digital del dispositivo.</p>
+                                <p className="font-bold text-red-600">** Los registros en rojo indican una corrección autorizada manualmente por la administración.</p>
                             </div>
-                            <div className="flex flex-col items-center justify-end">
-                                <div className="h-16 w-48 mb-2 border-b border-gray-300"></div>
-                                <p className="text-gray-700">Firma de la Empresa</p>
+                            <div className="text-right">
+                                <p>Centro: {employee.province === 'coruna' ? 'A Coruña' : 'Pontevedra'}</p>
+                            </div>
+                        </div>
+
+                        <footer className="mt-8 grid grid-cols-2 gap-10 px-4">
+                            <div className="text-center">
+                                <p className="font-bold mb-1 border-b border-gray-800">Firma del Trabajador/a</p>
+                                <div className="h-16 flex items-center justify-center">
+                                    {signature ? <img src={signature.signature_url} className="h-full object-contain" /> : <span className="text-gray-300">Pendiente de firma</span>}
+                                </div>
+                            </div>
+                            <div className="text-center">
+                                <p className="font-bold mb-1 border-b border-gray-800">Sello y Firma Empresa</p>
+                                <div className="h-16 flex items-center justify-center">
+                                    <div className="border border-gray-200 p-1 rounded opacity-20 transform -rotate-12 uppercase text-[8px] font-bold">Como en Casa SL</div>
+                                </div>
                             </div>
                         </footer>
                     </div>

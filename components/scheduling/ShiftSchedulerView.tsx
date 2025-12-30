@@ -47,7 +47,7 @@ const NAME_SORT_ORDER = [
 
 const ShiftSchedulerView: React.FC = () => {
     const auth = useContext(AuthContext);
-    const [currentWeekStart, setCurrentWeekStart] = useState(new Date(2025, 0, 1)); // Enero 2025 por defecto
+    const [currentWeekStart, setCurrentWeekStart] = useState(new Date(2025, 0, 1)); 
     const [shifts, setShifts] = useState<WorkShift[]>([]);
     const [yearShifts, setYearShifts] = useState<WorkShift[]>([]); 
     const [employees, setEmployees] = useState<Employee[]>([]);
@@ -56,7 +56,6 @@ const ShiftSchedulerView: React.FC = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     
-    // Estados de Modales
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [isImageImportModalOpen, setIsImageImportModalOpen] = useState(false);
@@ -65,18 +64,15 @@ const ShiftSchedulerView: React.FC = () => {
     const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
     const [selectedConfig, setSelectedConfig] = useState<ShiftConfig | null>(null);
 
-    // --- PERMISOS ---
     const canManage = useMemo(() => {
         const role = auth?.role?.role_id || '';
         return ['admin', 'receptionist', 'gobernanta', 'revenue', 'administracion'].includes(role);
     }, [auth?.role]);
 
-    // Generar días del mes
     const viewDays = useMemo(() => {
         const days = [];
         const start = new Date(currentWeekStart.getFullYear(), currentWeekStart.getMonth(), 1);
         const lastDay = new Date(currentWeekStart.getFullYear(), currentWeekStart.getMonth() + 1, 0).getDate();
-
         for (let i = 0; i < lastDay; i++) {
             const d = new Date(start);
             d.setDate(start.getDate() + i);
@@ -85,65 +81,46 @@ const ShiftSchedulerView: React.FC = () => {
         return days;
     }, [currentWeekStart]);
 
-    // Función de ordenación ROBUSTA (Normaliza acentos y mayúsculas)
+    // Función de ordenación con normalización de acentos
     const getSortIndex = (employee: Employee) => {
-        // Normalizar nombre: Quitar acentos y poner mayúsculas
         const normalize = (str: string) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
-        
         const firstName = normalize(employee.first_name);
-        
-        // Buscar coincidencia en la lista ordenada
         for (let i = 0; i < NAME_SORT_ORDER.length; i++) {
             const target = normalize(NAME_SORT_ORDER[i]);
-            // Comprobamos si el nombre del empleado contiene el nombre de la lista (ej: "Maria Begoña" vs "BEGOÑA")
-            if (firstName.includes(target) || target.includes(firstName)) {
-                return i;
-            }
+            if (firstName.includes(target) || target.includes(firstName)) return i;
         }
-        
-        // Si no está en la lista, va al final
         return 999; 
     };
 
     const fetchSchedulerData = async () => {
         setIsLoading(true);
-        setError(null);
         try {
             const [emps, locs] = await Promise.all([getEmployees(), getLocations()]);
-            
             let operationalStaff = emps.filter(e => e.employee_id !== 'emp_admin');
-
             if (!canManage && auth?.employee) {
                 operationalStaff = operationalStaff.filter(e => e.employee_id === auth.employee!.employee_id);
             }
-
-            // Ordenación
             operationalStaff.sort((a, b) => getSortIndex(a) - getSortIndex(b));
             setEmployees(operationalStaff);
             setLocations(locs);
 
-            try {
-                const configs = await getShiftConfigs();
-                setShiftConfigs(configs);
-            } catch (e) { setShiftConfigs([]); }
+            const configs = await getShiftConfigs();
+            setShiftConfigs(configs);
             
-            // Cargar turnos del mes
             if (viewDays.length > 0) {
                 const startStr = viewDays[0].toISOString();
                 const endStr = viewDays[viewDays.length - 1].toISOString().replace(/T.*/, 'T23:59:59');
-                const weekShifts = await getWorkShifts(startStr, endStr);
-                setShifts(weekShifts);
+                const monthShifts = await getWorkShifts(startStr, endStr);
+                setShifts(monthShifts);
             }
 
-            // Cargar anuales (para contadores)
             const yearStart = new Date(currentWeekStart.getFullYear(), 0, 1).toISOString();
             const yearEnd = new Date(currentWeekStart.getFullYear(), 11, 31).toISOString();
             const allShifts = await getWorkShifts(yearStart, yearEnd);
             setYearShifts(allShifts);
 
         } catch (err: any) {
-            console.error(err);
-            setError("Error cargando datos.");
+            setError("Error cargando cuadrante.");
         } finally {
             setIsLoading(false);
         }
@@ -153,112 +130,14 @@ const ShiftSchedulerView: React.FC = () => {
         fetchSchedulerData();
     }, [currentWeekStart, canManage]);
 
-    const handlePreviousMonth = () => {
-        const newDate = new Date(currentWeekStart);
-        newDate.setMonth(newDate.getMonth() - 1);
-        setCurrentWeekStart(newDate);
-    };
-
-    const handleNextMonth = () => {
-        const newDate = new Date(currentWeekStart);
-        newDate.setMonth(newDate.getMonth() + 1);
-        setCurrentWeekStart(newDate);
-    };
-    
     const handleToday = () => {
         const now = new Date();
         setCurrentWeekStart(new Date(now.getFullYear(), now.getMonth(), 1));
     };
 
-    const handleCellClick = (employeeId: string, date: Date) => {
-        if (!canManage) return;
-        setModalContext({ employeeId, date });
-        setSelectedShift(null);
-        setIsModalOpen(true);
-    };
-
-    const handleShiftClick = (e: React.MouseEvent, shift: WorkShift) => {
-        e.stopPropagation();
-        if (!canManage) return;
-        setSelectedShift(shift);
-        setModalContext({ employeeId: shift.employee_id, date: new Date(shift.start_time) });
-        setIsModalOpen(true);
-    };
-
-    const handleSaveShift = async (shiftData: WorkShift | Omit<WorkShift, 'shift_id'>) => {
-        try {
-            if ('shift_id' in shiftData) await updateWorkShift(shiftData);
-            else await createWorkShift(shiftData);
-            fetchSchedulerData(); 
-            setIsModalOpen(false);
-        } catch (error) { alert("Error al guardar"); }
-    };
-
-    const handleDeleteShift = async (shiftId: string) => {
-        try {
-            await deleteWorkShift(shiftId);
-            fetchSchedulerData();
-            setIsModalOpen(false);
-        } catch (error) { alert("Error al eliminar"); }
-    };
-    
-    const handleBulkImport = async (newShifts: Omit<WorkShift, 'shift_id'>[]) => {
-        if (newShifts.length === 0) return;
-        setIsLoading(true);
-        try {
-            await createBulkWorkShifts(newShifts);
-            setTimeout(() => {
-                fetchSchedulerData();
-            }, 500);
-        } catch (e: any) {
-            console.error(e);
-            alert(`Error importando datos: ${e.message}`);
-            setIsLoading(false);
-        }
-    };
-
-    const handleEditConfig = (config: ShiftConfig | null) => {
-        if (!canManage) return;
-        setSelectedConfig(config);
-        setIsConfigModalOpen(true);
-    };
-    const handleSaveConfig = async (data: any) => {
-        try {
-            if ('config_id' in data) await updateShiftConfig(data);
-            else await addShiftConfig(data);
-            fetchSchedulerData();
-            setIsConfigModalOpen(false);
-        } catch (e: any) { alert("Error: " + e.message); }
-    };
-    const handleDeleteConfig = async (id: string) => {
-        try {
-            await deleteShiftConfig(id);
-            fetchSchedulerData();
-            setIsConfigModalOpen(false);
-        } catch (e) { alert("Error al eliminar config."); }
-    };
-    
-    const handleAIAction = async (response: AIResponse) => {
-        if (response.action === 'createShift' && response.data) {
-            try {
-                await createWorkShift({
-                    employee_id: response.data.employee_id,
-                    start_time: response.data.start_time,
-                    end_time: response.data.end_time,
-                    type: response.data.type || 'work',
-                    location_id: response.data.location_id
-                });
-                fetchSchedulerData();
-            } catch (e) { console.error(e); }
-        }
-    };
-
-    // CORRECCIÓN CÁLCULO DE HORAS (Solo suma tipo 'work')
     const calculateAnnualHours = (employeeId: string) => {
-        const empShifts = yearShifts.filter(s => 
-            s.employee_id === employeeId && 
-            s.type === 'work' // STRICTLY WORK ONLY
-        );
+        // CORRECCIÓN: Solo sumamos turnos de tipo 'work'. Libranzas (off), Vacaciones, etc son 0h.
+        const empShifts = yearShifts.filter(s => s.employee_id === employeeId && s.type === 'work');
         let totalMs = 0;
         empShifts.forEach(s => {
             totalMs += new Date(s.end_time).getTime() - new Date(s.start_time).getTime();
@@ -266,18 +145,9 @@ const ShiftSchedulerView: React.FC = () => {
         return totalMs / (1000 * 60 * 60);
     };
 
-    const allowedAIInputs: InputMode[] | null = canManage ? ['text', 'voice', 'image'] : null;
+    const allowedInputs: InputMode[] | null = canManage ? ['text', 'voice', 'image'] : null;
 
     if (isLoading && employees.length === 0) return <Spinner />;
-    
-    if (error) {
-        return (
-            <div className="p-6 bg-red-50 border border-red-200 rounded-lg text-red-700 text-center">
-                <p>{error}</p>
-                <Button onClick={() => window.location.reload()} className="mt-4" variant="secondary">Recargar</Button>
-            </div>
-        );
-    }
 
     const monthName = currentWeekStart.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }).toUpperCase();
 
@@ -290,30 +160,22 @@ const ShiftSchedulerView: React.FC = () => {
                 </div>
                 
                 <div className="flex items-center space-x-2">
-                    <Button variant="secondary" size="sm" onClick={handlePreviousMonth}>&lt;</Button>
+                    <Button variant="secondary" size="sm" onClick={() => {
+                        const d = new Date(currentWeekStart); d.setMonth(d.getMonth() - 1); setCurrentWeekStart(d);
+                    }}>&lt;</Button>
                     <Button variant="secondary" size="sm" onClick={handleToday}>Hoy</Button>
-                    <Button variant="secondary" size="sm" onClick={handleNextMonth}>&gt;</Button>
+                    <Button variant="secondary" size="sm" onClick={() => {
+                        const d = new Date(currentWeekStart); d.setMonth(d.getMonth() + 1); setCurrentWeekStart(d);
+                    }}>&gt;</Button>
                 </div>
 
                 {canManage && (
                     <div className="flex gap-2">
-                        <Button 
-                            size="sm" 
-                            variant="secondary" 
-                            onClick={() => setIsImportModalOpen(true)}
-                            className="flex items-center justify-center gap-2"
-                        >
-                            <DocumentIcon className="w-4 h-4" />
-                            Excel
+                        <Button size="sm" variant="secondary" onClick={() => setIsImportModalOpen(true)}>
+                            <DocumentIcon className="w-4 h-4 mr-2" /> Excel
                         </Button>
-                        <Button 
-                            size="sm" 
-                            variant="success" 
-                            onClick={() => setIsImageImportModalOpen(true)}
-                            className="flex items-center justify-center gap-2"
-                        >
-                            <SparklesIcon className="w-4 h-4" />
-                            Importar Foto IA
+                        <Button size="sm" variant="success" onClick={() => setIsImageImportModalOpen(true)}>
+                            <SparklesIcon className="w-4 h-4 mr-2" /> Importar Foto IA
                         </Button>
                     </div>
                 )}
@@ -323,19 +185,16 @@ const ShiftSchedulerView: React.FC = () => {
                 <div className="overflow-x-auto">
                     <table className="w-full border-collapse">
                         <thead>
-                            <tr className="bg-blue-600 text-white border-b border-blue-700">
-                                <th className="p-2 text-left font-bold w-40 sticky left-0 bg-blue-600 z-20 border-r border-blue-500 shadow-md text-xs uppercase">
+                            <tr className="bg-primary text-white border-b border-primary-dark">
+                                <th className="p-2 text-left font-bold w-40 sticky left-0 bg-primary z-20 border-r border-primary-light shadow-md text-[10px] uppercase">
                                     Empleado
                                 </th>
-                                {viewDays.map(day => {
-                                    const isToday = day.toDateString() === new Date().toDateString();
-                                    return (
-                                        <th key={day.toISOString()} className={`p-0 text-center border-r border-blue-500 w-6 min-w-[24px] ${isToday ? 'bg-blue-800' : ''}`}>
-                                            <div className="text-[10px] font-bold py-1">{day.getDate()}</div>
-                                            <div className="text-[8px] opacity-75 pb-1">{day.toLocaleDateString('es-ES', { weekday: 'narrow' })}</div>
-                                        </th>
-                                    );
-                                })}
+                                {viewDays.map(day => (
+                                    <th key={day.toISOString()} className={`p-0 text-center border-r border-primary-light w-6 min-w-[24px] ${day.toDateString() === new Date().toDateString() ? 'bg-primary-dark' : ''}`}>
+                                        <div className="text-[10px] font-bold py-1">{day.getDate()}</div>
+                                        <div className="text-[8px] opacity-75 pb-1">{day.toLocaleDateString('es-ES', { weekday: 'narrow' })}</div>
+                                    </th>
+                                ))}
                             </tr>
                         </thead>
                         <tbody>
@@ -348,9 +207,9 @@ const ShiftSchedulerView: React.FC = () => {
                                 <tr key={emp.employee_id} className={`border-b border-gray-200 ${isRowEven ? 'bg-white' : 'bg-gray-50'} hover:bg-gray-100 transition-colors`}>
                                     <td className={`p-1 border-r border-gray-200 font-medium text-gray-800 sticky left-0 z-10 shadow-sm text-xs ${isRowEven ? 'bg-white' : 'bg-gray-50'}`}>
                                         <div className="flex flex-col justify-center h-full">
-                                            <span className="truncate max-w-[140px] font-bold text-[11px]" title={`${emp.first_name} ${emp.last_name}`}>{emp.first_name} {emp.last_name.charAt(0)}.</span>
+                                            <span className="truncate font-bold text-[10px] uppercase">{emp.first_name} {emp.last_name.charAt(0)}.</span>
                                             {canManage && (
-                                                <span className={`text-[9px] ${annualHours > limit ? 'text-red-500' : 'text-green-600'}`}>{Math.round(annualHours)}h / {limit}h</span>
+                                                <span className={`text-[8px] font-bold ${annualHours > limit ? 'text-red-500' : 'text-green-600'}`}>{Math.round(annualHours)}h / {limit}h</span>
                                             )}
                                         </div>
                                     </td>
@@ -359,41 +218,48 @@ const ShiftSchedulerView: React.FC = () => {
                                             s.employee_id === emp.employee_id && 
                                             new Date(s.start_time).toDateString() === day.toDateString()
                                         );
-                                        const isWeekend = day.getDay() === 0 || day.getDay() === 6;
 
                                         return (
                                             <td 
                                                 key={day.toISOString()} 
-                                                className={`p-0 border-r border-gray-200 h-8 text-center align-middle relative ${canManage ? 'cursor-pointer hover:bg-gray-200' : ''} ${isWeekend ? 'bg-gray-100/50' : ''}`}
-                                                onClick={() => handleCellClick(emp.employee_id, day)}
+                                                className={`p-0 border-r border-gray-200 h-8 text-center align-middle relative ${canManage ? 'cursor-pointer hover:bg-gray-200' : ''}`}
+                                                onClick={() => {
+                                                    if (!canManage) return;
+                                                    setModalContext({ employeeId: emp.employee_id, date: day });
+                                                    setSelectedShift(null);
+                                                    setIsModalOpen(true);
+                                                }}
                                             >
                                                 {dayShifts.map((shift, i) => {
-                                                    let displayCode = '';
+                                                    if (i > 0) return null; // Solo mostrar el primero visualmente
                                                     
-                                                    // PRIORIDAD VISUAL: 1. Notas (Código importado), 2. Configuración, 3. Tipo
+                                                    // DETERMINACIÓN DE LETRA CÓDIGO
+                                                    let displayCode = '';
                                                     if (shift.notes && shift.notes.length <= 4) {
-                                                        // Si las notas son cortas (ej: "M", "V25", "T"), usarlas como código
-                                                        displayCode = shift.notes;
+                                                        displayCode = shift.notes; // Usar código de importación (M, T, V25...)
                                                     } else if (shift.shift_config_id) {
                                                         const cfg = shiftConfigs.find(c => c.config_id === shift.shift_config_id);
                                                         displayCode = cfg?.code || '?';
-                                                    } else if (shift.type === 'off') displayCode = 'L';
-                                                    else if (shift.type === 'vacation') displayCode = 'V';
-                                                    else if (shift.type === 'sick') displayCode = 'B';
-                                                    else {
-                                                        // Fallback final: hora
-                                                        displayCode = new Date(shift.start_time).getHours().toString();
+                                                    } else {
+                                                        // Heurística si no hay datos
+                                                        if (shift.type === 'off') displayCode = 'L';
+                                                        else if (shift.type === 'vacation') displayCode = 'V';
+                                                        else displayCode = 'W';
                                                     }
-
-                                                    if (i > 0) return null;
 
                                                     return (
                                                         <div 
                                                             key={shift.shift_id}
-                                                            onClick={(e) => handleShiftClick(e, shift)}
-                                                            className="w-full h-full flex items-center justify-center text-white font-bold text-[10px]"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                if (!canManage) return;
+                                                                setSelectedShift(shift);
+                                                                setModalContext({ employeeId: shift.employee_id, date: new Date(shift.start_time) });
+                                                                setIsModalOpen(true);
+                                                            }}
+                                                            className="w-full h-full flex items-center justify-center text-white font-bold text-[10px] shadow-inner"
                                                             style={{ backgroundColor: shift.color || '#9ca3af' }}
-                                                            title={`${shift.notes || 'Turno'} (${new Date(shift.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - ${new Date(shift.end_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})})`}
+                                                            title={`${shift.notes || 'Turno'} (${new Date(shift.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})})`}
                                                         >
                                                             {displayCode}
                                                         </div>
@@ -407,83 +273,36 @@ const ShiftSchedulerView: React.FC = () => {
                         </tbody>
                     </table>
                 </div>
-                
-                <div className="p-2 bg-gray-50 border-t flex flex-wrap gap-4 text-[10px] text-gray-600 justify-center items-center">
-                    <p className="mr-2 font-bold text-gray-400 uppercase">Leyenda:</p>
-                    {shiftConfigs.map(cfg => (
-                        <div 
-                            key={cfg.config_id} 
-                            className={`flex items-center space-x-1 p-1 rounded transition-colors ${canManage ? 'cursor-pointer hover:bg-gray-200 border hover:border-gray-400' : ''}`}
-                            onClick={() => handleEditConfig(cfg)}
-                        >
-                            <div className="w-3 h-3 rounded-sm" style={{backgroundColor: cfg.color}}></div>
-                            <span>{cfg.code}: {cfg.name}</span>
-                        </div>
-                    ))}
-                    {canManage && (
-                        <div 
-                            className="flex items-center space-x-1 cursor-pointer hover:bg-blue-100 p-1 rounded transition-colors text-blue-600 font-bold border border-dashed border-blue-300"
-                            onClick={() => handleEditConfig(null)}
-                        >
-                            <span>+ Nuevo Turno</span>
-                        </div>
-                    )}
-                </div>
             </Card>
 
             {isModalOpen && modalContext && canManage && (
                 <ShiftFormModal 
-                    isOpen={isModalOpen}
-                    onClose={() => setIsModalOpen(false)}
-                    onSave={handleSaveShift}
-                    onDelete={handleDeleteShift}
-                    shift={selectedShift}
-                    employeeId={modalContext.employeeId}
-                    date={modalContext.date}
-                    locations={locations}
-                    employees={employees}
-                />
-            )}
-
-            {isConfigModalOpen && canManage && (
-                <ShiftConfigFormModal 
-                    isOpen={isConfigModalOpen}
-                    onClose={() => setIsConfigModalOpen(false)}
-                    onSave={handleSaveConfig}
-                    onDelete={handleDeleteConfig}
-                    config={selectedConfig}
-                    locations={locations}
-                />
-            )}
-
-            {isImportModalOpen && canManage && (
-                <ExcelImportModal
-                    isOpen={isImportModalOpen}
-                    onClose={() => setIsImportModalOpen(false)}
-                    onImport={handleBulkImport}
-                    employees={employees}
-                    locations={locations}
+                    isOpen={isModalOpen} onClose={() => setIsModalOpen(false)}
+                    onSave={async (data) => {
+                        if ('shift_id' in data) await updateWorkShift(data);
+                        else await createWorkShift(data);
+                        fetchSchedulerData(); setIsModalOpen(false);
+                    }}
+                    onDelete={async (id) => { await deleteWorkShift(id); fetchSchedulerData(); setIsModalOpen(false); }}
+                    shift={selectedShift} employeeId={modalContext.employeeId} date={modalContext.date}
+                    locations={locations} employees={employees}
                 />
             )}
 
             {isImageImportModalOpen && canManage && (
                 <ImageImportModal
-                    isOpen={isImageImportModalOpen}
-                    onClose={() => setIsImageImportModalOpen(false)}
-                    onImport={handleBulkImport}
-                    employees={employees}
-                    locations={locations}
-                    shiftConfigs={shiftConfigs}
-                    currentMonth={currentWeekStart.getMonth()}
-                    currentYear={currentWeekStart.getFullYear()}
+                    isOpen={isImageImportModalOpen} onClose={() => setIsImageImportModalOpen(false)}
+                    onImport={async (newShifts) => { await createBulkWorkShifts(newShifts); fetchSchedulerData(); }}
+                    employees={employees} locations={locations} shiftConfigs={shiftConfigs}
+                    currentMonth={currentWeekStart.getMonth()} currentYear={currentWeekStart.getFullYear()}
                 />
             )}
 
-            {allowedAIInputs && (
+            {allowedInputs && (
                 <AIAssistant 
                     context={{ employees, locations, currentUser: auth?.employee || undefined }} 
-                    onAction={handleAIAction}
-                    allowedInputs={allowedAIInputs}
+                    onAction={(res) => { if (res.action === 'createShift') fetchSchedulerData(); }}
+                    allowedInputs={allowedInputs}
                 />
             )}
         </div>

@@ -44,6 +44,9 @@ const MonthlyWorkLogReport: React.FC = () => {
             try {
                 const emps = await getEmployees();
                 setEmployees(emps);
+                const today = new Date();
+                setSelectedMonth((today.getMonth() + 1).toString());
+                setSelectedYear(today.getFullYear().toString());
             } catch (error) {
                 console.error("Failed to load initial data", error);
             } finally {
@@ -53,15 +56,6 @@ const MonthlyWorkLogReport: React.FC = () => {
         fetchData();
     }, []);
 
-    // Auto-generate report on initial load with test data
-    useEffect(() => {
-        if (!isLoading) {
-            const today = new Date();
-            setSelectedMonth((today.getMonth() + 1).toString());
-            setSelectedYear(today.getFullYear().toString());
-        }
-    }, [isLoading]);
-
     const handleGenerateReport = async () => {
         setIsGenerating(true);
         setReportData(null);
@@ -70,8 +64,6 @@ const MonthlyWorkLogReport: React.FC = () => {
             const year = parseInt(selectedYear, 10);
 
             const allEmployeeReports: EmployeeReportData[] = [];
-
-            // If user is admin, generate for all. If employee, only for themselves.
             const targetEmployees = (auth?.role?.role_id === 'admin') 
                 ? employees 
                 : employees.filter(e => e.employee_id === auth?.employee?.employee_id);
@@ -87,11 +79,9 @@ const MonthlyWorkLogReport: React.FC = () => {
                     return entryDate.getFullYear() === year && entryDate.getMonth() === month - 1 && entry.status === 'completed' && entry.clock_out_time;
                 });
 
-                // Optimization: Fetch all breaks for these entries at once
                 const entryIds = filteredEntries.map(e => e.entry_id);
                 const allBreaks = await getBreaksForTimeEntries(entryIds);
 
-                // If admin, skip empty reports. If employee, show even if empty (to sign zero hours?)
                 if (filteredEntries.length === 0 && auth?.role?.role_id === 'admin') continue;
 
                 const daysOfMonth = getDaysInMonth(month, year);
@@ -106,11 +96,10 @@ const MonthlyWorkLogReport: React.FC = () => {
                         const start = new Date(e.clock_in_time).getTime();
                         const end = new Date(e.clock_out_time!).getTime();
                         
-                        // Calculate Break Duration for this entry
                         const entryBreaks = allBreaks.filter(b => b.time_entry_id === e.entry_id);
                         const breakDuration = entryBreaks.reduce((acc, b) => {
                             const bStart = new Date(b.start_time).getTime();
-                            const bEnd = b.end_time ? new Date(b.end_time).getTime() : bStart; // Ignore incomplete breaks in report calculation for safety
+                            const bEnd = b.end_time ? new Date(b.end_time).getTime() : bStart;
                             return acc + (bEnd - bStart);
                         }, 0);
 
@@ -121,7 +110,7 @@ const MonthlyWorkLogReport: React.FC = () => {
                             clockIn: formatTime(new Date(e.clock_in_time)),
                             clockOut: formatTime(new Date(e.clock_out_time!)),
                             duration: effectiveDuration,
-                            isManual: !!e.is_manual
+                            isManual: !!e.is_manual // CRITICAL: ensure is_manual is passed
                         };
                     });
 
@@ -160,49 +149,33 @@ const MonthlyWorkLogReport: React.FC = () => {
             const year = parseInt(selectedYear, 10);
             await saveMonthlySignature(auth.employee.employee_id, month, year, signatureUrl);
             setIsSigningModalOpen(false);
-            handleGenerateReport(); // Refresh data to show signature
+            handleGenerateReport();
         } catch (error) {
             console.error("Failed to save signature", error);
-            alert("Error al guardar la firma.");
         } finally {
             setIsSavingSignature(false);
         }
     };
 
-    // EXCEL EXPORT FUNCTION (Punto 3.B)
     const handleExportExcel = () => {
         if (!reportData || reportData.length === 0) return;
-
-        // Flatten data for Excel
         const rows: any[] = [];
-
         reportData.forEach(rep => {
             rep.dailyLogs.forEach(dayLog => {
-                // If multiple entries per day, join them or create multiple rows? 
-                // For payroll, usually summary per day is enough, but detailed is safer.
                 if (dayLog.entries.length > 0) {
                     dayLog.entries.forEach(entry => {
                         rows.push({
                             "Empleado": `${rep.employee.first_name} ${rep.employee.last_name}`,
-                            "DNI/NIF": rep.employee.pin, // Assuming ID is not PII for this internal report
                             "Fecha": dayLog.date,
                             "Entrada": entry.clockIn,
                             "Salida": entry.clockOut,
                             "Horas Efectivas": (entry.duration / (1000 * 60 * 60)).toFixed(2),
-                            "Incidencia": entry.isManual ? "Manual/Corregido" : ""
+                            "Incidencia": entry.isManual ? "Manual / Corregido" : ""
                         });
                     });
-                } else {
-                    // Empty row for days without work? Or skip? Let's skip to keep file clean.
                 }
             });
         });
-
-        if (rows.length === 0) {
-            alert("No hay datos para exportar.");
-            return;
-        }
-
         const ws = XLSX.utils.json_to_sheet(rows);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "Registro Horario");
@@ -217,7 +190,6 @@ const MonthlyWorkLogReport: React.FC = () => {
         name: new Date(0, i).toLocaleString('es-ES', { month: 'long' })
     }));
 
-    // Check if the current user needs to sign their report
     const myReport = reportData?.find(r => r.employee.employee_id === auth?.employee?.employee_id);
     const needsSignature = myReport && !myReport.signature;
 
@@ -236,39 +208,38 @@ const MonthlyWorkLogReport: React.FC = () => {
                         {years.map(y => <option key={y} value={y.toString()}>{y}</option>)}
                     </select>
                 </div>
-                <Button onClick={handleGenerateReport} isLoading={isGenerating}>Generar Informe</Button>
+                <Button onClick={handleGenerateReport} isLoading={isGenerating}>Actualizar Informe</Button>
             </div>
             
-            {/* Signature Call to Action */}
             {needsSignature && !isGenerating && (
                 <div className="mb-6 p-4 bg-orange-50 border-l-4 border-orange-500 flex justify-between items-center no-print">
                     <div>
-                        <h3 className="text-lg font-bold text-orange-800">Acción Requerida</h3>
-                        <p className="text-sm text-orange-700">Aún no has firmado digitalmente tu registro de jornada para este mes.</p>
+                        <h3 className="text-lg font-bold text-orange-800">Firma Pendiente</h3>
+                        <p className="text-sm text-orange-700">Debes firmar tu registro mensual para cerrar el periodo.</p>
                     </div>
                     <Button onClick={() => setIsSigningModalOpen(true)} variant="primary">Firmar Ahora</Button>
                 </div>
             )}
             
-            {isGenerating && <Spinner/>}
+            {isGenerating && <div className="text-center py-10"><Spinner/></div>}
 
             {reportData && reportData.length > 0 && (
-                <div className="space-y-4">
+                <div className="space-y-4 animate-in fade-in duration-500">
                     <div className="flex justify-end no-print">
                         <Button variant="success" onClick={handleExportExcel} className="mr-2">
-                            📥 Exportar Excel (.xlsx)
+                            📥 Descargar Excel
                         </Button>
                     </div>
                     <PrintableMonthlyLog data={reportData} month={parseInt(selectedMonth)} year={parseInt(selectedYear)} />
                 </div>
             )}
             
-            {reportData && reportData.length === 0 && (
-                <p className="text-center p-4">No se encontraron datos de fichaje para los criterios seleccionados.</p>
+            {reportData && reportData.length === 0 && !isGenerating && (
+                <p className="text-center p-8 text-gray-500 italic">No hay datos de jornada para el periodo seleccionado.</p>
             )}
 
             {isSigningModalOpen && (
-                <Modal isOpen={isSigningModalOpen} onClose={() => setIsSigningModalOpen(false)} title="Firmar Registro de Jornada">
+                <Modal isOpen={isSigningModalOpen} onClose={() => setIsSigningModalOpen(false)} title="Firma de Registro Mensual">
                     {isSavingSignature ? <Spinner/> : (
                         <SignaturePad 
                             onSave={handleSaveSignature}
