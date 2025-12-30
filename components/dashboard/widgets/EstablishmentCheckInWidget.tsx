@@ -60,7 +60,7 @@ const EstablishmentCheckInWidget: React.FC = () => {
                     }
                 }
                 
-                const sorted = Array.from(checkedInMap.values()).sort((a,b) => a.first_name.localeCompare(b.first_name));
+                const sorted = Array.from(checkedInMap.values()).sort((a,b) => (a.first_name || '').localeCompare(b.first_name || ''));
                 setCheckedIn(sorted);
 
             } catch (error) {
@@ -104,7 +104,7 @@ const EstablishmentCheckInWidget: React.FC = () => {
                         const content = (
                            <div className="flex items-center space-x-3">
                                 <div className={`w-10 h-10 rounded-full text-white flex items-center justify-center font-bold flex-shrink-0 ${emp.statusType === 'establishment' ? 'bg-primary' : 'bg-orange-400'}`}>
-                                   {emp.first_name.charAt(0)}{emp.last_name.charAt(0)}
+                                   {(emp.first_name || '').charAt(0)}{(emp.last_name || '').charAt(0)}
                                </div>
                                <div className="flex-1 min-w-0">
                                 <div className="flex justify-between items-center">

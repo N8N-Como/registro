@@ -1,10 +1,10 @@
 
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import { Employee, Location, WorkShift, ShiftConfig, ShiftType } from '../../types';
 import Modal from '../shared/Modal';
 import Button from '../shared/Button';
 import Spinner from '../shared/Spinner';
-import { CheckIcon, XMarkIcon, SparklesIcon, CalendarIcon } from '../icons';
+import { CalendarIcon } from '../icons';
 import { blobToBase64 } from '../../utils/helpers';
 import { parseScheduleImage } from '../../services/geminiService';
 
@@ -26,13 +26,12 @@ const ImageImportModal: React.FC<ImageImportModalProps> = ({
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const [parsedShifts, setParsedShifts] = useState<Omit<WorkShift, 'shift_id'>[]>([]);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
-    const [isImporting, setIsImporting] = useState(false);
 
     const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const selectedFile = e.target.files?.[0];
         if (!selectedFile) return;
         setFile(selectedFile);
-        const base64 = await blobToBase64(selectedFile, 2500, 0.85); 
+        const base64 = await blobToBase64(selectedFile, 3000, 0.9); 
         setPreviewUrl(base64);
     };
 
@@ -43,95 +42,99 @@ const ImageImportModal: React.FC<ImageImportModalProps> = ({
             const rawData = await parseScheduleImage(previewUrl, employees, shiftConfigs, currentMonth + 1, currentYear);
             
             const shifts: Omit<WorkShift, 'shift_id'>[] = rawData.map(item => {
-                const dateStr = `${currentYear}-${(currentMonth + 1).toString().padStart(2, '0')}-${item.day.toString().padStart(2, '0')}`;
+                const day = item.day;
+                const dateISO = new Date(currentYear, currentMonth, day).toISOString().split('T')[0];
                 const code = item.shift_code.trim().toUpperCase();
                 
-                // BUSCAR COINCIDENCIA CON TIPOS DE TURNO CONFIGURADOS (M, T, P, etc.)
+                // MAPEO ESTRICTO PARA HOSTELERÍA (BASADO EN PDF)
+                const workCodes = ['M', 'T', 'P', 'MM', 'R', 'A', 'D', 'TH', 'BH', 'BM', 'AD', 'S', 'D'];
+                const absenceCodes = ['L', 'V', 'V25', 'B'];
+
+                const isWork = workCodes.includes(code) || workCodes.some(wc => code.startsWith(wc));
+                const isOff = absenceCodes.includes(code) || code.startsWith('V');
+
                 const config = shiftConfigs.find(c => c.code.toUpperCase() === code);
                 
                 let type: ShiftType = 'work';
-                let startISO = '';
-                let endISO = '';
-                let color = '#9ca3af';
-                let configId = undefined;
+                let startT = '09:00';
+                let endT = '17:00';
+                let color = '#3b82f6';
+                let configId = config?.config_id;
 
                 if (config) {
-                    // SI COINCIDE CON UN TURNO DE TRABAJO
-                    startISO = `${dateStr}T${config.start_time}:00`;
-                    endISO = `${dateStr}T${config.end_time}:00`;
+                    // Turno configurado con horario exacto
+                    startT = config.start_time;
+                    endT = config.end_time;
                     color = config.color;
-                    configId = config.config_id;
                     type = 'work';
+                } else if (isOff) {
+                    // Es libre, vacaciones o baja (0 horas)
+                    type = code === 'B' ? 'sick' : (code.startsWith('V') ? 'vacation' : 'off');
+                    startT = '00:00';
+                    endT = '00:00';
+                    color = type === 'vacation' ? '#10b981' : (type === 'sick' ? '#ef4444' : '#9ca3af');
                 } else {
-                    // SI ES LIBRANZA O DESCONOCIDO (Duración 0 para cómputo)
-                    type = code === 'L' ? 'off' : code === 'V' ? 'vacation' : 'off';
-                    startISO = `${dateStr}T00:00:00`;
-                    endISO = `${dateStr}T00:00:00`; // Salida = Entrada significa 0 horas
-                    color = type === 'vacation' ? '#10b981' : '#9ca3af';
-                    configId = undefined;
+                    // Turno de trabajo sin configurar horario (Asumimos 8h para cómputo)
+                    type = 'work';
+                    startT = '08:00';
+                    endT = '16:00';
+                    color = '#6366f1'; 
                 }
 
                 return {
                     employee_id: item.employee_id,
-                    start_time: new Date(startISO).toISOString(),
-                    end_time: new Date(endISO).toISOString(),
+                    start_time: new Date(`${dateISO}T${startT}:00`).toISOString(),
+                    end_time: new Date(`${dateISO}T${endT}:00`).toISOString(),
                     type,
                     color,
                     shift_config_id: configId,
-                    notes: code // Guardamos solo la letra para que se vea en el cuadrante
+                    notes: code // Guardamos SOLO la letra para evitar interrogantes
                 };
             });
 
             setParsedShifts(shifts);
         } catch (error: any) {
-            alert("Error analizando imagen: " + error.message);
+            alert(error.message);
         } finally {
             setIsAnalyzing(false);
         }
     };
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Importar Cuadrante con IA">
+        <Modal isOpen={isOpen} onClose={onClose} title="Importador de Cuadrantes (PDF / Foto)">
             <div className="space-y-4">
-                <div className={`border-2 border-dashed rounded-lg p-6 text-center ${previewUrl ? 'border-primary' : 'border-gray-300'}`}>
+                <div className="border-2 border-dashed rounded-lg p-6 text-center border-primary bg-blue-50">
                     {previewUrl ? (
-                        <img src={previewUrl} alt="Preview" className="max-h-64 mx-auto rounded shadow" />
+                        <div className="space-y-2">
+                             <img src={previewUrl} alt="Preview" className="max-h-64 mx-auto rounded shadow" />
+                             <p className="text-xs text-primary font-bold">Archivo cargado</p>
+                        </div>
                     ) : (
-                        <label className="cursor-pointer">
-                            <CalendarIcon className="w-12 h-12 text-gray-400 mx-auto mb-2" />
-                            <span className="text-gray-600 block">Sube una foto del cuadrante mensual</span>
-                            <input type="file" accept="image/*" className="hidden" onChange={handleFileSelect} />
+                        <label className="cursor-pointer block">
+                            <CalendarIcon className="w-12 h-12 text-primary mx-auto mb-2" />
+                            <span className="text-primary font-bold block">Seleccionar PDF o Foto</span>
+                            <input type="file" accept="image/*,application/pdf" className="hidden" onChange={handleFileSelect} />
                         </label>
                     )}
                 </div>
 
                 {file && !isAnalyzing && parsedShifts.length === 0 && (
-                    <Button onClick={handleAnalyze} className="w-full">Analizar con IA</Button>
+                    <Button onClick={handleAnalyze} className="w-full" size="lg">Analizar con IA</Button>
                 )}
 
-                {isAnalyzing && <div className="text-center py-4"><Spinner /><p className="text-xs mt-2">Interpretando códigos y horas...</p></div>}
+                {isAnalyzing && <div className="text-center py-4"><Spinner /><p className="text-xs mt-2 font-bold animate-pulse">Detectando turnos y horas...</p></div>}
 
                 {parsedShifts.length > 0 && (
                     <div className="space-y-4">
-                        <p className="text-sm font-bold text-green-700">✓ {parsedShifts.length} días detectados.</p>
-                        <div className="max-h-40 overflow-y-auto border rounded text-xs">
-                            <table className="w-full text-left">
-                                <thead className="bg-gray-50 sticky top-0">
-                                    <tr><th className="p-1">Emp.</th><th className="p-1">Día</th><th className="p-1">Cod.</th><th className="p-1">Tipo</th></tr>
-                                </thead>
-                                <tbody>
-                                    {parsedShifts.slice(0, 20).map((s, i) => (
-                                        <tr key={i} className="border-t">
-                                            <td className="p-1 truncate max-w-[60px]">{employees.find(e => e.employee_id === s.employee_id)?.first_name}</td>
-                                            <td className="p-1">{new Date(s.start_time).getDate()}</td>
-                                            <td className="p-1 font-bold">{s.notes}</td>
-                                            <td className="p-1">{s.type === 'work' ? 'Trabajo' : 'Libranza'}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                        <Button onClick={async () => { setIsImporting(true); await onImport(parsedShifts); onClose(); }} isLoading={isImporting} className="w-full">Confirmar e Importar</Button>
+                        <p className="text-sm font-bold text-green-700 bg-green-50 p-2 rounded border border-green-200 text-center">
+                            ✓ {parsedShifts.length} días detectados correctamente.
+                        </p>
+                        <Button onClick={async () => { await onImport(parsedShifts); onClose(); }} variant="success" className="w-full" size="lg">
+                            Confirmar e Importar
+                        </Button>
+                        <Button variant="secondary" onClick={() => { setParsedShifts([]); setFile(null); setPreviewUrl(null); }} className="w-full">
+                            Cancelar
+                        </Button>
                     </div>
                 )}
             </div>

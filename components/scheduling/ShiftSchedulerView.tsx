@@ -9,60 +9,37 @@ import {
     updateWorkShift, 
     deleteWorkShift, 
     getShiftConfigs,
-    addShiftConfig,
-    updateShiftConfig,
-    deleteShiftConfig,
     createBulkWorkShifts
 } from '../../services/mockApi';
-import { Employee, Location, WorkShift, ShiftConfig } from '../../types';
+import { Employee, Location, WorkShift, ShiftConfig, ShiftType } from '../../types';
 import Card from '../shared/Card';
 import Spinner from '../shared/Spinner';
 import Button from '../shared/Button';
 import ShiftFormModal from './ShiftFormModal';
-import ShiftConfigFormModal from '../admin/ShiftConfigFormModal';
-import ExcelImportModal from './ExcelImportModal';
 import ImageImportModal from './ImageImportModal';
-import { CalendarIcon, DocumentIcon, SparklesIcon } from '../icons';
-import AIAssistant, { InputMode } from '../shared/AIAssistant';
-import { AIResponse } from '../../services/geminiService';
+import { CalendarIcon, SparklesIcon } from '../icons';
 
-// ORDEN EXACTO SOLICITADO
 const NAME_SORT_ORDER = [
-    'NOELIA',
-    'LYDIA',
-    'BEGOÑA',
-    'MAUREEN',
-    'MARISA',
-    'ANXO',
-    'OSCAR',
-    'ISABEL',
-    'STEPHANY',
-    'YESSICA',
-    'NISLEY',
-    'MARI',
-    'DIANA',
-    'ANDRES',
-    'ITAGU'
+    'NOELIA', 'LYDIA', 'BEGOÑA', 'MAUREEN', 'MARISA', 'ANXO', 'OSCAR', 
+    'MARIA ISABEL', 'STEPHANY', 'YESSICA', 'NISLEY', 'DOLORES', 'DIANA', 'ANDRES', 'ITAGU'
 ];
+
+// LISTA MAESTRA DE CÓDIGOS DE TRABAJO (PARA INFERENCIA)
+const WORK_CODES = ['M', 'T', 'P', 'MM', 'R', 'A', 'D', 'TH', 'BH', 'BM', 'AD', 'S', 'D'];
 
 const ShiftSchedulerView: React.FC = () => {
     const auth = useContext(AuthContext);
-    const [currentWeekStart, setCurrentWeekStart] = useState(new Date(2025, 0, 1)); 
+    const [currentMonth, setCurrentMonth] = useState(new Date(2025, 0, 1)); 
     const [shifts, setShifts] = useState<WorkShift[]>([]);
-    const [yearShifts, setYearShifts] = useState<WorkShift[]>([]); 
     const [employees, setEmployees] = useState<Employee[]>([]);
     const [locations, setLocations] = useState<Location[]>([]);
     const [shiftConfigs, setShiftConfigs] = useState<ShiftConfig[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
     
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-    const [isImageImportModalOpen, setIsImageImportModalOpen] = useState(false);
     const [selectedShift, setSelectedShift] = useState<WorkShift | null>(null);
     const [modalContext, setModalContext] = useState<{ employeeId: string, date: Date } | null>(null);
-    const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
-    const [selectedConfig, setSelectedConfig] = useState<ShiftConfig | null>(null);
 
     const canManage = useMemo(() => {
         const role = auth?.role?.role_id || '';
@@ -71,145 +48,146 @@ const ShiftSchedulerView: React.FC = () => {
 
     const viewDays = useMemo(() => {
         const days = [];
-        const start = new Date(currentWeekStart.getFullYear(), currentWeekStart.getMonth(), 1);
-        const lastDay = new Date(currentWeekStart.getFullYear(), currentWeekStart.getMonth() + 1, 0).getDate();
-        for (let i = 0; i < lastDay; i++) {
-            const d = new Date(start);
-            d.setDate(start.getDate() + i);
-            days.push(d);
+        const year = currentMonth.getFullYear();
+        const month = currentMonth.getMonth();
+        const lastDay = new Date(year, month + 1, 0).getDate();
+        for (let i = 1; i <= lastDay; i++) {
+            days.push(new Date(year, month, i));
         }
         return days;
-    }, [currentWeekStart]);
+    }, [currentMonth]);
 
-    // Función de ordenación con normalización de acentos
     const getSortIndex = (employee: Employee) => {
-        const normalize = (str: string) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+        const normalize = (str: string) => (str || '').normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+        const fullName = normalize(`${employee.first_name} ${employee.last_name}`);
         const firstName = normalize(employee.first_name);
         for (let i = 0; i < NAME_SORT_ORDER.length; i++) {
             const target = normalize(NAME_SORT_ORDER[i]);
-            if (firstName.includes(target) || target.includes(firstName)) return i;
+            if (fullName.includes(target) || firstName.includes(target)) return i;
         }
-        return 999; 
+        return 999;
     };
 
-    const fetchSchedulerData = async () => {
+    const fetchData = async () => {
         setIsLoading(true);
         try {
-            const [emps, locs] = await Promise.all([getEmployees(), getLocations()]);
-            let operationalStaff = emps.filter(e => e.employee_id !== 'emp_admin');
+            const [emps, locs, configs] = await Promise.all([
+                getEmployees(), getLocations(), getShiftConfigs()
+            ]);
+            let staff = emps.filter(e => e.employee_id !== 'emp_admin');
             if (!canManage && auth?.employee) {
-                operationalStaff = operationalStaff.filter(e => e.employee_id === auth.employee!.employee_id);
+                staff = staff.filter(e => e.employee_id === auth.employee!.employee_id);
             }
-            operationalStaff.sort((a, b) => getSortIndex(a) - getSortIndex(b));
-            setEmployees(operationalStaff);
+            staff.sort((a, b) => getSortIndex(a) - getSortIndex(b));
+            setEmployees(staff);
             setLocations(locs);
-
-            const configs = await getShiftConfigs();
             setShiftConfigs(configs);
-            
-            if (viewDays.length > 0) {
-                const startStr = viewDays[0].toISOString();
-                const endStr = viewDays[viewDays.length - 1].toISOString().replace(/T.*/, 'T23:59:59');
-                const monthShifts = await getWorkShifts(startStr, endStr);
-                setShifts(monthShifts);
-            }
 
-            const yearStart = new Date(currentWeekStart.getFullYear(), 0, 1).toISOString();
-            const yearEnd = new Date(currentWeekStart.getFullYear(), 11, 31).toISOString();
-            const allShifts = await getWorkShifts(yearStart, yearEnd);
-            setYearShifts(allShifts);
-
-        } catch (err: any) {
-            setError("Error cargando cuadrante.");
+            const startStr = viewDays[0].toISOString();
+            const endStr = viewDays[viewDays.length - 1].toISOString().replace(/T.*/, 'T23:59:59');
+            const monthShifts = await getWorkShifts(startStr, endStr);
+            setShifts(monthShifts);
+        } catch (err) {
+            console.error(err);
         } finally {
             setIsLoading(false);
         }
     };
 
-    useEffect(() => {
-        fetchSchedulerData();
-    }, [currentWeekStart, canManage]);
+    useEffect(() => { fetchData(); }, [currentMonth, canManage]);
 
-    const handleToday = () => {
-        const now = new Date();
-        setCurrentWeekStart(new Date(now.getFullYear(), now.getMonth(), 1));
+    // LÓGICA DE DETECCIÓN DE CÓDIGO (LIMPIA NOTAS DE IA)
+    const getShiftCode = (shift: WorkShift): string => {
+        const rawNotes = shift.notes || '';
+        const match = rawNotes.match(/\((.*?)\)/);
+        if (match) return match[1].toUpperCase();
+        if (rawNotes.length <= 3) return rawNotes.toUpperCase();
+        if (shift.shift_config_id) {
+            const cfg = shiftConfigs.find(c => c.config_id === shift.shift_config_id);
+            if (cfg) return cfg.code.toUpperCase();
+        }
+        return '';
     };
 
-    const calculateAnnualHours = (employeeId: string) => {
-        const empShifts = yearShifts.filter(s => s.employee_id === employeeId && s.type === 'work');
+    // INFERIR SI ES TRABAJO O NO
+    const isWorkShift = (shift: WorkShift): boolean => {
+        if (shift.type === 'work') return true;
+        const code = getShiftCode(shift);
+        return WORK_CODES.includes(code);
+    };
+
+    const calculateMonthlyHours = (employeeId: string) => {
+        const empShifts = shifts.filter(s => s.employee_id === employeeId);
         let totalMs = 0;
         empShifts.forEach(s => {
-            totalMs += new Date(s.end_time).getTime() - new Date(s.start_time).getTime();
+            if (isWorkShift(s)) {
+                const start = new Date(s.start_time).getTime();
+                const end = new Date(s.end_time).getTime();
+                // Si el horario es 00:00 (típico de importación IA sin config), sumamos 8h estándar
+                if (start === end || (new Date(s.start_time).getHours() === 0 && new Date(s.end_time).getHours() === 0)) {
+                    totalMs += (8 * 60 * 60 * 1000);
+                } else {
+                    totalMs += (end - start);
+                }
+            }
         });
         return totalMs / (1000 * 60 * 60);
     };
 
-    const allowedInputs: InputMode[] | null = canManage ? ['text', 'voice', 'image'] : null;
-
     if (isLoading && employees.length === 0) return <Spinner />;
 
-    const monthName = currentWeekStart.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }).toUpperCase();
+    const monthName = currentMonth.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' }).toUpperCase();
 
     return (
-        <div className="space-y-4 relative">
-            <div className="flex flex-col xl:flex-row justify-between items-center bg-white p-4 rounded-lg shadow-sm border border-gray-200 gap-4">
+        <div className="space-y-4">
+            <div className="flex flex-col lg:flex-row justify-between items-center bg-white p-4 rounded-lg shadow-sm border border-gray-200 gap-4">
                 <div className="flex items-center space-x-2">
                     <CalendarIcon className="w-6 h-6 text-primary" />
-                    <h2 className="text-xl font-bold text-gray-800">Cuadrante {monthName}</h2>
+                    <h2 className="text-xl font-bold text-gray-800">Cuadrante: {monthName}</h2>
                 </div>
-                
                 <div className="flex items-center space-x-2">
                     <Button variant="secondary" size="sm" onClick={() => {
-                        const d = new Date(currentWeekStart); d.setMonth(d.getMonth() - 1); setCurrentWeekStart(d);
-                    }}>&lt;</Button>
-                    <Button variant="secondary" size="sm" onClick={handleToday}>Hoy</Button>
+                        const d = new Date(currentMonth); d.setMonth(d.getMonth() - 1); setCurrentMonth(d);
+                    }}>&lt; Mes Anterior</Button>
+                    <Button variant="secondary" size="sm" onClick={() => setCurrentMonth(new Date(2025, 0, 1))}>Enero 2025</Button>
                     <Button variant="secondary" size="sm" onClick={() => {
-                        const d = new Date(currentWeekStart); d.setMonth(d.getMonth() + 1); setCurrentWeekStart(d);
-                    }}>&gt;</Button>
+                        const d = new Date(currentMonth); d.setMonth(d.getMonth() + 1); setCurrentMonth(d);
+                    }}>Mes Siguiente &gt;</Button>
                 </div>
-
                 {canManage && (
-                    <div className="flex gap-2">
-                        <Button size="sm" variant="secondary" onClick={() => setIsImportModalOpen(true)}>
-                            <DocumentIcon className="w-4 h-4 mr-2" /> Excel
-                        </Button>
-                        <Button size="sm" variant="success" onClick={() => setIsImageImportModalOpen(true)}>
-                            <SparklesIcon className="w-4 h-4 mr-2" /> Importar Foto IA
-                        </Button>
-                    </div>
+                    <Button variant="success" size="sm" onClick={() => setIsImportModalOpen(true)}>
+                        <SparklesIcon className="w-4 h-4 mr-2" /> Importar PDF / Foto IA
+                    </Button>
                 )}
             </div>
 
-            <Card className="overflow-hidden p-0 border-0 shadow-lg">
+            <Card className="overflow-hidden p-0 border-0 shadow-xl">
                 <div className="overflow-x-auto">
                     <table className="w-full border-collapse">
                         <thead>
                             <tr className="bg-primary text-white border-b border-primary-dark">
-                                <th className="p-2 text-left font-bold w-40 sticky left-0 bg-primary z-20 border-r border-primary-light shadow-md text-[10px] uppercase">
-                                    Empleado
+                                <th className="p-2 text-left font-bold w-44 sticky left-0 bg-primary z-20 border-r border-primary-light shadow-md text-[10px] uppercase">
+                                    Empleado / Horas Mes
                                 </th>
                                 {viewDays.map(day => (
-                                    <th key={day.toISOString()} className={`p-0 text-center border-r border-primary-light w-6 min-w-[24px] ${day.toDateString() === new Date().toDateString() ? 'bg-primary-dark' : ''}`}>
+                                    <th key={day.toISOString()} className={`p-0 text-center border-r border-primary-light w-7 min-w-[28px] ${day.toDateString() === new Date().toDateString() ? 'bg-primary-dark' : ''}`}>
                                         <div className="text-[10px] font-bold py-1">{day.getDate()}</div>
-                                        <div className="text-[8px] opacity-75 pb-1">{day.toLocaleDateString('es-ES', { weekday: 'narrow' })}</div>
+                                        <div className="text-[8px] opacity-75 pb-1 uppercase">{day.toLocaleDateString('es-ES', { weekday: 'narrow' })}</div>
                                     </th>
                                 ))}
                             </tr>
                         </thead>
                         <tbody>
                             {employees.map((emp, idx) => {
-                                const annualHours = calculateAnnualHours(emp.employee_id);
-                                const limit = emp.annual_hours_contract || 1784;
+                                const monthlyHours = calculateMonthlyHours(emp.employee_id);
                                 const isRowEven = idx % 2 === 0;
 
                                 return (
-                                <tr key={emp.employee_id} className={`border-b border-gray-200 ${isRowEven ? 'bg-white' : 'bg-gray-50'} hover:bg-gray-100 transition-colors`}>
-                                    <td className={`p-1 border-r border-gray-200 font-medium text-gray-800 sticky left-0 z-10 shadow-sm text-xs ${isRowEven ? 'bg-white' : 'bg-gray-50'}`}>
-                                        <div className="flex flex-col justify-center h-full">
-                                            <span className="truncate font-bold text-[10px] uppercase">{emp.first_name} {emp.last_name.charAt(0)}.</span>
-                                            {canManage && (
-                                                <span className={`text-[8px] font-bold ${annualHours > limit ? 'text-red-500' : 'text-green-600'}`}>{Math.round(annualHours)}h / {limit}h</span>
-                                            )}
+                                <tr key={emp.employee_id} className={`border-b border-gray-200 ${isRowEven ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50 transition-colors`}>
+                                    <td className={`p-2 border-r border-gray-200 font-medium text-gray-800 sticky left-0 z-10 shadow-sm ${isRowEven ? 'bg-white' : 'bg-gray-50'}`}>
+                                        <div className="flex flex-col">
+                                            <span className="truncate font-bold text-[10px] uppercase">{emp.first_name} {(emp.last_name || '').charAt(0)}.</span>
+                                            <span className="text-[9px] font-bold text-primary">{monthlyHours.toFixed(1)}h trbj.</span>
                                         </div>
                                     </td>
                                     {viewDays.map(day => {
@@ -221,7 +199,7 @@ const ShiftSchedulerView: React.FC = () => {
                                         return (
                                             <td 
                                                 key={day.toISOString()} 
-                                                className={`p-0 border-r border-gray-200 h-8 text-center align-middle relative ${canManage ? 'cursor-pointer hover:bg-gray-200' : ''}`}
+                                                className={`p-0 border-r border-gray-100 h-10 text-center align-middle relative ${canManage ? 'cursor-pointer hover:bg-gray-200' : ''}`}
                                                 onClick={() => {
                                                     if (!canManage) return;
                                                     setModalContext({ employeeId: emp.employee_id, date: day });
@@ -229,22 +207,8 @@ const ShiftSchedulerView: React.FC = () => {
                                                     setIsModalOpen(true);
                                                 }}
                                             >
-                                                {dayShifts.map((shift, i) => {
-                                                    if (i > 0) return null; // Solo mostrar el primero visualmente
-                                                    
-                                                    // DETERMINACIÓN DE LETRA CÓDIGO (Novedad Auditoría)
-                                                    let displayCode = '';
-                                                    if (shift.notes && shift.notes.length <= 3) {
-                                                        displayCode = shift.notes; // Usar código de importación (M, T, L...)
-                                                    } else if (shift.shift_config_id) {
-                                                        const cfg = shiftConfigs.find(c => c.config_id === shift.shift_config_id);
-                                                        displayCode = cfg?.code || '?';
-                                                    } else {
-                                                        // Heurística
-                                                        if (shift.type === 'off') displayCode = 'L';
-                                                        else if (shift.type === 'vacation') displayCode = 'V';
-                                                        else displayCode = 'W';
-                                                    }
+                                                {dayShifts.map((shift) => {
+                                                    const displayCode = getShiftCode(shift) || (isWorkShift(shift) ? 'W' : 'L');
 
                                                     return (
                                                         <div 
@@ -256,9 +220,9 @@ const ShiftSchedulerView: React.FC = () => {
                                                                 setModalContext({ employeeId: shift.employee_id, date: new Date(shift.start_time) });
                                                                 setIsModalOpen(true);
                                                             }}
-                                                            className="w-full h-full flex items-center justify-center text-white font-bold text-[10px] shadow-inner"
+                                                            className="w-full h-full flex items-center justify-center text-white font-bold text-[10px] shadow-sm"
                                                             style={{ backgroundColor: shift.color || '#9ca3af' }}
-                                                            title={`${shift.notes || 'Turno'} (${new Date(shift.start_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})})`}
+                                                            title={`${shift.notes || 'Turno'}`}
                                                         >
                                                             {displayCode}
                                                         </div>
@@ -274,34 +238,26 @@ const ShiftSchedulerView: React.FC = () => {
                 </div>
             </Card>
 
-            {isModalOpen && modalContext && canManage && (
+            {isModalOpen && modalContext && (
                 <ShiftFormModal 
                     isOpen={isModalOpen} onClose={() => setIsModalOpen(false)}
                     onSave={async (data) => {
                         if ('shift_id' in data) await updateWorkShift(data);
                         else await createWorkShift(data);
-                        fetchSchedulerData(); setIsModalOpen(false);
+                        fetchData(); setIsModalOpen(false);
                     }}
-                    onDelete={async (id) => { await deleteWorkShift(id); fetchSchedulerData(); setIsModalOpen(false); }}
+                    onDelete={async (id) => { await deleteWorkShift(id); fetchData(); setIsModalOpen(false); }}
                     shift={selectedShift} employeeId={modalContext.employeeId} date={modalContext.date}
                     locations={locations} employees={employees}
                 />
             )}
 
-            {isImageImportModalOpen && canManage && (
+            {isImportModalOpen && (
                 <ImageImportModal
-                    isOpen={isImageImportModalOpen} onClose={() => setIsImageImportModalOpen(false)}
-                    onImport={async (newShifts) => { await createBulkWorkShifts(newShifts); fetchSchedulerData(); }}
+                    isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)}
+                    onImport={async (newShifts) => { await createBulkWorkShifts(newShifts); fetchData(); }}
                     employees={employees} locations={locations} shiftConfigs={shiftConfigs}
-                    currentMonth={currentWeekStart.getMonth()} currentYear={currentWeekStart.getFullYear()}
-                />
-            )}
-
-            {allowedInputs && (
-                <AIAssistant 
-                    context={{ employees, locations, currentUser: auth?.employee || undefined }} 
-                    onAction={(res) => { if (res.action === 'createShift') fetchSchedulerData(); }}
-                    allowedInputs={allowedInputs}
+                    currentMonth={currentMonth.getMonth()} currentYear={currentMonth.getFullYear()}
                 />
             )}
         </div>

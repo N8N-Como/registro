@@ -226,7 +226,7 @@ const GobernantaView: React.FC = () => {
                                     <td className="p-2 border-r bg-gray-50 align-middle">
                                         <div className="flex flex-col items-center justify-center text-center">
                                             <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-xs font-bold text-gray-600 mb-1">
-                                                {employee.first_name.charAt(0)}{employee.last_name.charAt(0)}
+                                                {(employee.first_name || '').charAt(0)}{(employee.last_name || '').charAt(0)}
                                             </div>
                                             <p className="text-xs font-bold text-gray-700 leading-tight">
                                                 {employee.first_name}
