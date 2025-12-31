@@ -64,12 +64,57 @@ export const getLocations = async (): Promise<Location[]> => {
 };
 
 export const getRooms = async (): Promise<Room[]> => {
-    const local = getLocalData<Room>(LOCAL_ROOMS_KEY);
     try {
         const { data, error } = await supabase.from('rooms').select('*');
-        if (error || !data || data.length === 0) return local;
+        if (error || !data || data.length === 0) return getLocalData<Room>(LOCAL_ROOMS_KEY);
+        // Sincronizar local storage con lo que viene de DB
+        saveLocalData(LOCAL_ROOMS_KEY, data);
         return data;
-    } catch { return local; }
+    } catch { 
+        return getLocalData<Room>(LOCAL_ROOMS_KEY); 
+    }
+};
+
+export const updateRoomStatus = async (roomId: string, status: RoomStatus, employeeId?: string): Promise<Room> => {
+    const isClean = status === 'clean';
+    const now = new Date().toISOString();
+    
+    // Preparar objeto de actualización
+    const updateData: any = { 
+        status, 
+        last_cleaned_at: isClean ? now : undefined,
+        last_cleaned_by: isClean ? (employeeId || null) : undefined,
+        is_priority: isClean ? false : undefined 
+    };
+
+    // Eliminar undefined para que Supabase no intente sobrescribir con null a menos que queramos
+    Object.keys(updateData).forEach(key => updateData[key] === undefined && delete updateData[key]);
+
+    try {
+        // 1. Intentar en Supabase
+        const { data, error } = await supabase.from('rooms').update(updateData).eq('room_id', roomId).select().single();
+        if (error) throw error;
+        
+        // 2. Actualizar Local Storage
+        const local = getLocalData<Room>(LOCAL_ROOMS_KEY);
+        const idx = local.findIndex(r => r.room_id === roomId);
+        if (idx !== -1) {
+            local[idx] = { ...local[idx], ...updateData };
+            saveLocalData(LOCAL_ROOMS_KEY, local);
+        }
+        
+        return data;
+    } catch (e) {
+        console.warn("Fallo en actualización de habitación en DB, usando local storage:", e);
+        const local = getLocalData<Room>(LOCAL_ROOMS_KEY);
+        const idx = local.findIndex(r => r.room_id === roomId);
+        if (idx !== -1) {
+            local[idx] = { ...local[idx], ...updateData };
+            saveLocalData(LOCAL_ROOMS_KEY, local);
+            return local[idx];
+        }
+        throw new Error("Habitación no encontrada");
+    }
 };
 
 export const getTimeEntriesForEmployee = async (id: string) => { 
@@ -153,11 +198,11 @@ export const checkInToLocation = async (timeEntryId: string, employeeId: string,
         employee_id: employeeId,
         location_id: locationId,
         check_in_time: new Date().toISOString(),
+        check_out_time: null,
         check_in_latitude: lat,
         check_in_longitude: lon
     };
     try { 
-        // Si el timeEntryId es local (empieza por entry_), no intentamos subir a Supabase porque fallará la FK
         if (timeEntryId.startsWith('entry_')) throw new Error("Parent entry is local");
         const { data, error } = await supabase.from('activity_logs').insert([payload]).select().single(); 
         if (error) throw error;
@@ -203,7 +248,6 @@ export const getActivityLogsForTimeEntry = async (id: string) => {
     } 
 };
 
-// --- MÉTODOS RESTANTES (SIN CAMBIOS) ---
 export const clockOut = async (id: string, l: any, isManual: boolean, t: any) => { 
     const clockOutTime = t || new Date().toISOString();
     try { 
@@ -223,22 +267,7 @@ export const clockOut = async (id: string, l: any, isManual: boolean, t: any) =>
         return { status: 'completed' } as any; 
     } 
 };
-export const updateRoomStatus = async (roomId: string, status: RoomStatus, employeeId?: string): Promise<Room> => {
-    const rooms = await getRooms();
-    const idx = rooms.findIndex(r => r.room_id === roomId);
-    if (idx !== -1) {
-        rooms[idx].status = status;
-        if (status === 'clean') {
-            rooms[idx].last_cleaned_at = new Date().toISOString();
-            rooms[idx].last_cleaned_by = employeeId;
-            rooms[idx].is_priority = false;
-        }
-        saveLocalData(LOCAL_ROOMS_KEY, rooms);
-        try { await supabase.from('rooms').update({ status, last_cleaned_at: rooms[idx].last_cleaned_at, last_cleaned_by: employeeId }).eq('room_id', roomId); } catch (e) {}
-        return rooms[idx];
-    }
-    throw new Error("Habitación no encontrada");
-};
+
 export const finishTask = async (logId: string, taskId: string, inventoryUsage: { item_id: string, amount: number }[] = [], employeeId?: string): Promise<TaskTimeLog> => {
     try {
         for (const usage of inventoryUsage) {
@@ -255,6 +284,7 @@ export const finishTask = async (logId: string, taskId: string, inventoryUsage: 
         return data;
     } catch { return { log_id: logId } as any; }
 };
+
 export const updateIncident = async (incident: Incident, inventoryUsage: { item_id: string, amount: number }[] = [], employeeId?: string): Promise<Incident> => {
     try {
         if (incident.status === 'resolved') {
@@ -272,9 +302,11 @@ export const updateIncident = async (incident: Incident, inventoryUsage: { item_
         return data;
     } catch { return incident; }
 };
+
 export const logStockMovement = async (itemId: string, changeAmount: number, reason: string, employeeId: string): Promise<void> => {
     try { await supabase.from('stock_logs').insert([{ item_id: itemId, change_amount: changeAmount, reason, employee_id: employeeId, created_at: new Date().toISOString() }]); } catch {}
 };
+
 export const getInventoryItems = async (): Promise<InventoryItem[]> => { try { const { data } = await supabase.from('inventory_items').select('*'); return data || []; } catch { return []; } };
 export const updateInventoryItem = async (data: InventoryItem): Promise<InventoryItem> => { try { const { data: updated } = await supabase.from('inventory_items').update({...data, last_updated: new Date().toISOString()}).eq('item_id', data.item_id).select().single(); return updated || data; } catch { return data; } };
 export const getStockLogs = async (itemId?: string): Promise<StockLog[]> => { try { let q = supabase.from('stock_logs').select('*').order('created_at', { ascending: false }); if (itemId) q = q.eq('item_id', itemId); const { data } = await q; return data || []; } catch { return []; } };
