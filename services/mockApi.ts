@@ -201,7 +201,34 @@ export const checkOutOfLocation = async (id: string) => { try { const { data } =
 export const logAccessAttempt = async (d: any) => { try { await supabase.from('access_logs').insert([d]); } catch {} };
 export const startBreak = async (t: string, b: string) => { try { const { data } = await supabase.from('break_logs').insert([{time_entry_id: t, break_type: b, start_time: new Date().toISOString()}]).select().single(); return data; } catch { return {} as any; } };
 export const endBreak = async (id: string) => { try { const { data } = await supabase.from('break_logs').update({end_time: new Date().toISOString()}).eq('break_id', id).select().single(); return data; } catch { return {} as any; } };
-export const clockIn = async (e: string, l: any, la: any, lo: any, wt: any, wm: any, d: any) => { try { const { data } = await supabase.from('time_entries').insert([{employee_id: e, clock_in_time: new Date().toISOString(), clock_in_latitude: la, clock_in_longitude: lo, work_type: wt, work_mode: wm, device_id: d?.deviceId, device_info: d?.deviceInfo, status: 'running'}]).select().single(); return data; } catch { return { entry_id: 'mock' } as any; } };
+
+export const clockIn = async (employeeId: string, locationId: any, lat: any, lon: any, workType: any, workMode: any, deviceData: any, customTime?: string) => { 
+    try { 
+        const isManual = !!customTime;
+        const entryTime = customTime || new Date().toISOString();
+        
+        const payload = {
+            employee_id: employeeId, 
+            clock_in_time: entryTime, 
+            clock_in_latitude: lat || null, 
+            clock_in_longitude: lon || null, 
+            work_type: workType, 
+            work_mode: workMode, 
+            device_id: deviceData?.deviceId || null, 
+            device_info: deviceData?.deviceInfo || null, 
+            is_manual: isManual,
+            status: 'running'
+        };
+
+        const { data, error } = await supabase.from('time_entries').insert([payload]).select().single(); 
+        if (error) throw error;
+        return data; 
+    } catch (e) { 
+        console.error("Error in clockIn:", e);
+        return { entry_id: 'mock_' + Date.now(), clock_in_time: customTime || new Date().toISOString() } as any; 
+    } 
+};
+
 export const clockOut = async (id: string, l: any, s: any, t: any) => { try { const { data } = await supabase.from('time_entries').update({clock_out_time: t || new Date().toISOString(), status: 'completed'}).eq('entry_id', id).select().single(); return data; } catch { return {} as any; } };
 export const updateEmployee = async (d: any) => { try { const { data } = await supabase.from('employees').update(d).eq('employee_id', d.employee_id).select().single(); return data; } catch { return d; } };
 export const getPolicies = async () => { try { const { data } = await supabase.from('policies').select('*').order('version', { ascending: false }); return data || []; } catch { return []; } };

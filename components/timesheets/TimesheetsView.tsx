@@ -165,7 +165,7 @@ const TimesheetsView: React.FC = () => {
   }, [position, locations]);
 
   // CLOCK IN HANDLER (Called from Modal)
-  const handleClockInConfirm = async (data: { workType: WorkType; workMode: WorkMode; photoUrl: string; deviceData?: { deviceId: string, deviceInfo: string } }) => {
+  const handleClockInConfirm = async (data: { workType: WorkType; workMode: WorkMode; photoUrl: string; deviceData?: { deviceId: string, deviceInfo: string }; customTime?: string }) => {
     if (!auth?.employee) return;
     setIsSubmitting('workday-in');
     try {
@@ -176,12 +176,13 @@ const TimesheetsView: React.FC = () => {
           position?.coords.longitude,
           data.workType,
           data.workMode,
-          data.deviceData // Passing Device Data
+          data.deviceData,
+          data.customTime
       );
 
       // --- AUTO CHECK-IN LOGIC ---
-      // If presencial and < 150m from a location, auto check-in to that location
-      if (data.workMode === 'presencial' && position) {
+      // Solo si es presencial y el GPS es actual (no manual)
+      if (!data.customTime && data.workMode === 'presencial' && position) {
           const closest = sortedLocations[0];
           if (closest) {
               const dist = getDistanceFromLatLonInMeters(
@@ -379,8 +380,8 @@ const TimesheetsView: React.FC = () => {
 
                 switch (item.type) {
                     case 'WORKDAY_START':
-                        content = <><p className="font-semibold text-green-600">Inicio Jornada ({runningWorkday?.work_type})</p><p className="text-sm text-gray-500">{formatTime(item.time)}</p></>;
-                        colorClass = 'bg-green-500';
+                        content = <><p className="font-semibold text-green-600">Inicio Jornada ({runningWorkday?.work_type}) {runningWorkday?.is_manual && <span className="text-red-600 text-[10px] font-bold">MANUAL</span>}</p><p className="text-sm text-gray-500">{formatTime(item.time)}</p></>;
+                        colorClass = runningWorkday?.is_manual ? 'bg-red-500' : 'bg-green-500';
                         icon = <FlagIcon className="w-5 h-5 text-white" />;
                         break;
                     case 'LOCATION_CHECK_IN':
