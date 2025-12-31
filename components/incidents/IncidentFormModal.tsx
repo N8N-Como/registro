@@ -1,14 +1,16 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Incident, Location, Employee, Room } from '../../types';
+import { Incident, Location, Employee, Room, InventoryItem } from '../../types';
 import Modal from '../shared/Modal';
 import Button from '../shared/Button';
 import { blobToBase64 } from '../../utils/helpers';
+import { getInventoryItems } from '../../services/mockApi';
+import { BoxIcon } from '../icons';
 
 interface IncidentFormModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (incident: Omit<Incident, 'incident_id' | 'created_at' | 'reported_by'> | Incident) => void;
+  onSave: (incident: Omit<Incident, 'incident_id' | 'created_at' | 'reported_by'> | Incident, usage?: {item_id: string, amount: number}[]) => void;
   incident: Incident | null;
   locations: Location[];
   employees: Employee[];
@@ -18,156 +20,56 @@ interface IncidentFormModalProps {
 
 const IncidentFormModal: React.FC<IncidentFormModalProps> = ({ isOpen, onClose, onSave, incident, locations, employees, rooms, canManage }) => {
   const [formData, setFormData] = useState<Partial<Incident>>({});
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  const [usageMap, setUsageMap] = useState<Record<string, number>>({});
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   
-  // Camera State
-  const [isCameraOpen, setIsCameraOpen] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-
   useEffect(() => {
-    if (incident) {
-      setFormData(incident);
-      setPreviewUrl(incident.photo_url || null);
-      setSelectedFile(null);
-    } else {
-      setFormData({
-        status: 'open',
-        priority: 'medium',
-        location_id: locations[0]?.location_id,
-        room_id: '',
-      });
-      setPreviewUrl(null);
-      setSelectedFile(null);
+    if (isOpen) {
+        getInventoryItems().then(inv => setInventory(inv.filter(i => i.category === 'maintenance')));
+        if (incident) {
+            setFormData(incident);
+            setPreviewUrl(incident.photo_url || null);
+        } else {
+            setFormData({ status: 'open', priority: 'medium', location_id: locations[0]?.location_id });
+            setPreviewUrl(null);
+        }
+        setUsageMap({});
     }
-    
-    return () => {
-        stopCamera();
-    };
   }, [incident, isOpen, locations]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
   };
-  
-  // Handle File Upload (Gallery)
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      setSelectedFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPreviewUrl(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
+
+  const updateUsage = (itemId: string, delta: number) => {
+    setUsageMap(prev => ({
+        ...prev,
+        [itemId]: Math.max(0, (prev[itemId] || 0) + delta)
+    }));
   };
-
-  // --- Camera Logic ---
-
-  const startCamera = async () => {
-    setIsCameraOpen(true);
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-            video: { facingMode: 'environment' } // Prefer rear camera
-        });
-        streamRef.current = stream;
-        if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-        }
-    } catch (err) {
-        console.error("Error accessing camera:", err);
-        alert("No se pudo acceder a la cámara. Asegúrate de dar permisos.");
-        setIsCameraOpen(false);
-    }
-  };
-
-  const stopCamera = () => {
-    if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-        streamRef.current = null;
-    }
-    setIsCameraOpen(false);
-  };
-
-  const capturePhoto = () => {
-    if (videoRef.current && canvasRef.current) {
-        const video = videoRef.current;
-        const canvas = canvasRef.current;
-        
-        // Set canvas dimensions to match video
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        
-        const context = canvas.getContext('2d');
-        if (context) {
-            context.drawImage(video, 0, 0, canvas.width, canvas.height);
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.8); // Compress slightly
-            setPreviewUrl(dataUrl);
-            setFormData(prev => ({ ...prev, photo_url: dataUrl }));
-            setSelectedFile(null); // Clear file if camera is used
-            stopCamera();
-        }
-    }
-  };
-
-  // --------------------
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
-    try {
-        let photoBase64 = formData.photo_url;
-        
-        // If a file was selected from gallery, convert it
-        if (selectedFile) {
-            photoBase64 = await blobToBase64(selectedFile);
-        }
-        
-        onSave({
-            ...formData,
-            photo_url: photoBase64
-        } as Incident);
-    } catch (error) {
-        console.error("Error preparing incident data", error);
-        alert("Hubo un error al procesar la imagen.");
-    } finally {
-        setIsSaving(false);
-    }
+    
+    // Fixed unknown type error by explicitly casting qty to number
+    const usage = Object.entries(usageMap)
+        .filter(([_, qty]) => (qty as number) > 0)
+        .map(([itemId, qty]) => ({ item_id: itemId, amount: qty as number }));
+
+    onSave(formData as Incident, usage);
+    setIsSaving(false);
   };
 
-  const title = incident ? 'Detalle de Incidencia' : 'Reportar Incidencia';
-  const maintenanceStaff = employees.filter(e => e.role_id === 'maintenance');
-  const filteredRooms = rooms.filter(r => r.location_id === formData.location_id);
+  const isResolved = formData.status === 'resolved';
   const isReadOnly = incident && !canManage;
 
   return (
-    <Modal isOpen={isOpen} onClose={() => { stopCamera(); onClose(); }} title={title}>
-      
-      {/* Camera Overlay */}
-      {isCameraOpen ? (
-          <div className="flex flex-col items-center space-y-4">
-              <div className="relative w-full bg-black rounded-lg overflow-hidden" style={{ minHeight: '300px' }}>
-                  <video 
-                    ref={videoRef} 
-                    autoPlay 
-                    playsInline 
-                    className="w-full h-full object-cover"
-                  />
-              </div>
-              <canvas ref={canvasRef} className="hidden" />
-              <div className="flex space-x-4 w-full">
-                  <Button variant="secondary" onClick={stopCamera} className="flex-1">Cancelar</Button>
-                  <Button variant="primary" onClick={capturePhoto} className="flex-1">Capturar</Button>
-              </div>
-          </div>
-      ) : (
-      /* Standard Form */
-      <form onSubmit={handleSubmit} className="space-y-4">
+    <Modal isOpen={isOpen} onClose={onClose} title={incident ? 'Detalle de Incidencia' : 'Reportar Incidencia'}>
+      <form onSubmit={handleSubmit} className="space-y-4 max-h-[80vh] overflow-y-auto pr-2">
         <div>
           <label className="block text-sm font-medium text-gray-700">Descripción</label>
           <textarea
@@ -175,84 +77,18 @@ const IncidentFormModal: React.FC<IncidentFormModalProps> = ({ isOpen, onClose, 
             value={formData.description || ''}
             onChange={handleChange}
             className="mt-1 block w-full rounded-md border-gray-300 shadow-sm"
-            rows={4}
+            rows={3}
             required
             readOnly={isReadOnly}
-            placeholder="Describe el problema..."
           />
         </div>
         
-        {/* Photo Section */}
-        <div>
-             <label className="block text-sm font-medium text-gray-700 mb-2">Fotografía (Opcional)</label>
-             
-             {!isReadOnly && !previewUrl && (
-                 <div className="flex space-x-2 mb-2">
-                     <Button type="button" onClick={startCamera} size="sm" className="flex items-center justify-center flex-1">
-                        <span className="mr-2">📸</span> Tomar Foto
-                     </Button>
-                     
-                     <label className="flex-1">
-                        <div className="bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-lg border text-center cursor-pointer text-sm h-full flex items-center justify-center">
-                            <span className="mr-2">📁</span> Galería
-                        </div>
-                        <input 
-                            type="file" 
-                            accept="image/*" 
-                            onChange={handleFileChange}
-                            className="hidden"
-                        />
-                     </label>
-                 </div>
-             )}
-             
-             {previewUrl && (
-                 <div className="mt-4 relative">
-                     <p className="text-xs text-gray-500 mb-1">Vista previa:</p>
-                     <img src={previewUrl} alt="Evidencia incidencia" className="w-full max-h-64 object-cover rounded-md border" />
-                     {!isReadOnly && (
-                         <button 
-                            type="button"
-                            onClick={() => { setPreviewUrl(null); setFormData(prev => ({...prev, photo_url: undefined})); setSelectedFile(null); }}
-                            className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 shadow-md"
-                            title="Eliminar foto"
-                         >
-                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-                         </button>
-                     )}
-                 </div>
-             )}
-        </div>
+        {previewUrl && (
+             <div className="mt-2">
+                 <img src={previewUrl} alt="Foto incidencia" className="w-full h-40 object-cover rounded-md border" />
+             </div>
+        )}
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Establecimiento</label>
-          <select 
-            name="location_id" 
-            value={formData.location_id || ''} 
-            onChange={e => {
-                handleChange(e);
-                setFormData(prev => ({...prev, room_id: ''})) // Reset room on location change
-            }}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm" 
-            required
-            disabled={isReadOnly}
-          >
-            {locations.map(loc => <option key={loc.location_id} value={loc.location_id}>{loc.name}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Habitación/Zona</label>
-          <select 
-            name="room_id" 
-            value={formData.room_id || ''} 
-            onChange={handleChange} 
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm"
-            disabled={isReadOnly || !formData.location_id}
-          >
-            <option value="">(Opcional)</option>
-            {filteredRooms.map(room => <option key={room.room_id} value={room.room_id}>{room.name}</option>)}
-          </select>
-        </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700">Prioridad</label>
@@ -267,23 +103,40 @@ const IncidentFormModal: React.FC<IncidentFormModalProps> = ({ isOpen, onClose, 
             <select name="status" value={formData.status || 'open'} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm" required disabled={!canManage}>
               <option value="open">Abierta</option>
               <option value="in_progress">En Progreso</option>
-              <option value="resolved">Resuelta</option>
+              <option value="resolved">Resuelta ✅</option>
             </select>
           </div>
         </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Asignado a (opcional)</label>
-          <select name="assigned_to" value={formData.assigned_to || ''} onChange={handleChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm" disabled={!canManage}>
-            <option value="">Sin asignar</option>
-            {maintenanceStaff.map(emp => <option key={emp.employee_id} value={emp.employee_id}>{emp.first_name} {emp.last_name}</option>)}
-          </select>
-        </div>
+
+        {/* REPUESTOS SECTION (Solo si se está resolviendo) */}
+        {canManage && isResolved && (
+            <div className="bg-gray-50 p-4 rounded-lg border-2 border-dashed border-gray-300 mt-4 animate-in fade-in duration-300">
+                <h4 className="text-sm font-bold text-gray-800 mb-3 flex items-center">
+                    <BoxIcon className="w-4 h-4 mr-2" /> Repuestos Utilizados
+                </h4>
+                <div className="space-y-2">
+                    {inventory.length > 0 ? inventory.map(item => (
+                        <div key={item.item_id} className="flex items-center justify-between bg-white p-2 rounded border shadow-sm">
+                            <div className="text-xs">
+                                <p className="font-bold">{item.name}</p>
+                                <p className="text-gray-400">Stock: {item.quantity}</p>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                                <button type="button" onClick={() => updateUsage(item.item_id, -1)} className="w-6 h-6 bg-gray-200 rounded flex items-center justify-center">-</button>
+                                <span className="font-bold text-sm min-w-[15px] text-center">{usageMap[item.item_id] || 0}</span>
+                                <button type="button" onClick={() => updateUsage(item.item_id, 1)} className="w-6 h-6 bg-primary text-white rounded flex items-center justify-center">+</button>
+                            </div>
+                        </div>
+                    )) : <p className="text-xs text-gray-500 italic">No hay productos de mantenimiento configurados.</p>}
+                </div>
+            </div>
+        )}
+
         <div className="pt-4 flex justify-end space-x-2">
             <Button type="button" variant="secondary" onClick={onClose} disabled={isSaving}>Cerrar</Button>
-            {!isReadOnly && <Button type="submit" isLoading={isSaving}>Guardar</Button>}
+            {!isReadOnly && <Button type="submit" isLoading={isSaving}>Guardar Cambios</Button>}
         </div>
       </form>
-      )}
     </Modal>
   );
 };

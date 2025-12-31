@@ -11,7 +11,7 @@ import {
     getShiftConfigs,
     createBulkWorkShifts
 } from '../../services/mockApi';
-import { Employee, Location, WorkShift, ShiftConfig, ShiftType } from '../../types';
+import { Employee, Location, WorkShift, ShiftConfig } from '../../types';
 import Card from '../shared/Card';
 import Spinner from '../shared/Spinner';
 import Button from '../shared/Button';
@@ -24,7 +24,6 @@ const NAME_SORT_ORDER = [
     'MARIA ISABEL', 'STEPHANY', 'YESSICA', 'NISLEY', 'DOLORES', 'DIANA', 'ANDRES', 'ITAGU'
 ];
 
-// LISTA MAESTRA DE CÓDIGOS DE TRABAJO (PARA INFERENCIA)
 const WORK_CODES = ['M', 'T', 'P', 'MM', 'R', 'A', 'D', 'TH', 'BH', 'BM', 'AD', 'S', 'D'];
 
 const ShiftSchedulerView: React.FC = () => {
@@ -35,11 +34,18 @@ const ShiftSchedulerView: React.FC = () => {
     const [locations, setLocations] = useState<Location[]>([]);
     const [shiftConfigs, setShiftConfigs] = useState<ShiftConfig[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
     
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isImportModalOpen, setIsImportModalOpen] = useState(false);
     const [selectedShift, setSelectedShift] = useState<WorkShift | null>(null);
     const [modalContext, setModalContext] = useState<{ employeeId: string, date: Date } | null>(null);
+
+    useEffect(() => {
+        const handleResize = () => setIsMobile(window.innerWidth < 1024);
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
 
     const canManage = useMemo(() => {
         const role = auth?.role?.role_id || '';
@@ -87,16 +93,12 @@ const ShiftSchedulerView: React.FC = () => {
             const endStr = viewDays[viewDays.length - 1].toISOString().replace(/T.*/, 'T23:59:59');
             const monthShifts = await getWorkShifts(startStr, endStr);
             setShifts(monthShifts);
-        } catch (err) {
-            console.error(err);
-        } finally {
-            setIsLoading(false);
-        }
+        } catch (err) { console.error(err); } 
+        finally { setIsLoading(false); }
     };
 
     useEffect(() => { fetchData(); }, [currentMonth, canManage]);
 
-    // LÓGICA DE DETECCIÓN DE CÓDIGO (LIMPIA NOTAS DE IA)
     const getShiftCode = (shift: WorkShift): string => {
         const rawNotes = shift.notes || '';
         const match = rawNotes.match(/\((.*?)\)/);
@@ -109,7 +111,6 @@ const ShiftSchedulerView: React.FC = () => {
         return '';
     };
 
-    // INFERIR SI ES TRABAJO O NO
     const isWorkShift = (shift: WorkShift): boolean => {
         if (shift.type === 'work') return true;
         const code = getShiftCode(shift);
@@ -123,12 +124,9 @@ const ShiftSchedulerView: React.FC = () => {
             if (isWorkShift(s)) {
                 const start = new Date(s.start_time).getTime();
                 const end = new Date(s.end_time).getTime();
-                // Si el horario es 00:00 (típico de importación IA sin config), sumamos 8h estándar
                 if (start === end || (new Date(s.start_time).getHours() === 0 && new Date(s.end_time).getHours() === 0)) {
                     totalMs += (8 * 60 * 60 * 1000);
-                } else {
-                    totalMs += (end - start);
-                }
+                } else { totalMs += (end - start); }
             }
         });
         return totalMs / (1000 * 60 * 60);
@@ -143,109 +141,104 @@ const ShiftSchedulerView: React.FC = () => {
             <div className="flex flex-col lg:flex-row justify-between items-center bg-white p-4 rounded-lg shadow-sm border border-gray-200 gap-4">
                 <div className="flex items-center space-x-2">
                     <CalendarIcon className="w-6 h-6 text-primary" />
-                    <h2 className="text-xl font-bold text-gray-800">Cuadrante: {monthName}</h2>
+                    <h2 className="text-xl font-bold text-gray-800 uppercase">{monthName}</h2>
                 </div>
                 <div className="flex items-center space-x-2">
                     <Button variant="secondary" size="sm" onClick={() => {
                         const d = new Date(currentMonth); d.setMonth(d.getMonth() - 1); setCurrentMonth(d);
-                    }}>&lt; Mes Anterior</Button>
-                    <Button variant="secondary" size="sm" onClick={() => setCurrentMonth(new Date(2025, 0, 1))}>Enero 2025</Button>
+                    }}>&lt;</Button>
+                    <Button variant="secondary" size="sm" onClick={() => setCurrentMonth(new Date(2025, 0, 1))}>HOY</Button>
                     <Button variant="secondary" size="sm" onClick={() => {
                         const d = new Date(currentMonth); d.setMonth(d.getMonth() + 1); setCurrentMonth(d);
-                    }}>Mes Siguiente &gt;</Button>
+                    }}>&gt;</Button>
                 </div>
                 {canManage && (
                     <Button variant="success" size="sm" onClick={() => setIsImportModalOpen(true)}>
-                        <SparklesIcon className="w-4 h-4 mr-2" /> Importar PDF / Foto IA
+                        <SparklesIcon className="w-4 h-4 mr-2" /> IA PDF
                     </Button>
                 )}
             </div>
 
-            <Card className="overflow-hidden p-0 border-0 shadow-xl">
-                <div className="overflow-x-auto">
-                    <table className="w-full border-collapse">
-                        <thead>
-                            <tr className="bg-primary text-white border-b border-primary-dark">
-                                <th className="p-2 text-left font-bold w-44 sticky left-0 bg-primary z-20 border-r border-primary-light shadow-md text-[10px] uppercase">
-                                    Empleado / Horas Mes
-                                </th>
-                                {viewDays.map(day => (
-                                    <th key={day.toISOString()} className={`p-0 text-center border-r border-primary-light w-7 min-w-[28px] ${day.toDateString() === new Date().toDateString() ? 'bg-primary-dark' : ''}`}>
-                                        <div className="text-[10px] font-bold py-1">{day.getDate()}</div>
-                                        <div className="text-[8px] opacity-75 pb-1 uppercase">{day.toLocaleDateString('es-ES', { weekday: 'narrow' })}</div>
-                                    </th>
-                                ))}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {employees.map((emp, idx) => {
-                                const monthlyHours = calculateMonthlyHours(emp.employee_id);
-                                const isRowEven = idx % 2 === 0;
-
-                                return (
-                                <tr key={emp.employee_id} className={`border-b border-gray-200 ${isRowEven ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50 transition-colors`}>
-                                    <td className={`p-2 border-r border-gray-200 font-medium text-gray-800 sticky left-0 z-10 shadow-sm ${isRowEven ? 'bg-white' : 'bg-gray-50'}`}>
-                                        <div className="flex flex-col">
-                                            <span className="truncate font-bold text-[10px] uppercase">{emp.first_name} {(emp.last_name || '').charAt(0)}.</span>
-                                            <span className="text-[9px] font-bold text-primary">{monthlyHours.toFixed(1)}h trbj.</span>
-                                        </div>
-                                    </td>
+            {isMobile ? (
+                // --- VISTA MÓVIL (TARJETAS) ---
+                <div className="space-y-4">
+                    {employees.map(emp => {
+                        const mHours = calculateMonthlyHours(emp.employee_id);
+                        return (
+                            <Card key={emp.employee_id} title={`${emp.first_name} (${mHours.toFixed(1)}h)`} className="p-0">
+                                <div className="grid grid-cols-7 gap-1 p-2 bg-gray-50">
                                     {viewDays.map(day => {
-                                        const dayShifts = shifts.filter(s => 
-                                            s.employee_id === emp.employee_id && 
-                                            new Date(s.start_time).toDateString() === day.toDateString()
-                                        );
-
+                                        const dayShifts = shifts.filter(s => s.employee_id === emp.employee_id && new Date(s.start_time).toDateString() === day.toDateString());
+                                        const isToday = new Date().toDateString() === day.toDateString();
                                         return (
-                                            <td 
+                                            <div 
                                                 key={day.toISOString()} 
-                                                className={`p-0 border-r border-gray-100 h-10 text-center align-middle relative ${canManage ? 'cursor-pointer hover:bg-gray-200' : ''}`}
-                                                onClick={() => {
-                                                    if (!canManage) return;
-                                                    setModalContext({ employeeId: emp.employee_id, date: day });
-                                                    setSelectedShift(null);
-                                                    setIsModalOpen(true);
-                                                }}
+                                                onClick={() => { if(canManage) { setModalContext({ employeeId: emp.employee_id, date: day }); setSelectedShift(null); setIsModalOpen(true); }}}
+                                                className={`h-10 border rounded flex items-center justify-center text-[10px] relative transition-colors ${isToday ? 'border-primary ring-1 ring-primary' : 'border-gray-200'} ${dayShifts.length > 0 ? '' : 'bg-white'}`}
                                             >
-                                                {dayShifts.map((shift) => {
-                                                    const displayCode = getShiftCode(shift) || (isWorkShift(shift) ? 'W' : 'L');
-
-                                                    return (
-                                                        <div 
-                                                            key={shift.shift_id}
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                if (!canManage) return;
-                                                                setSelectedShift(shift);
-                                                                setModalContext({ employeeId: shift.employee_id, date: new Date(shift.start_time) });
-                                                                setIsModalOpen(true);
-                                                            }}
-                                                            className="w-full h-full flex items-center justify-center text-white font-bold text-[10px] shadow-sm"
-                                                            style={{ backgroundColor: shift.color || '#9ca3af' }}
-                                                            title={`${shift.notes || 'Turno'}`}
-                                                        >
-                                                            {displayCode}
-                                                        </div>
-                                                    )
-                                                })}
-                                            </td>
+                                                <span className="absolute top-0.5 left-0.5 text-[7px] text-gray-400">{day.getDate()}</span>
+                                                {dayShifts.map(s => (
+                                                    <div key={s.shift_id} className="w-full h-full flex items-center justify-center rounded text-white font-bold" style={{backgroundColor: s.color}}>
+                                                        {getShiftCode(s)}
+                                                    </div>
+                                                ))}
+                                            </div>
                                         );
                                     })}
-                                </tr>
-                            )})}
-                        </tbody>
-                    </table>
+                                </div>
+                            </Card>
+                        )
+                    })}
                 </div>
-            </Card>
+            ) : (
+                // --- VISTA DESKTOP (TABLA) ---
+                <Card className="overflow-hidden p-0 border-0 shadow-xl">
+                    <div className="overflow-x-auto">
+                        <table className="w-full border-collapse">
+                            <thead>
+                                <tr className="bg-primary text-white border-b border-primary-dark">
+                                    <th className="p-2 text-left font-bold w-44 sticky left-0 bg-primary z-20 border-r border-primary-light shadow-md text-[10px] uppercase">Empleado</th>
+                                    {viewDays.map(day => (
+                                        <th key={day.toISOString()} className={`p-0 text-center border-r border-primary-light w-7 min-w-[28px] ${day.toDateString() === new Date().toDateString() ? 'bg-primary-dark' : ''}`}>
+                                            <div className="text-[10px] font-bold py-1">{day.getDate()}</div>
+                                            <div className="text-[8px] opacity-75 pb-1 uppercase">{day.toLocaleDateString('es-ES', { weekday: 'narrow' })}</div>
+                                        </th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {employees.map((emp, idx) => (
+                                    <tr key={emp.employee_id} className={`border-b border-gray-200 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50 transition-colors`}>
+                                        <td className="p-2 border-r border-gray-200 font-medium text-gray-800 sticky left-0 z-10 shadow-sm bg-inherit">
+                                            <div className="flex flex-col">
+                                                <span className="truncate font-bold text-[10px] uppercase">{emp.first_name}</span>
+                                                <span className="text-[9px] font-bold text-primary">{calculateMonthlyHours(emp.employee_id).toFixed(1)}h</span>
+                                            </div>
+                                        </td>
+                                        {viewDays.map(day => {
+                                            const dayShifts = shifts.filter(s => s.employee_id === emp.employee_id && new Date(s.start_time).toDateString() === day.toDateString());
+                                            return (
+                                                <td key={day.toISOString()} className="p-0 border-r border-gray-100 h-10 text-center align-middle relative cursor-pointer hover:bg-gray-200" onClick={() => { if(canManage) { setModalContext({ employeeId: emp.employee_id, date: day }); setSelectedShift(null); setIsModalOpen(true); }}}>
+                                                    {dayShifts.map((shift) => (
+                                                        <div key={shift.shift_id} className="w-full h-full flex items-center justify-center text-white font-bold text-[10px] shadow-sm" style={{ backgroundColor: shift.color }}>
+                                                            {getShiftCode(shift)}
+                                                        </div>
+                                                    ))}
+                                                </td>
+                                            );
+                                        })}
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </Card>
+            )}
 
             {isModalOpen && modalContext && (
                 <ShiftFormModal 
                     isOpen={isModalOpen} onClose={() => setIsModalOpen(false)}
-                    onSave={async (data) => {
-                        if ('shift_id' in data) await updateWorkShift(data);
-                        else await createWorkShift(data);
-                        fetchData(); setIsModalOpen(false);
-                    }}
+                    onSave={async (data) => { if ('shift_id' in data) await updateWorkShift(data); else await createWorkShift(data); fetchData(); setIsModalOpen(false); }}
                     onDelete={async (id) => { await deleteWorkShift(id); fetchData(); setIsModalOpen(false); }}
                     shift={selectedShift} employeeId={modalContext.employeeId} date={modalContext.date}
                     locations={locations} employees={employees}

@@ -9,9 +9,13 @@ import ReceptionistDashboard from './widgets/ReceptionistDashboard';
 import EmployeeStatusWidget from './widgets/EmployeeStatusWidget';
 import EstablishmentCheckInWidget from './widgets/EstablishmentCheckInWidget';
 import ShiftLogWidget from './widgets/ShiftLogWidget';
+import LiveStaffMap from './LiveStaffMap';
+import RoomFloorPlan from '../shared/RoomFloorPlan';
 
 const DashboardView: React.FC = () => {
     const auth = useContext(AuthContext);
+    const isAdmin = auth?.role?.role_id === 'admin';
+    const isReception = auth?.role?.role_id === 'receptionist';
 
     const renderRoleSpecificDashboard = () => {
         switch (auth?.role?.role_id) {
@@ -33,13 +37,24 @@ const DashboardView: React.FC = () => {
     return (
         <div className="space-y-8">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-1" id="widget-my-status">
-                    <EmployeeStatusWidget />
+                <div className="lg:col-span-1 flex flex-col gap-6">
+                    <div id="widget-my-status">
+                        <EmployeeStatusWidget />
+                    </div>
+                    <div id="widget-team-status">
+                       <EstablishmentCheckInWidget />
+                    </div>
                 </div>
-                <div className="lg:col-span-2" id="widget-team-status">
-                   <EstablishmentCheckInWidget />
+                <div className="lg:col-span-2">
+                    <RoomFloorPlan />
                 </div>
             </div>
+            
+            {(isAdmin || isReception) && (
+                <div id="live-map">
+                    <LiveStaffMap />
+                </div>
+            )}
             
             <div id="widget-shift-log">
                 <ShiftLogWidget />

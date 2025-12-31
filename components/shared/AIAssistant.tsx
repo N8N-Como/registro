@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { SparklesIcon, MicrophoneIcon, XMarkIcon } from '../icons';
 import { processNaturalLanguageCommand, ContextData, AIResponse, ChatMessage } from '../../services/geminiService';
+import { updateRoomStatus, getRooms } from '../../services/mockApi';
 
 export type InputMode = 'text' | 'voice' | 'image';
 
@@ -12,76 +13,46 @@ interface AIAssistantProps {
 }
 
 const AIAssistant: React.FC<AIAssistantProps> = ({ context, onAction, allowedInputs }) => {
-    // Determine strict modes
     const canType = allowedInputs?.includes('text') ?? true;
     const canVoice = allowedInputs?.includes('voice') ?? true;
     
-    // Visibility state
     const [isOpen, setIsOpen] = useState(false);
-    
-    // Chat state
     const [messages, setMessages] = useState<ChatMessage[]>([
-        { role: 'model', text: 'Hola, soy tu asistente. ¿En qué te ayudo?' }
+        { role: 'model', text: 'Hola, soy tu asistente de Como en Casa. ¿Qué necesitas gestionar hoy?' }
     ]);
     const [inputText, setInputText] = useState('');
-    
-    // Processing state
     const [isListening, setIsListening] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
     
-    // Refs
     const recognitionRef = useRef<any>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
-    // Scroll to bottom on new message
     useEffect(() => {
-        if (isOpen) {
-            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-        }
+        if (isOpen) messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages, isOpen]);
 
-    // Initialize Speech Recognition
     useEffect(() => {
         if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
             const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
             recognitionRef.current = new SpeechRecognition();
             recognitionRef.current.continuous = false;
-            recognitionRef.current.interimResults = false;
             recognitionRef.current.lang = 'es-ES';
 
             recognitionRef.current.onresult = (event: any) => {
                 const text = event.results[0][0].transcript;
-                if (canType) {
-                    setInputText(text); // If typing allowed, put in box to edit
-                    setIsListening(false);
-                } else {
-                    // If voice-only, send immediately
-                    setIsListening(false);
-                    handleProcess(text);
-                }
-            };
-
-            recognitionRef.current.onerror = (event: any) => {
-                console.error("Speech recognition error", event.error);
                 setIsListening(false);
+                handleProcess(text);
             };
-            
-            recognitionRef.current.onend = () => {
-                setIsListening(false);
-            };
+            recognitionRef.current.onerror = () => setIsListening(false);
+            recognitionRef.current.onend = () => setIsListening(false);
         }
-    }, [canType]);
+    }, []);
 
     const toggleListening = () => {
-        if (isListening) {
-            recognitionRef.current?.stop();
-        } else {
-            try {
-                recognitionRef.current?.start();
-                setIsListening(true);
-            } catch (e) {
-                alert("No se puede acceder al micrófono.");
-            }
+        if (isListening) recognitionRef.current?.stop();
+        else {
+            try { recognitionRef.current?.start(); setIsListening(true); } 
+            catch (e) { alert("Microfono no disponible"); }
         }
     };
 
@@ -95,119 +66,78 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ context, onAction, allowedInp
         setIsProcessing(true);
         
         try {
-            const result = await processNaturalLanguageCommand(newHistory, context);
+            const rooms = await getRooms();
+            const result = await processNaturalLanguageCommand(newHistory, { ...context, rooms });
             
-            let modelText = result.message;
-            if (result.action !== 'none') {
-                onAction(result);
-                // Custom success messages
-                switch(result.action) {
-                    case 'createTask': modelText = "✅ Tarea creada."; break;
-                    case 'createIncident': modelText = "✅ Incidencia reportada."; break;
-                    case 'createShift': modelText = "✅ Turno asignado."; break;
-                    case 'updateInventory': modelText = "✅ Inventario actualizado."; break;
-                    case 'logLostItem': modelText = "✅ Objeto registrado."; break;
-                    case 'addToShiftLog': modelText = "✅ Nota añadida al libro."; break;
+            if (result.action !== 'none' && result.data) {
+                // Ejecución directa para "Modo Manos Ocupadas"
+                if (result.action === 'updateRoomStatus') {
+                    await updateRoomStatus(result.data.room_id, result.data.status, context.currentUser?.employee_id);
                 }
+                onAction(result);
             }
-            setMessages(prev => [...prev, { role: 'model', text: modelText }]);
+
+            setMessages(prev => [...prev, { role: 'model', text: result.message }]);
             
-            // Text To Speech for Voice-Only Users
-            if (!canType && 'speechSynthesis' in window) {
-                const utterance = new SpeechSynthesisUtterance(modelText);
+            // TTS para confirmación sin manos
+            if ('speechSynthesis' in window) {
+                // Fix: Changed non-existent SynthesisUtterance to SpeechSynthesisUtterance
+                const utterance = new SpeechSynthesisUtterance(result.message);
                 utterance.lang = 'es-ES';
                 window.speechSynthesis.speak(utterance);
             }
 
         } catch (e) {
-            setMessages(prev => [...prev, { role: 'model', text: "Error de conexión." }]);
+            setMessages(prev => [...prev, { role: 'model', text: "Error procesando comando." }]);
         } finally {
             setIsProcessing(false);
         }
     };
 
-    const handleSubmitText = (e: React.FormEvent) => {
-        e.preventDefault();
-        handleProcess(inputText);
-    }
-
     return (
         <>
-            <button
-                onClick={() => setIsOpen(true)}
-                className="fixed bottom-6 right-6 bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-4 rounded-full shadow-xl hover:shadow-2xl transition-transform hover:scale-105 z-40 flex items-center justify-center border-2 border-white"
-                title="Asistente IA"
-            >
+            <button onClick={() => setIsOpen(true)} className="fixed bottom-6 right-6 bg-gradient-to-tr from-primary to-indigo-600 text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-all z-40 border-2 border-white">
                 <SparklesIcon className="w-8 h-8" />
             </button>
 
-            <div className={`fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 backdrop-blur-sm bg-black/40 transition-opacity duration-200 ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
-                <div className={`bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col h-[600px] max-h-[85vh] transition-transform duration-300 ${isOpen ? 'translate-y-0 scale-100' : 'translate-y-10 scale-95'}`}>
-                    <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-4 flex justify-between items-center text-white shadow-md">
-                        <div className="flex items-center space-x-2">
-                            <SparklesIcon className="w-6 h-6" />
-                            <div>
-                                <h3 className="font-bold text-lg leading-tight">Asistente IA</h3>
-                                <p className="text-xs text-indigo-100">{!canType ? 'Modo Solo Voz' : 'Asistente Virtual'}</p>
-                            </div>
+            <div className={`fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 backdrop-blur-sm bg-black/40 transition-all ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+                <div className="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden flex flex-col h-[550px]">
+                    <div className="bg-primary p-4 flex justify-between items-center text-white">
+                        <div className="flex items-center gap-2">
+                            <SparklesIcon className="w-5 h-5" />
+                            <span className="font-bold">Asistente de Voz / Manos Ocupadas</span>
                         </div>
-                        <button onClick={() => setIsOpen(false)} className="hover:bg-white/20 rounded-full p-1 transition-colors">
-                            <XMarkIcon />
-                        </button>
+                        <button onClick={() => setIsOpen(false)}><XMarkIcon /></button>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50 custom-scrollbar">
+                    <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
                         {messages.map((msg, idx) => (
                             <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 shadow-sm text-sm ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-white text-gray-800 border border-gray-100 rounded-bl-none'}`}>
+                                <div className={`p-3 rounded-2xl text-sm shadow-sm max-w-[85%] ${msg.role === 'user' ? 'bg-primary text-white rounded-br-none' : 'bg-white border rounded-bl-none'}`}>
                                     {msg.text}
                                 </div>
                             </div>
                         ))}
-                        {isProcessing && (
-                            <div className="flex justify-start">
-                                <div className="bg-white border border-gray-100 rounded-2xl rounded-bl-none px-4 py-3 shadow-sm flex space-x-1">
-                                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-                                </div>
-                            </div>
-                        )}
+                        {isProcessing && <div className="text-xs text-gray-400 italic animate-pulse">Procesando orden...</div>}
                         <div ref={messagesEndRef} />
                     </div>
 
-                    <div className="p-4 bg-white border-t border-gray-100">
-                        {canType ? (
-                            <div className="flex items-center space-x-2">
-                                {canVoice && (
-                                    <button onClick={toggleListening} className={`p-3 rounded-full transition-all flex-shrink-0 ${isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
-                                        <MicrophoneIcon className="w-5 h-5" />
-                                    </button>
-                                )}
-                                <form onSubmit={handleSubmitText} className="flex-1 relative">
-                                    <input
-                                        type="text"
-                                        value={inputText}
-                                        onChange={(e) => setInputText(e.target.value)}
-                                        placeholder="Escribe una orden..."
-                                        className="w-full border-gray-200 bg-gray-50 rounded-full pl-5 pr-12 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 focus:bg-white transition-all shadow-inner"
-                                        disabled={isProcessing}
-                                    />
-                                    <button type="submit" disabled={!inputText.trim() || isProcessing} className="absolute right-2 top-1.5 bottom-1.5 bg-indigo-600 text-white rounded-full w-9 h-9 flex items-center justify-center hover:bg-indigo-700">
-                                        <svg className="w-4 h-4 transform rotate-90" fill="currentColor" viewBox="0 0 20 20"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" /></svg>
-                                    </button>
-                                </form>
-                            </div>
-                        ) : (
-                            <div className="flex justify-center">
-                                <button
-                                    onClick={toggleListening}
-                                    className={`p-6 rounded-full transition-all shadow-lg ${isListening ? 'bg-red-500 text-white animate-pulse ring-8 ring-red-100' : 'bg-indigo-600 text-white hover:scale-110 hover:shadow-xl'}`}
-                                >
-                                    <MicrophoneIcon className="w-10 h-10" />
-                                </button>
-                                <p className="absolute bottom-2 text-xs text-gray-400">{isListening ? 'Escuchando...' : 'Pulsa para hablar'}</p>
-                            </div>
+                    <div className="p-6 border-t flex flex-col items-center gap-4 bg-white">
+                        <button
+                            onClick={toggleListening}
+                            className={`p-10 rounded-full transition-all shadow-xl ${isListening ? 'bg-red-500 text-white animate-ping' : 'bg-primary text-white scale-110'}`}
+                        >
+                            <MicrophoneIcon className="w-12 h-12" />
+                        </button>
+                        <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">
+                            {isListening ? 'Escuchando...' : 'Pulsa para dar una orden'}
+                        </p>
+                        
+                        {canType && (
+                            <form onSubmit={(e) => { e.preventDefault(); handleProcess(inputText); }} className="w-full flex gap-2">
+                                <input type="text" value={inputText} onChange={(e) => setInputText(e.target.value)} className="flex-1 border rounded-full px-4 text-sm" placeholder="O escribe aquí..." />
+                                <button type="submit" className="bg-gray-100 p-2 rounded-full"><SparklesIcon className="w-4 h-4 text-primary"/></button>
+                            </form>
                         )}
                     </div>
                 </div>

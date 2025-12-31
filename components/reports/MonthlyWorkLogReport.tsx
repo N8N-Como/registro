@@ -15,7 +15,13 @@ import * as XLSX from 'xlsx';
 interface DailyLog {
     day: number;
     date: string;
-    entries: { clockIn: string; clockOut: string; duration: number; isManual: boolean }[];
+    entries: { 
+        clockIn: string; 
+        clockOut: string; 
+        duration: number; 
+        isManual: boolean;
+        type: string;
+    }[];
     totalDuration: number;
 }
 
@@ -29,13 +35,12 @@ interface EmployeeReportData {
 const MonthlyWorkLogReport: React.FC = () => {
     const auth = useContext(AuthContext);
     const [employees, setEmployees] = useState<Employee[]>([]);
-    const [selectedMonth, setSelectedMonth] = useState('10');
-    const [selectedYear, setSelectedYear] = useState('2025');
+    const [selectedMonth, setSelectedMonth] = useState((new Date().getMonth() + 1).toString());
+    const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
     const [reportData, setReportData] = useState<EmployeeReportData[] | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isGenerating, setIsGenerating] = useState(false);
     
-    // Signature State
     const [isSigningModalOpen, setIsSigningModalOpen] = useState(false);
     const [isSavingSignature, setIsSavingSignature] = useState(false);
 
@@ -44,11 +49,8 @@ const MonthlyWorkLogReport: React.FC = () => {
             try {
                 const emps = await getEmployees();
                 setEmployees(emps);
-                const today = new Date();
-                setSelectedMonth((today.getMonth() + 1).toString());
-                setSelectedYear(today.getFullYear().toString());
             } catch (error) {
-                console.error("Failed to load initial data", error);
+                console.error("Failed to load employees", error);
             } finally {
                 setIsLoading(false);
             }
@@ -64,7 +66,7 @@ const MonthlyWorkLogReport: React.FC = () => {
             const year = parseInt(selectedYear, 10);
 
             const allEmployeeReports: EmployeeReportData[] = [];
-            const targetEmployees = (auth?.role?.role_id === 'admin') 
+            const targetEmployees = (auth?.role?.role_id === 'admin' || auth?.role?.role_id === 'administracion') 
                 ? employees 
                 : employees.filter(e => e.employee_id === auth?.employee?.employee_id);
 
@@ -76,20 +78,28 @@ const MonthlyWorkLogReport: React.FC = () => {
                 
                 const filteredEntries = timeEntries.filter(entry => {
                     const entryDate = new Date(entry.clock_in_time);
-                    return entryDate.getFullYear() === year && entryDate.getMonth() === month - 1 && entry.status === 'completed' && entry.clock_out_time;
+                    return entryDate.getFullYear() === year && 
+                           entryDate.getMonth() === month - 1 && 
+                           entry.status === 'completed' && 
+                           entry.clock_out_time;
                 });
+
+                if (filteredEntries.length === 0 && auth?.role?.role_id !== 'admin' && employee.employee_id === auth?.employee?.employee_id) {
+                    // Si es el usuario actual y no tiene datos, permitimos ver tabla vacía
+                } else if (filteredEntries.length === 0 && auth?.role?.role_id === 'admin') {
+                    continue; // No mostrar empleados sin actividad en la vista global de admin
+                }
 
                 const entryIds = filteredEntries.map(e => e.entry_id);
                 const allBreaks = await getBreaksForTimeEntries(entryIds);
-
-                if (filteredEntries.length === 0 && auth?.role?.role_id === 'admin') continue;
 
                 const daysOfMonth = getDaysInMonth(month, year);
                 let monthlyTotalMs = 0;
                 
                 const dailyLogs = daysOfMonth.map(dateObj => {
                     const day = dateObj.getDate();
-                    const entriesForDay = filteredEntries.filter(e => new Date(e.clock_in_time).getDate() === day);
+                    const entriesForDay = filteredEntries.filter(e => new Date(e.clock_in_time).getDate() === day)
+                        .sort((a, b) => new Date(a.clock_in_time).getTime() - new Date(b.clock_in_time).getTime());
                     
                     let dailyTotalMs = 0;
                     const formattedEntries = entriesForDay.map(e => {
@@ -110,7 +120,8 @@ const MonthlyWorkLogReport: React.FC = () => {
                             clockIn: formatTime(new Date(e.clock_in_time)),
                             clockOut: formatTime(new Date(e.clock_out_time!)),
                             duration: effectiveDuration,
-                            isManual: !!e.is_manual // CRITICAL: ensure is_manual is passed
+                            isManual: e.is_manual === true, // Captura explícita del flag
+                            type: e.work_type || 'ordinaria'
                         };
                     });
 
@@ -162,29 +173,28 @@ const MonthlyWorkLogReport: React.FC = () => {
         const rows: any[] = [];
         reportData.forEach(rep => {
             rep.dailyLogs.forEach(dayLog => {
-                if (dayLog.entries.length > 0) {
-                    dayLog.entries.forEach(entry => {
-                        rows.push({
-                            "Empleado": `${rep.employee.first_name} ${rep.employee.last_name}`,
-                            "Fecha": dayLog.date,
-                            "Entrada": entry.clockIn,
-                            "Salida": entry.clockOut,
-                            "Horas Efectivas": (entry.duration / (1000 * 60 * 60)).toFixed(2),
-                            "Incidencia": entry.isManual ? "Manual / Corregido" : ""
-                        });
+                dayLog.entries.forEach(entry => {
+                    rows.push({
+                        "Empleado": `${rep.employee.first_name} ${rep.employee.last_name}`,
+                        "Fecha": dayLog.date,
+                        "Entrada": entry.clockIn,
+                        "Salida": entry.clockOut,
+                        "Horas": (entry.duration / (1000 * 60 * 60)).toFixed(2),
+                        "Validación": entry.isManual ? "MANUAL" : "DIGITAL",
+                        "Tipo": entry.type.toUpperCase()
                     });
-                }
+                });
             });
         });
         const ws = XLSX.utils.json_to_sheet(rows);
         const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Registro Horario");
+        XLSX.utils.book_append_sheet(wb, ws, "Registro Oficial");
         XLSX.writeFile(wb, `Registro_Horario_${selectedMonth}_${selectedYear}.xlsx`);
     };
     
     if (isLoading) return <Spinner />;
     
-    const years = [2025, 2024, 2023];
+    const years = [2025, 2024];
     const months = Array.from({length: 12}, (_, i) => ({
         value: (i + 1).toString(),
         name: new Date(0, i).toLocaleString('es-ES', { month: 'long' })
@@ -196,26 +206,26 @@ const MonthlyWorkLogReport: React.FC = () => {
     return (
         <Card title="Generar Registro Mensual de Jornada">
             <div className="p-4 bg-gray-50 border rounded-md mb-6 flex items-end space-x-4 flex-wrap no-print">
-                <div className="flex-grow">
+                <div className="flex-grow min-w-[150px]">
                     <label className="block text-sm font-medium text-gray-700">Mes</label>
                     <select value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm capitalize">
                         {months.map(m => <option key={m.value} value={m.value}>{m.name}</option>)}
                     </select>
                 </div>
-                 <div className="flex-grow">
+                 <div className="flex-grow min-w-[100px]">
                     <label className="block text-sm font-medium text-gray-700">Año</label>
                     <select value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
                         {years.map(y => <option key={y} value={y.toString()}>{y}</option>)}
                     </select>
                 </div>
-                <Button onClick={handleGenerateReport} isLoading={isGenerating}>Actualizar Informe</Button>
+                <Button onClick={handleGenerateReport} isLoading={isGenerating}>Generar Informe</Button>
             </div>
             
             {needsSignature && !isGenerating && (
-                <div className="mb-6 p-4 bg-orange-50 border-l-4 border-orange-500 flex justify-between items-center no-print">
+                <div className="mb-6 p-4 bg-orange-50 border-l-4 border-orange-500 flex justify-between items-center no-print animate-pulse">
                     <div>
                         <h3 className="text-lg font-bold text-orange-800">Firma Pendiente</h3>
-                        <p className="text-sm text-orange-700">Debes firmar tu registro mensual para cerrar el periodo.</p>
+                        <p className="text-sm text-orange-700">Debes firmar este registro para que sea legalmente válido.</p>
                     </div>
                     <Button onClick={() => setIsSigningModalOpen(true)} variant="primary">Firmar Ahora</Button>
                 </div>
@@ -224,18 +234,14 @@ const MonthlyWorkLogReport: React.FC = () => {
             {isGenerating && <div className="text-center py-10"><Spinner/></div>}
 
             {reportData && reportData.length > 0 && (
-                <div className="space-y-4 animate-in fade-in duration-500">
+                <div className="space-y-4">
                     <div className="flex justify-end no-print">
-                        <Button variant="success" onClick={handleExportExcel} className="mr-2">
-                            📥 Descargar Excel
+                        <Button variant="success" onClick={handleExportExcel} size="sm">
+                            📥 Exportar Excel
                         </Button>
                     </div>
                     <PrintableMonthlyLog data={reportData} month={parseInt(selectedMonth)} year={parseInt(selectedYear)} />
                 </div>
-            )}
-            
-            {reportData && reportData.length === 0 && !isGenerating && (
-                <p className="text-center p-8 text-gray-500 italic">No hay datos de jornada para el periodo seleccionado.</p>
             )}
 
             {isSigningModalOpen && (

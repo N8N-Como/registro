@@ -6,137 +6,102 @@ import { CompanyDocument, Employee, DocumentSignature } from '../../types';
 import Card from '../shared/Card';
 import Button from '../shared/Button';
 import Spinner from '../shared/Spinner';
-import { DocumentIcon, PaperClipIcon, CheckIcon, XMarkIcon } from '../icons';
+import { DocumentIcon, PaperClipIcon, CheckIcon, SparklesIcon } from '../icons';
 import DocumentUploadModal from './DocumentUploadModal';
 import SignDocumentModal from './SignDocumentModal';
+import PayrollSplitterModal from './PayrollSplitterModal';
 import AIAssistant, { InputMode } from '../shared/AIAssistant';
-import { AIResponse } from '../../services/geminiService';
+import { AIResponse, PayrollMapping } from '../../services/geminiService';
 
 const DocumentsView: React.FC = () => {
     const auth = useContext(AuthContext);
     const [isLoading, setIsLoading] = useState(true);
     const [isAdminMode, setIsAdminMode] = useState(false);
     
-    // Data
     const [adminDocuments, setAdminDocuments] = useState<CompanyDocument[]>([]);
     const [myDocuments, setMyDocuments] = useState<(DocumentSignature & { document: CompanyDocument })[]>([]);
     const [employees, setEmployees] = useState<Employee[]>([]);
     const [signaturesMap, setSignaturesMap] = useState<Record<string, DocumentSignature[]>>({});
 
-    // UI
     const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+    const [isPayrollModalOpen, setIsPayrollModalOpen] = useState(false);
     const [isSignModalOpen, setIsSignModalOpen] = useState(false);
     const [selectedDocToSign, setSelectedDocToSign] = useState<{ doc: CompanyDocument, sig: DocumentSignature } | null>(null);
 
-    // Initial Load
-    useEffect(() => {
-        const init = async () => {
-            if (!auth?.employee) return;
-            
-            const hasAdminPerms = auth.role?.permissions.includes('manage_employees') || auth.role?.role_id === 'admin';
-            setIsAdminMode(hasAdminPerms);
-
-            try {
-                if (hasAdminPerms) {
-                    const [docs, emps] = await Promise.all([getDocuments(), getEmployees()]);
-                    setAdminDocuments(docs);
-                    setEmployees(emps);
-                    
-                    const sigs: Record<string, DocumentSignature[]> = {};
-                    for (const doc of docs) {
-                        sigs[doc.document_id] = await getDocumentSignatures(doc.document_id);
-                    }
-                    setSignaturesMap(sigs);
-
-                } else {
-                    const myDocs = await getEmployeeDocuments(auth.employee.employee_id);
-                    setMyDocuments(myDocs.sort((a,b) => new Date(b.document.created_at).getTime() - new Date(a.document.created_at).getTime()));
+    const init = async () => {
+        if (!auth?.employee) return;
+        const hasAdminPerms = auth.role?.permissions.includes('manage_employees') || auth.role?.role_id === 'admin';
+        setIsAdminMode(hasAdminPerms);
+        try {
+            if (hasAdminPerms) {
+                const [docs, emps] = await Promise.all([getDocuments(), getEmployees()]);
+                setAdminDocuments(docs);
+                setEmployees(emps);
+                const sigs: Record<string, DocumentSignature[]> = {};
+                for (const doc of docs) {
+                    sigs[doc.document_id] = await getDocumentSignatures(doc.document_id);
                 }
-            } catch (e) {
-                console.error("Error loading documents", e);
-            } finally {
-                setIsLoading(false);
+                setSignaturesMap(sigs);
+            } else {
+                const myDocs = await getEmployeeDocuments(auth.employee.employee_id);
+                setMyDocuments(myDocs.sort((a,b) => new Date(b.document.created_at).getTime() - new Date(a.document.created_at).getTime()));
             }
-        };
-        init();
-    }, [auth?.employee]);
+        } catch (e) { console.error(e); } finally { setIsLoading(false); }
+    };
+
+    useEffect(() => { init(); }, [auth?.employee]);
 
     const handleCreateDocument = async (data: any) => {
         if (!auth?.employee) return;
         try {
-            await createDocument({
-                ...data,
-                created_by: auth.employee.employee_id
-            }, data.target_employee_ids);
-            
-            const docs = await getDocuments();
-            setAdminDocuments(docs);
-            const newSigs = await getDocumentSignatures(docs[0].document_id);
-            setSignaturesMap(prev => ({...prev, [docs[0].document_id]: newSigs}));
-
-        } catch (e) {
-            console.error(e);
-            alert("Error al crear documento");
-        }
+            await createDocument({ ...data, created_by: auth.employee.employee_id }, data.target_employee_ids);
+            init();
+        } catch (e) { alert("Error al crear documento"); }
     };
 
-    const handleAIAction = async (response: AIResponse) => {
-        if (response.action === 'createDocument' && response.data && auth?.employee) {
-            try {
-                // Default target: all employees
-                const allIds = employees.map(e => e.employee_id);
-                await createDocument({
-                    title: response.data.title,
-                    description: response.data.description || '',
-                    type: response.data.type || 'link',
-                    content_url: response.data.url || '#',
-                    requires_signature: response.data.requires_signature || false,
-                    created_by: auth.employee.employee_id
-                }, allIds);
-                
-                // Refresh
-                const docs = await getDocuments();
-                setAdminDocuments(docs);
-            } catch (e) { console.error(e); }
+    const handlePayrollConfirm = async (mappings: PayrollMapping[], fileData: string) => {
+        if (!auth?.employee) return;
+        const monthYear = new Date().toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+        
+        for (const mapping of mappings) {
+            // Nota: En una implementación real, aquí se extraería solo la página del PDF.
+            // Para este prototipo, guardamos el documento referenciando al empleado identificado.
+            await createDocument({
+                title: `Nómina ${monthYear}`,
+                description: `Documento confidencial para ${mapping.employee_name}. Página ${mapping.page_number} del archivo mensual.`,
+                type: 'file',
+                content_url: fileData,
+                requires_signature: true,
+                created_by: auth.employee.employee_id
+            }, [mapping.employee_id]);
         }
+        init();
     };
 
     const handleSignDocument = async (sigId: string, url?: string) => {
-        if (url) {
-            await signDocument(sigId, url);
-        } else {
-            await markDocumentAsViewed(sigId);
-        }
+        if (url) await signDocument(sigId, url);
+        else await markDocumentAsViewed(sigId);
         if (auth?.employee) {
             const myDocs = await getEmployeeDocuments(auth.employee.employee_id);
             setMyDocuments(myDocs.sort((a,b) => new Date(b.document.created_at).getTime() - new Date(a.document.created_at).getTime()));
         }
     };
 
-    const openSignModal = (item: DocumentSignature & { document: CompanyDocument }) => {
-        setSelectedDocToSign({ doc: item.document, sig: item });
-        setIsSignModalOpen(true);
-    };
-
-    // Role Logic
-    let allowedInputs: InputMode[] = ['voice'];
-    const role = auth?.role?.role_id || '';
-    if (['admin', 'receptionist', 'gobernanta', 'revenue'].includes(role)) {
-        allowedInputs = ['text', 'voice', 'image'];
-    }
-
     if (isLoading) return <Spinner />;
 
-    // --- RENDER ADMIN VIEW ---
     if (isAdminMode) {
         return (
             <div className="space-y-6">
-                <div className="flex justify-between items-center">
-                    <h2 className="text-xl font-bold flex items-center gap-2">
-                        <DocumentIcon className="text-primary" />
-                        Gestión Documental
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <h2 className="text-xl font-bold flex items-center gap-2 text-primary">
+                        <DocumentIcon /> Gestión Documental
                     </h2>
-                    <Button onClick={() => setIsUploadModalOpen(true)}>+ Nuevo Documento</Button>
+                    <div className="flex gap-2 w-full sm:w-auto">
+                        <Button variant="secondary" onClick={() => setIsPayrollModalOpen(true)} className="flex-1">
+                            <SparklesIcon className="w-4 h-4 mr-2" /> Splitter Nóminas
+                        </Button>
+                        <Button onClick={() => setIsUploadModalOpen(true)} className="flex-1">+ Nuevo</Button>
+                    </div>
                 </div>
 
                 <div className="grid grid-cols-1 gap-6">
@@ -145,130 +110,49 @@ const DocumentsView: React.FC = () => {
                         const total = sigs.length;
                         const signed = sigs.filter(s => s.status !== 'pending').length;
                         const percentage = total > 0 ? Math.round((signed / total) * 100) : 0;
-
                         return (
-                            <Card key={doc.document_id} className="overflow-hidden">
-                                <div className="flex flex-col md:flex-row justify-between p-4 bg-gray-50 border-b">
+                            <Card key={doc.document_id} className="overflow-hidden p-0">
+                                <div className="p-4 flex flex-col md:flex-row justify-between border-b bg-gray-50">
                                     <div>
-                                        <h3 className="font-bold text-lg text-gray-800">{doc.title}</h3>
-                                        <p className="text-sm text-gray-500">{doc.description}</p>
-                                        <div className="flex items-center gap-2 mt-1 text-xs text-gray-400">
-                                            <span className="uppercase bg-white border px-1 rounded">{doc.type}</span>
-                                            <span>{new Date(doc.created_at).toLocaleDateString()}</span>
-                                            {doc.requires_signature && <span className="text-red-500 font-semibold">• Requiere Firma</span>}
+                                        <h3 className="font-bold text-gray-800">{doc.title}</h3>
+                                        <p className="text-xs text-gray-500">{doc.description}</p>
+                                    </div>
+                                    <div className="mt-2 md:mt-0 flex items-center gap-4">
+                                        <div className="text-right">
+                                            <p className="text-xs font-bold text-gray-400 uppercase">Firmas</p>
+                                            <p className="text-sm font-black text-primary">{signed} / {total}</p>
+                                        </div>
+                                        <div className="w-24 bg-gray-200 rounded-full h-2">
+                                            <div className="bg-primary h-2 rounded-full" style={{width: `${percentage}%`}}></div>
                                         </div>
                                     </div>
-                                    <div className="mt-4 md:mt-0 flex flex-col items-end justify-center min-w-[200px]">
-                                        <div className="text-sm font-semibold mb-1 text-gray-600">Estado de Firmas</div>
-                                        <div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-300">
-                                            <div className="bg-blue-600 h-2.5 rounded-full" style={{width: `${percentage}%`}}></div>
-                                        </div>
-                                        <div className="text-xs text-right mt-1">{signed} de {total} ({percentage}%)</div>
-                                    </div>
-                                </div>
-                                <div className="p-4 max-h-40 overflow-y-auto bg-white">
-                                    <table className="w-full text-sm text-left">
-                                        <thead>
-                                            <tr className="text-xs text-gray-500 border-b">
-                                                <th className="pb-2">Empleado</th>
-                                                <th className="pb-2 text-right">Estado</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {sigs.map(sig => {
-                                                const emp = employees.find(e => e.employee_id === sig.employee_id);
-                                                return (
-                                                    <tr key={sig.id} className="border-b last:border-0 hover:bg-gray-50">
-                                                        <td className="py-2">{emp?.first_name} {emp?.last_name}</td>
-                                                        <td className="py-2 text-right">
-                                                            {sig.status === 'pending' ? (
-                                                                <span className="text-red-500 font-semibold text-xs">Pendiente</span>
-                                                            ) : (
-                                                                <span className="text-green-600 font-semibold text-xs flex justify-end items-center gap-1">
-                                                                    <CheckIcon className="w-3 h-3" /> 
-                                                                    {sig.status === 'signed' ? 'Firmado' : 'Leído'}
-                                                                </span>
-                                                            )}
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })}
-                                        </tbody>
-                                    </table>
                                 </div>
                             </Card>
                         );
                     })}
                 </div>
 
-                {isUploadModalOpen && (
-                    <DocumentUploadModal 
-                        isOpen={isUploadModalOpen} 
-                        onClose={() => setIsUploadModalOpen(false)} 
-                        onSave={handleCreateDocument}
-                        employees={employees}
-                    />
-                )}
-
-                <AIAssistant 
-                    context={{ employees, locations: [], currentUser: auth?.employee || undefined }} 
-                    onAction={handleAIAction}
-                    allowedInputs={allowedInputs}
-                />
+                {isUploadModalOpen && <DocumentUploadModal isOpen={isUploadModalOpen} onClose={() => setIsUploadModalOpen(false)} onSave={handleCreateDocument} employees={employees} />}
+                {isPayrollModalOpen && <PayrollSplitterModal isOpen={isPayrollModalOpen} onClose={() => setIsPayrollModalOpen(false)} employees={employees} onConfirm={handlePayrollConfirm} />}
             </div>
         );
     }
 
-    // --- RENDER EMPLOYEE VIEW ---
     return (
         <div className="space-y-6">
-            <h2 className="text-xl font-bold flex items-center gap-2">
-                <PaperClipIcon className="text-primary" />
-                Mis Documentos y Comunicados
-            </h2>
-
+            <h2 className="text-xl font-bold flex items-center gap-2"><PaperClipIcon /> Mis Documentos</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {myDocuments.length === 0 ? (
-                    <div className="col-span-full text-center py-10 text-gray-500 bg-white rounded-lg shadow">
-                        No tienes documentos pendientes ni historial.
-                    </div>
-                ) : (
-                    myDocuments.map(item => {
-                        const isPending = item.status === 'pending';
-                        return (
-                            <div key={item.id} className={`border rounded-lg p-4 bg-white shadow-sm flex flex-col relative ${isPending ? 'border-l-4 border-l-orange-500' : 'border-l-4 border-l-green-500'}`}>
-                                {isPending && <span className="absolute top-2 right-2 bg-orange-100 text-orange-800 text-xs font-bold px-2 py-1 rounded">Pendiente</span>}
-                                {!isPending && <span className="absolute top-2 right-2 bg-green-100 text-green-800 text-xs font-bold px-2 py-1 rounded">Completado</span>}
-                                
-                                <h3 className="font-bold text-gray-800 mt-2 mb-1">{item.document.title}</h3>
-                                <p className="text-sm text-gray-500 flex-grow mb-4">{item.document.description}</p>
-                                
-                                <div className="text-xs text-gray-400 mb-4">
-                                    Recibido: {new Date(item.document.created_at).toLocaleDateString()}
-                                </div>
-
-                                <Button 
-                                    onClick={() => openSignModal(item)} 
-                                    variant={isPending ? 'primary' : 'secondary'}
-                                    className="w-full"
-                                >
-                                    {isPending ? (item.document.requires_signature ? 'Leer y Firmar' : 'Leer y Confirmar') : 'Ver Detalles'}
-                                </Button>
-                            </div>
-                        );
-                    })
-                )}
+                {myDocuments.map(item => (
+                    <Card key={item.id} className={`border-l-4 ${item.status === 'pending' ? 'border-orange-500' : 'border-green-500'}`}>
+                        <h3 className="font-bold mb-2">{item.document.title}</h3>
+                        <p className="text-sm text-gray-500 mb-4 h-12 overflow-hidden">{item.document.description}</p>
+                        <Button onClick={() => { setSelectedDocToSign({ doc: item.document, sig: item }); setIsSignModalOpen(true); }} variant={item.status === 'pending' ? 'primary' : 'secondary'} className="w-full">
+                            {item.status === 'pending' ? 'Ver y Firmar' : 'Revisar'}
+                        </Button>
+                    </Card>
+                ))}
             </div>
-
-            {isSignModalOpen && selectedDocToSign && (
-                <SignDocumentModal 
-                    isOpen={isSignModalOpen}
-                    onClose={() => setIsSignModalOpen(false)}
-                    document={selectedDocToSign.doc}
-                    signatureEntry={selectedDocToSign.sig}
-                    onSign={handleSignDocument}
-                />
-            )}
+            {isSignModalOpen && selectedDocToSign && <SignDocumentModal isOpen={isSignModalOpen} onClose={() => setIsSignModalOpen(false)} document={selectedDocToSign.doc} signatureEntry={selectedDocToSign.sig} onSign={handleSignDocument} />}
         </div>
     );
 };

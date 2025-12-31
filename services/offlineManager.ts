@@ -73,6 +73,7 @@ export const processQueue = async (): Promise<boolean> => {
         try {
             switch (action.type) {
                 case 'CLOCK_IN':
+                    // Fixed argument count: clockIn expects 7 arguments
                     await clockIn(
                         action.payload.employeeId,
                         action.payload.locationId,
@@ -80,25 +81,26 @@ export const processQueue = async (): Promise<boolean> => {
                         action.payload.longitude,
                         action.payload.workType,
                         action.payload.workMode,
-                        action.payload.photoUrl,
-                        true // isSyncing flag to bypass queue
+                        action.payload.photoUrl
                     );
                     break;
                 case 'CLOCK_OUT':
-                    await clockOut(action.payload.entryId, action.payload.locationId, true);
+                    // Fixed argument count: clockOut expects 4 arguments
+                    await clockOut(action.payload.entryId, action.payload.locationId, false, undefined);
                     break;
                 case 'CHECK_IN_LOCATION':
+                    // Fixed argument count: checkInToLocation expects 5 arguments
                     await checkInToLocation(
                         action.payload.timeEntryId,
                         action.payload.employeeId,
                         action.payload.locationId,
                         action.payload.latitude,
-                        action.payload.longitude,
-                        true
+                        action.payload.longitude
                     );
                     break;
                 case 'CHECK_OUT_LOCATION':
-                    await checkOutOfLocation(action.payload.activityId, true);
+                    // Fixed argument count: checkOutOfLocation expects 1 argument
+                    await checkOutOfLocation(action.payload.activityId);
                     break;
                 // Add handlers for tasks later if needed
             }
