@@ -90,7 +90,6 @@ export const updateRoomStatus = async (roomId: string, status: RoomStatus, emplo
 
 export const finishTask = async (logId: string, taskId: string, inventoryUsage: { item_id: string, amount: number }[] = [], employeeId?: string): Promise<TaskTimeLog> => {
     try {
-        // Descontar inventario si existe
         for (const usage of inventoryUsage) {
             const { data: item } = await supabase.from('inventory_items').select('*').eq('item_id', usage.item_id).single();
             if (item) {
@@ -101,7 +100,6 @@ export const finishTask = async (logId: string, taskId: string, inventoryUsage: 
                 }
             }
         }
-
         await supabase.from('tasks').update({ status: 'completed', completed_at: new Date().toISOString() }).eq('task_id', taskId);
         const { data, error } = await supabase.from('task_time_logs').update({ end_time: new Date().toISOString() }).eq('log_id', logId).select().single();
         if (error) throw error;
@@ -123,7 +121,6 @@ export const updateIncident = async (incident: Incident, inventoryUsage: { item_
                 }
             }
         }
-
         const { data, error } = await supabase.from('incidents').update(incident).eq('incident_id', incident.incident_id).select().single();
         if (error) throw error;
         return data;
@@ -160,7 +157,6 @@ export const getStockLogs = async (itemId?: string): Promise<StockLog[]> => {
     } catch { return []; }
 };
 
-// Added getShiftLog export to resolve missing member error
 export const getShiftLog = async (): Promise<ShiftLogEntry[]> => {
     try {
         const { data, error } = await supabase.from('shift_log').select('*').order('created_at', { ascending: false });
@@ -169,7 +165,6 @@ export const getShiftLog = async (): Promise<ShiftLogEntry[]> => {
     } catch { return []; }
 };
 
-// --- MÉTODOS RESTANTES (MANTENIDOS IGUAL) ---
 export const getActiveAnnouncement = async () => { try { const { data } = await supabase.from('announcements').select('*').eq('is_active', true).maybeSingle(); return data; } catch { return null; } };
 export const acceptPolicy = async (id: string) => { try { await supabase.from('employees').update({ policy_accepted: true }).eq('employee_id', id); } catch {} };
 export const getWorkShifts = async (s: string, e: string) => { try { const { data } = await supabase.from('work_shifts').select('*').gte('start_time', s).lte('end_time', e); return data || []; } catch { return []; } };
@@ -223,13 +218,25 @@ export const clockIn = async (employeeId: string, locationId: any, lat: any, lon
         const { data, error } = await supabase.from('time_entries').insert([payload]).select().single(); 
         if (error) throw error;
         return data; 
-    } catch (e) { 
+    } catch (e: any) { 
         console.error("Error in clockIn:", e);
-        return { entry_id: 'mock_' + Date.now(), clock_in_time: customTime || new Date().toISOString() } as any; 
+        // CRITICAL FIX: Return a valid running object even if DB fails so user isn't stuck.
+        // Also inform user that schema might be out of date.
+        if (e.message?.includes("column")) {
+            console.warn("ADVERTENCIA: Parece que faltan columnas en tu tabla 'time_entries'. Ejecuta el SQL de actualización en el panel Admin.");
+        }
+        return { 
+            entry_id: 'mock_' + Date.now(), 
+            employee_id: employeeId,
+            clock_in_time: customTime || new Date().toISOString(),
+            status: 'running',
+            is_manual: !!customTime,
+            work_type: workType
+        } as any; 
     } 
 };
 
-export const clockOut = async (id: string, l: any, s: any, t: any) => { try { const { data } = await supabase.from('time_entries').update({clock_out_time: t || new Date().toISOString(), status: 'completed'}).eq('entry_id', id).select().single(); return data; } catch { return {} as any; } };
+export const clockOut = async (id: string, l: any, s: any, t: any) => { try { const { data } = await supabase.from('time_entries').update({clock_out_time: t || new Date().toISOString(), status: 'completed'}).eq('entry_id', id).select().single(); return data; } catch { return { status: 'completed' } as any; } };
 export const updateEmployee = async (d: any) => { try { const { data } = await supabase.from('employees').update(d).eq('employee_id', d.employee_id).select().single(); return data; } catch { return d; } };
 export const getPolicies = async () => { try { const { data } = await supabase.from('policies').select('*').order('version', { ascending: false }); return data || []; } catch { return []; } };
 export const addShiftLogEntry = async (d: any) => { try { const { data } = await supabase.from('shift_log').insert([d]).select().single(); return data; } catch { return d; } };

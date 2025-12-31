@@ -68,12 +68,11 @@ export const processQueue = async (): Promise<boolean> => {
     console.log(`[OfflineManager] Processing ${queue.length} items...`);
     let allSuccess = true;
 
-    // Process sequentially to maintain order (important for clock in -> clock out)
     for (const action of queue) {
         try {
             switch (action.type) {
                 case 'CLOCK_IN':
-                    // Fixed argument count: clockIn expects 7 arguments
+                    // Update: Match new 8-argument signature
                     await clockIn(
                         action.payload.employeeId,
                         action.payload.locationId,
@@ -81,15 +80,14 @@ export const processQueue = async (): Promise<boolean> => {
                         action.payload.longitude,
                         action.payload.workType,
                         action.payload.workMode,
-                        action.payload.photoUrl
+                        action.payload.deviceData, // Argument 7: Device data
+                        action.payload.customTime  // Argument 8: Custom time
                     );
                     break;
                 case 'CLOCK_OUT':
-                    // Fixed argument count: clockOut expects 4 arguments
-                    await clockOut(action.payload.entryId, action.payload.locationId, false, undefined);
+                    await clockOut(action.payload.entryId, action.payload.locationId, action.payload.isManual, action.payload.customTime);
                     break;
                 case 'CHECK_IN_LOCATION':
-                    // Fixed argument count: checkInToLocation expects 5 arguments
                     await checkInToLocation(
                         action.payload.timeEntryId,
                         action.payload.employeeId,
@@ -99,16 +97,13 @@ export const processQueue = async (): Promise<boolean> => {
                     );
                     break;
                 case 'CHECK_OUT_LOCATION':
-                    // Fixed argument count: checkOutOfLocation expects 1 argument
                     await checkOutOfLocation(action.payload.activityId);
                     break;
-                // Add handlers for tasks later if needed
             }
             removeFromQueue(action.id);
         } catch (error) {
             console.error(`[OfflineManager] Failed to process action ${action.type}`, error);
             allSuccess = false;
-            // If it's a logic error (e.g. 400), maybe remove it? For now keep retrying.
         }
     }
     
