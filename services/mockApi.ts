@@ -8,6 +8,18 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+// --- LOCAL STORAGE KEYS ---
+const LOCAL_SHIFTS_KEY = 'local_work_shifts';
+const LOCAL_ROOMS_KEY = 'local_rooms_status';
+const LOCAL_TIME_ENTRIES_KEY = 'local_time_entries';
+
+const getLocalData = <T>(key: string): T[] => {
+    try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; }
+};
+const saveLocalData = <T>(key: string, data: T[]) => {
+    localStorage.setItem(key, JSON.stringify(data));
+};
+
 // --- FALLBACK DATA ---
 const FALLBACK_ROLES: Role[] = [
     { role_id: 'admin', name: 'Administrador', permissions: ['manage_employees', 'manage_locations', 'manage_announcements', 'view_reports', 'manage_incidents', 'access_shift_log', 'schedule_tasks', 'audit_records', 'manage_documents', 'manage_inventory'] },
@@ -25,16 +37,6 @@ const FALLBACK_EMPLOYEES: Employee[] = [
     { employee_id: 'anxo', first_name: 'Anxo', last_name: 'Bernárdez', pin: '8724', role_id: 'admin', status: 'active', policy_accepted: true, photo_url: '' },
     { employee_id: 'emp_admin', first_name: 'Admin', last_name: 'Sistema', pin: '1234', role_id: 'admin', status: 'active', policy_accepted: true, photo_url: 'https://ui-avatars.com/api/?name=Admin+Sistema&background=0D8ABC&color=fff' },
 ];
-
-const LOCAL_SHIFTS_KEY = 'local_work_shifts';
-const LOCAL_ROOMS_KEY = 'local_rooms_status';
-
-const getLocalData = <T>(key: string): T[] => {
-    try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; }
-};
-const saveLocalData = <T>(key: string, data: T[]) => {
-    localStorage.setItem(key, JSON.stringify(data));
-};
 
 export const getRoles = async (): Promise<Role[]> => {
     try {
@@ -69,6 +71,95 @@ export const getRooms = async (): Promise<Room[]> => {
     } catch { return local; }
 };
 
+export const getTimeEntriesForEmployee = async (id: string) => { 
+    try { 
+        // 1. Intentar obtener de Supabase
+        const { data, error } = await supabase.from('time_entries').select('*').eq('employee_id', id).order('clock_in_time', { ascending: false }); 
+        const remoteEntries = (data || []) as TimeEntry[];
+
+        // 2. Obtener de LocalStorage (Fichajes que fallaron al subir o en modo offline)
+        const localEntries = getLocalData<TimeEntry>(LOCAL_TIME_ENTRIES_KEY).filter(e => e.employee_id === id);
+
+        // 3. Fusionar evitando duplicados por ID
+        const combined = [...localEntries];
+        remoteEntries.forEach(re => {
+            if (!combined.some(le => le.entry_id === re.entry_id)) {
+                combined.push(re);
+            }
+        });
+
+        // 4. Ordenar por fecha descendente
+        return combined.sort((a,b) => new Date(b.clock_in_time).getTime() - new Date(a.clock_in_time).getTime());
+    } catch (e) { 
+        return getLocalData<TimeEntry>(LOCAL_TIME_ENTRIES_KEY).filter(e => e.employee_id === id); 
+    } 
+};
+
+export const clockIn = async (employeeId: string, locationId: any, lat: any, lon: any, workType: any, workMode: any, deviceData: any, customTime?: string) => { 
+    const isManual = !!customTime;
+    const entryTime = customTime || new Date().toISOString();
+    
+    const payload: TimeEntry = {
+        entry_id: 'entry_' + Date.now() + Math.random().toString(36).substr(2, 5),
+        employee_id: employeeId, 
+        clock_in_time: entryTime, 
+        clock_in_latitude: lat || null, 
+        clock_in_longitude: lon || null, 
+        work_type: workType, 
+        work_mode: workMode, 
+        device_id: deviceData?.deviceId || null, 
+        device_info: deviceData?.deviceInfo || null, 
+        is_manual: isManual,
+        status: 'running'
+    };
+
+    try { 
+        const { data, error } = await supabase.from('time_entries').insert([payload]).select().single(); 
+        if (error) throw error;
+        return data; 
+    } catch (e: any) { 
+        console.warn("Fichaje guardado LOCALMENTE debido a error en base de datos:", e.message);
+        
+        // Guardar en local storage para que persista entre refrescos de página
+        const local = getLocalData<TimeEntry>(LOCAL_TIME_ENTRIES_KEY);
+        local.push(payload);
+        saveLocalData(LOCAL_TIME_ENTRIES_KEY, local);
+
+        // Si es un error de esquema, avisar al admin por consola
+        if (e.message?.includes("column")) {
+            console.error("IMPORTANTE: Faltan columnas en 'time_entries'. Ejecuta el SQL de actualización en el panel Admin.");
+        }
+        
+        return payload;
+    } 
+};
+
+export const clockOut = async (id: string, l: any, isManual: boolean, t: any) => { 
+    const clockOutTime = t || new Date().toISOString();
+    
+    try { 
+        const { data, error } = await supabase.from('time_entries').update({clock_out_time: clockOutTime, status: 'completed'}).eq('entry_id', id).select().single(); 
+        if (error) throw error;
+        
+        // Si estaba en local, lo quitamos porque ya se ha guardado en remoto con éxito (aunque este caso es raro)
+        const local = getLocalData<TimeEntry>(LOCAL_TIME_ENTRIES_KEY);
+        saveLocalData(LOCAL_TIME_ENTRIES_KEY, local.filter(e => e.entry_id !== id));
+        
+        return data; 
+    } catch (e) { 
+        // Si falla el remoto, actualizamos el local
+        const local = getLocalData<TimeEntry>(LOCAL_TIME_ENTRIES_KEY);
+        const idx = local.findIndex(e => e.entry_id === id);
+        if (idx !== -1) {
+            local[idx].clock_out_time = clockOutTime;
+            local[idx].status = 'completed';
+            saveLocalData(LOCAL_TIME_ENTRIES_KEY, local);
+        }
+        return { status: 'completed' } as any; 
+    } 
+};
+
+// --- MÉTODOS RESTANTES (MANTENIDOS) ---
 export const updateRoomStatus = async (roomId: string, status: RoomStatus, employeeId?: string): Promise<Room> => {
     const rooms = await getRooms();
     const idx = rooms.findIndex(r => r.room_id === roomId);
@@ -80,9 +171,7 @@ export const updateRoomStatus = async (roomId: string, status: RoomStatus, emplo
             rooms[idx].is_priority = false;
         }
         saveLocalData(LOCAL_ROOMS_KEY, rooms);
-        try {
-            await supabase.from('rooms').update({ status, last_cleaned_at: rooms[idx].last_cleaned_at, last_cleaned_by: employeeId }).eq('room_id', roomId);
-        } catch (e) {}
+        try { await supabase.from('rooms').update({ status, last_cleaned_at: rooms[idx].last_cleaned_at, last_cleaned_by: employeeId }).eq('room_id', roomId); } catch (e) {}
         return rooms[idx];
     }
     throw new Error("Habitación no encontrada");
@@ -95,9 +184,7 @@ export const finishTask = async (logId: string, taskId: string, inventoryUsage: 
             if (item) {
                 const newQty = Math.max(0, item.quantity - usage.amount);
                 await supabase.from('inventory_items').update({ quantity: newQty, last_updated: new Date().toISOString() }).eq('item_id', usage.item_id);
-                if (employeeId) {
-                    await logStockMovement(usage.item_id, -usage.amount, `Consumo en tarea: ${taskId}`, employeeId);
-                }
+                if (employeeId) await logStockMovement(usage.item_id, -usage.amount, `Consumo en tarea: ${taskId}`, employeeId);
             }
         }
         await supabase.from('tasks').update({ status: 'completed', completed_at: new Date().toISOString() }).eq('task_id', taskId);
@@ -115,9 +202,7 @@ export const updateIncident = async (incident: Incident, inventoryUsage: { item_
                 if (item) {
                     const newQty = Math.max(0, item.quantity - usage.amount);
                     await supabase.from('inventory_items').update({ quantity: newQty, last_updated: new Date().toISOString() }).eq('item_id', usage.item_id);
-                    if (employeeId) {
-                        await logStockMovement(usage.item_id, -usage.amount, `Repuesto en incidencia: ${incident.incident_id}`, employeeId);
-                    }
+                    if (employeeId) await logStockMovement(usage.item_id, -usage.amount, `Repuesto en incidencia: ${incident.incident_id}`, employeeId);
                 }
             }
         }
@@ -131,46 +216,15 @@ export const logStockMovement = async (itemId: string, changeAmount: number, rea
     try { await supabase.from('stock_logs').insert([{ item_id: itemId, change_amount: changeAmount, reason, employee_id: employeeId, created_at: new Date().toISOString() }]); } catch {}
 };
 
-export const getInventoryItems = async (): Promise<InventoryItem[]> => {
-    try {
-        const { data, error } = await supabase.from('inventory_items').select('*');
-        if (error || !data) return [];
-        return data;
-    } catch { return []; }
-};
-
-export const updateInventoryItem = async (data: InventoryItem): Promise<InventoryItem> => {
-    try {
-        const { data: updated, error } = await supabase.from('inventory_items').update({...data, last_updated: new Date().toISOString()}).eq('item_id', data.item_id).select().single();
-        if (error) throw error;
-        return updated;
-    } catch { return data; }
-};
-
-export const getStockLogs = async (itemId?: string): Promise<StockLog[]> => {
-    try {
-        let query = supabase.from('stock_logs').select('*').order('created_at', { ascending: false });
-        if (itemId) query = query.eq('item_id', itemId);
-        const { data, error } = await query;
-        if (error) throw error;
-        return data || [];
-    } catch { return []; }
-};
-
-export const getShiftLog = async (): Promise<ShiftLogEntry[]> => {
-    try {
-        const { data, error } = await supabase.from('shift_log').select('*').order('created_at', { ascending: false });
-        if (error) throw error;
-        return data || [];
-    } catch { return []; }
-};
-
+export const getInventoryItems = async (): Promise<InventoryItem[]> => { try { const { data } = await supabase.from('inventory_items').select('*'); return data || []; } catch { return []; } };
+export const updateInventoryItem = async (data: InventoryItem): Promise<InventoryItem> => { try { const { data: updated } = await supabase.from('inventory_items').update({...data, last_updated: new Date().toISOString()}).eq('item_id', data.item_id).select().single(); return updated || data; } catch { return data; } };
+export const getStockLogs = async (itemId?: string): Promise<StockLog[]> => { try { let q = supabase.from('stock_logs').select('*').order('created_at', { ascending: false }); if (itemId) q = q.eq('item_id', itemId); const { data } = await q; return data || []; } catch { return []; } };
+export const getShiftLog = async (): Promise<ShiftLogEntry[]> => { try { const { data } = await supabase.from('shift_log').select('*').order('created_at', { ascending: false }); return data || []; } catch { return []; } };
 export const getActiveAnnouncement = async () => { try { const { data } = await supabase.from('announcements').select('*').eq('is_active', true).maybeSingle(); return data; } catch { return null; } };
 export const acceptPolicy = async (id: string) => { try { await supabase.from('employees').update({ policy_accepted: true }).eq('employee_id', id); } catch {} };
 export const getWorkShifts = async (s: string, e: string) => { try { const { data } = await supabase.from('work_shifts').select('*').gte('start_time', s).lte('end_time', e); return data || []; } catch { return []; } };
 export const getShiftConfigs = async () => { try { const { data } = await supabase.from('shift_configs').select('*'); return data || []; } catch { return []; } };
 export const getIncidents = async () => { try { const { data } = await supabase.from('incidents').select('*'); return data || []; } catch { return []; } };
-export const getTimeEntriesForEmployee = async (id: string) => { try { const { data } = await supabase.from('time_entries').select('*').eq('employee_id', id).order('clock_in_time', { ascending: false }); return data || []; } catch { return []; } };
 export const getAllRunningTimeEntries = async () => { try { const { data } = await supabase.from('time_entries').select('*').eq('status', 'running'); return data || []; } catch { return []; } };
 export const getCurrentEstablishmentStatus = async () => { try { const { data } = await supabase.from('activity_logs').select('*').is('check_out_time', null); return data || []; } catch { return []; } };
 export const getTasks = async () => { try { const { data } = await supabase.from('tasks').select('*'); return data || []; } catch { return []; } };
@@ -196,47 +250,6 @@ export const checkOutOfLocation = async (id: string) => { try { const { data } =
 export const logAccessAttempt = async (d: any) => { try { await supabase.from('access_logs').insert([d]); } catch {} };
 export const startBreak = async (t: string, b: string) => { try { const { data } = await supabase.from('break_logs').insert([{time_entry_id: t, break_type: b, start_time: new Date().toISOString()}]).select().single(); return data; } catch { return {} as any; } };
 export const endBreak = async (id: string) => { try { const { data } = await supabase.from('break_logs').update({end_time: new Date().toISOString()}).eq('break_id', id).select().single(); return data; } catch { return {} as any; } };
-
-export const clockIn = async (employeeId: string, locationId: any, lat: any, lon: any, workType: any, workMode: any, deviceData: any, customTime?: string) => { 
-    try { 
-        const isManual = !!customTime;
-        const entryTime = customTime || new Date().toISOString();
-        
-        const payload = {
-            employee_id: employeeId, 
-            clock_in_time: entryTime, 
-            clock_in_latitude: lat || null, 
-            clock_in_longitude: lon || null, 
-            work_type: workType, 
-            work_mode: workMode, 
-            device_id: deviceData?.deviceId || null, 
-            device_info: deviceData?.deviceInfo || null, 
-            is_manual: isManual,
-            status: 'running'
-        };
-
-        const { data, error } = await supabase.from('time_entries').insert([payload]).select().single(); 
-        if (error) throw error;
-        return data; 
-    } catch (e: any) { 
-        console.error("Error in clockIn:", e);
-        // CRITICAL FIX: Return a valid running object even if DB fails so user isn't stuck.
-        // Also inform user that schema might be out of date.
-        if (e.message?.includes("column")) {
-            console.warn("ADVERTENCIA: Parece que faltan columnas en tu tabla 'time_entries'. Ejecuta el SQL de actualización en el panel Admin.");
-        }
-        return { 
-            entry_id: 'mock_' + Date.now(), 
-            employee_id: employeeId,
-            clock_in_time: customTime || new Date().toISOString(),
-            status: 'running',
-            is_manual: !!customTime,
-            work_type: workType
-        } as any; 
-    } 
-};
-
-export const clockOut = async (id: string, l: any, s: any, t: any) => { try { const { data } = await supabase.from('time_entries').update({clock_out_time: t || new Date().toISOString(), status: 'completed'}).eq('entry_id', id).select().single(); return data; } catch { return { status: 'completed' } as any; } };
 export const updateEmployee = async (d: any) => { try { const { data } = await supabase.from('employees').update(d).eq('employee_id', d.employee_id).select().single(); return data; } catch { return d; } };
 export const getPolicies = async () => { try { const { data } = await supabase.from('policies').select('*').order('version', { ascending: false }); return data || []; } catch { return []; } };
 export const addShiftLogEntry = async (d: any) => { try { const { data } = await supabase.from('shift_log').insert([d]).select().single(); return data; } catch { return d; } };

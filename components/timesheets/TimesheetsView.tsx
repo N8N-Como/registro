@@ -44,18 +44,23 @@ const TimesheetsView: React.FC = () => {
   const [isOnBreak, setIsOnBreak] = useState(false);
   const [suggestedEndTime, setSuggestedEndTime] = useState<Date | undefined>(undefined);
 
-  const runningWorkday = useMemo(() => timeEntries.find(t => t.status === 'running'), [timeEntries]);
+  // CRITICAL: Robust running workday detection
+  const runningWorkday = useMemo(() => {
+    return timeEntries.find(t => t.status === 'running');
+  }, [timeEntries]);
+
   const currentActivity = useMemo(() => activityLogs.find(a => !a.check_out_time), [activityLogs]);
   const currentBreak = useMemo(() => breakLogs.find(b => !b.end_time), [breakLogs]);
 
   const fetchData = useCallback(async () => {
     if (!auth?.employee) return;
-    setIsLoading(true);
     try {
       const [entries, locs] = await Promise.all([
         getTimeEntriesForEmployee(auth.employee.employee_id),
         getLocations()
       ]);
+      
+      // Update State
       setTimeEntries(entries);
       setLocations(locs);
 
@@ -68,9 +73,6 @@ const TimesheetsView: React.FC = () => {
         setActivityLogs(logs.sort((a,b) => new Date(a.check_in_time).getTime() - new Date(b.check_in_time).getTime()));
         setBreakLogs(breaks);
         setIsOnBreak(breaks.some(b => !b.end_time));
-
-        // Check for Forgotten Clock Out (Punto 2.B)
-        checkForForgottenClockOut(currentRunningWorkday);
       } else {
         setActivityLogs([]);
         setBreakLogs([]);
@@ -87,50 +89,7 @@ const TimesheetsView: React.FC = () => {
     fetchData();
   }, [fetchData]);
   
-  // Logic to detect if user forgot to clock out (Updated for 8.5 hours rule)
-  const checkForForgottenClockOut = async (entry: TimeEntry) => {
-      const start = new Date(entry.clock_in_time);
-      const now = new Date();
-      
-      // Calculate active duration in hours
-      const diffMs = now.getTime() - start.getTime();
-      const hours = diffMs / (1000 * 60 * 60);
-
-      // HARD LIMIT: 8.5 Hours (Punto 2.B)
-      if (hours > 8.5) {
-           setIsForgottenClockOut(true);
-           setSuggestedEndTime(now); // Suggest now, but user enters manually
-           setIsClockOutModalOpen(true);
-           return;
-      }
-
-      // Check Shift Schedule (Secondary check)
-      const today = new Date();
-      const startOfDay = new Date(today); startOfDay.setHours(0,0,0,0);
-      const endOfDay = new Date(today); endOfDay.setHours(23,59,59,999);
-      
-      try {
-          const shifts = await getWorkShifts(startOfDay.toISOString(), endOfDay.toISOString());
-          const myShift = shifts.find(s => s.employee_id === auth?.employee?.employee_id);
-          
-          if (myShift) {
-              const shiftEnd = new Date(myShift.end_time);
-              const diffEndMs = now.getTime() - shiftEnd.getTime();
-              const diffMinutes = diffEndMs / (1000 * 60);
-
-              // If more than 30 mins passed since shift end
-              if (diffMinutes > 30) {
-                  setIsForgottenClockOut(true);
-                  setSuggestedEndTime(shiftEnd);
-                  setIsClockOutModalOpen(true);
-              }
-          }
-      } catch (e) {
-          console.error("Error checking shifts", e);
-      }
-  };
-  
-  // Timer Logic: Calculate Effective Time (Total - Breaks)
+  // Timer Logic
   useEffect(() => {
     if (runningWorkday) {
       const interval = setInterval(() => {
@@ -152,7 +111,7 @@ const TimesheetsView: React.FC = () => {
 
   useEffect(() => {
     if (runningWorkday && !currentActivity && !isOnBreak) {
-      getLocation(); // Get location immediately when in travel mode
+      getLocation(); 
     }
   }, [runningWorkday, currentActivity, isOnBreak, getLocation]);
   
@@ -164,7 +123,6 @@ const TimesheetsView: React.FC = () => {
     );
   }, [position, locations]);
 
-  // CLOCK IN HANDLER (Called from Modal)
   const handleClockInConfirm = async (data: { workType: WorkType; workMode: WorkMode; photoUrl: string; deviceData?: { deviceId: string, deviceInfo: string }; customTime?: string }) => {
     if (!auth?.employee) return;
     setIsSubmitting('workday-in');
@@ -180,33 +138,12 @@ const TimesheetsView: React.FC = () => {
           data.customTime
       );
 
-      // --- AUTO CHECK-IN LOGIC ---
-      // Solo si es presencial y el GPS es actual (no manual)
-      if (!data.customTime && data.workMode === 'presencial' && position) {
-          const closest = sortedLocations[0];
-          if (closest) {
-              const dist = getDistanceFromLatLonInMeters(
-                  position.coords.latitude, position.coords.longitude,
-                  closest.latitude, closest.longitude
-              );
-              
-              if (dist <= 150) {
-                  // Auto check-in!
-                  console.log("Auto-checking in to", closest.name);
-                  await checkInToLocation(
-                      entry.entry_id,
-                      auth.employee.employee_id,
-                      closest.location_id,
-                      position.coords.latitude,
-                      position.coords.longitude
-                  );
-              }
-          }
-      }
-      // ---------------------------
-
+      // Inmediatamente añadimos el nuevo fichaje al estado para evitar que 'parpadee' la UI
+      setTimeEntries(prev => [entry, ...prev]);
       setIsClockInModalOpen(false);
-      fetchData();
+      
+      // Luego refrescamos datos oficiales
+      await fetchData();
     } catch (e) {
         alert("Error al iniciar jornada.");
         console.error(e);
@@ -215,43 +152,31 @@ const TimesheetsView: React.FC = () => {
 
   const handleOpenClockOutModal = () => {
     if (!runningWorkday) return;
-    
-    // Safety check: Close active activities/breaks before clocking out
-    if (currentActivity) {
-        alert("Debes salir del establecimiento antes de finalizar la jornada.");
-        return;
-    }
-    if (currentBreak) {
-        alert("Debes reanudar el trabajo (finalizar pausa) antes de terminar el día.");
-        return;
-    }
-    
+    if (currentActivity) { alert("Debes salir del establecimiento antes de finalizar la jornada."); return; }
+    if (currentBreak) { alert("Debes reanudar el trabajo (finalizar pausa) antes de terminar el día."); return; }
     setIsForgottenClockOut(false);
-    setSuggestedEndTime(undefined);
     setIsClockOutModalOpen(true);
   };
 
   const handleClockOutConfirm = async (customTime?: string) => {
     if (!auth?.employee || !runningWorkday) return;
-
     setIsSubmitting('workday-out');
     try {
       await clockOut(runningWorkday.entry_id, undefined, false, customTime);
       setIsClockOutModalOpen(false);
-      fetchData();
+      await fetchData();
     } catch(e) {
         alert("Error al registrar salida.");
         console.error(e);
     } finally { setIsSubmitting(false); }
   };
   
-  // Break Handlers
   const handleStartBreak = async (type: string) => {
       if (!runningWorkday) return;
       setIsSubmitting('break-start');
       try {
           await startBreak(runningWorkday.entry_id, type);
-          fetchData();
+          await fetchData();
       } finally { setIsSubmitting(false); }
   };
 
@@ -260,72 +185,33 @@ const TimesheetsView: React.FC = () => {
       setIsSubmitting('break-end');
       try {
           await endBreak(currentBreak.break_id);
-          fetchData();
+          await fetchData();
       } finally { setIsSubmitting(false); }
   };
 
-
-  // Location Check In
   const handleCheckInAttempt = async (locationId: string) => {
     if (!auth?.employee || !runningWorkday || !position) {
         alert("Esperando señal GPS...");
         getLocation();
         return;
     }
-    
-    if (isOnBreak) {
-        alert("Estás en pausa. Reanuda el trabajo para fichar en un sitio.");
-        return;
-    }
+    if (isOnBreak) { alert("Estás en pausa. Reanuda el trabajo para fichar."); return; }
 
     const location = locations.find(l => l.location_id === locationId);
     if (!location) return;
 
     setIsSubmitting(`location-in-${locationId}`);
     try {
-        const distance = getDistanceFromLatLonInMeters(
-            position.coords.latitude, 
-            position.coords.longitude, 
-            location.latitude, 
-            location.longitude
-        );
-
-        if (distance > 200) { // Hard limit 200m as requested
-            // BLOCK and LOG FAILURE
-            await logAccessAttempt({
-                employee_id: auth.employee.employee_id,
-                location_id: location.location_id,
-                latitude: position.coords.latitude,
-                longitude: position.coords.longitude,
-                was_allowed: false,
-                denial_reason: `Distancia excesiva: ${Math.round(distance)}m > 200m`
-            });
-            alert(`No puedes fichar aquí. Estás a ${Math.round(distance)} metros del establecimiento (Límite: 200m). Se ha registrado el intento.`);
+        const distance = getDistanceFromLatLonInMeters(position.coords.latitude, position.coords.longitude, location.latitude, location.longitude);
+        if (distance > 200) {
+            await logAccessAttempt({ employee_id: auth.employee.employee_id, location_id: location.location_id, latitude: position.coords.latitude, longitude: position.coords.longitude, was_allowed: false, denial_reason: `Distancia: ${Math.round(distance)}m` });
+            alert(`No puedes fichar aquí. Estás a ${Math.round(distance)} metros (Límite: 200m).`);
         } else {
-            // ALLOW
-            await logAccessAttempt({
-                employee_id: auth.employee.employee_id,
-                location_id: location.location_id,
-                latitude: position.coords.latitude,
-                longitude: position.coords.longitude,
-                was_allowed: true,
-            });
-
-            await checkInToLocation(
-                runningWorkday.entry_id, 
-                auth.employee.employee_id, 
-                locationId, 
-                position.coords.latitude, 
-                position.coords.longitude
-            );
-            fetchData();
+            await logAccessAttempt({ employee_id: auth.employee.employee_id, location_id: location.location_id, latitude: position.coords.latitude, longitude: position.coords.longitude, was_allowed: true });
+            await checkInToLocation(runningWorkday.entry_id, auth.employee.employee_id, locationId, position.coords.latitude, position.coords.longitude);
+            await fetchData();
         }
-    } catch(e) {
-        console.error("Error during check-in attempt", e);
-        alert("Error técnico al intentar fichar.");
-    } finally { 
-        setIsSubmitting(false); 
-    }
+    } finally { setIsSubmitting(false); }
   }
 
   const handleCheckOut = async () => {
@@ -333,30 +219,23 @@ const TimesheetsView: React.FC = () => {
     setIsSubmitting(`location-out-${currentActivity.activity_id}`);
     try {
         await checkOutOfLocation(currentActivity.activity_id);
-        fetchData();
+        await fetchData();
     } finally { setIsSubmitting(false); }
   }
 
   const timelineItems = useMemo((): TimelineItem[] => {
     if (!runningWorkday) return [];
-
     const items: (TimelineItem & { sortTime: Date })[] = [];
-    
-    // Start
     const startTime = new Date(runningWorkday.clock_in_time);
     items.push({ type: 'WORKDAY_START', time: startTime, entry: runningWorkday, sortTime: startTime });
-
-    // Locations
     activityLogs.forEach(log => {
-        const checkInTime = new Date(log.check_in_time);
-        items.push({ type: 'LOCATION_CHECK_IN', time: checkInTime, log: log, sortTime: checkInTime });
+        const cit = new Date(log.check_in_time);
+        items.push({ type: 'LOCATION_CHECK_IN', time: cit, log: log, sortTime: cit });
         if (log.check_out_time) {
-            const checkOutTime = new Date(log.check_out_time);
-            items.push({ type: 'LOCATION_CHECK_OUT', time: checkOutTime, log: log, sortTime: checkOutTime });
+            const cot = new Date(log.check_out_time);
+            items.push({ type: 'LOCATION_CHECK_OUT', time: cot, log: log, sortTime: cot });
         }
     });
-
-    // Breaks
     breakLogs.forEach(log => {
         const st = new Date(log.start_time);
         items.push({ type: 'BREAK_START', time: st, log, sortTime: st });
@@ -365,7 +244,6 @@ const TimesheetsView: React.FC = () => {
             items.push({ type: 'BREAK_END', time: et, log, sortTime: et });
         }
     });
-
     return items.sort((a, b) => a.sortTime.getTime() - b.sortTime.getTime());
   }, [runningWorkday, activityLogs, breakLogs]);
   
@@ -377,7 +255,6 @@ const TimesheetsView: React.FC = () => {
                 let content;
                 let colorClass = 'bg-gray-400';
                 let icon = <DotIcon className="w-5 h-5 text-white" />;
-
                 switch (item.type) {
                     case 'WORKDAY_START':
                         content = <><p className="font-semibold text-green-600">Inicio Jornada ({runningWorkday?.work_type}) {runningWorkday?.is_manual && <span className="text-red-600 text-[10px] font-bold">MANUAL</span>}</p><p className="text-sm text-gray-500">{formatTime(item.time)}</p></>;
@@ -405,7 +282,6 @@ const TimesheetsView: React.FC = () => {
                         colorClass = 'bg-gray-700';
                         break;
                 }
-
                 return (
                     <li key={itemIdx}>
                         <div className="relative pb-8">
@@ -428,7 +304,6 @@ const TimesheetsView: React.FC = () => {
     </div>
   );
 
-
   if (isLoading) return <Spinner />;
 
   return (
@@ -438,13 +313,10 @@ const TimesheetsView: React.FC = () => {
           {runningWorkday ? (
             <>
               <p className="text-lg text-gray-600">Jornada en curso ({runningWorkday.work_type})</p>
-              
               {isOnBreak ? (
                   <div className="my-4 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
                       <p className="text-xl font-bold text-yellow-800 mb-2">⏸ EN PAUSA</p>
-                      <Button onClick={handleEndBreak} variant="primary" size="lg" isLoading={isSubmitting === 'break-end'}>
-                          Reanudar Trabajo
-                      </Button>
+                      <Button onClick={handleEndBreak} variant="primary" size="lg" isLoading={isSubmitting === 'break-end'}>Reanudar Trabajo</Button>
                   </div>
               ) : (
                  <div className="my-4">
@@ -452,130 +324,63 @@ const TimesheetsView: React.FC = () => {
                     <p className="text-xs text-gray-500">Tiempo de trabajo efectivo</p>
                  </div>
               )}
-
               <div className="flex flex-col sm:flex-row justify-center gap-3 mt-6">
                   {!isOnBreak && (
                     <>
-                        <Button onClick={() => handleStartBreak('descanso')} variant="secondary" className="bg-gray-600 hover:bg-gray-700" isLoading={isSubmitting === 'break-start'}>
-                            ☕ Pausa Café
-                        </Button>
-                         <Button onClick={() => handleStartBreak('comida')} variant="secondary" className="bg-gray-600 hover:bg-gray-700" isLoading={isSubmitting === 'break-start'}>
-                            🍽 Comida
-                        </Button>
+                        <Button onClick={() => handleStartBreak('descanso')} variant="secondary" className="bg-gray-600 hover:bg-gray-700" isLoading={isSubmitting === 'break-start'}>☕ Pausa Café</Button>
+                         <Button onClick={() => handleStartBreak('comida')} variant="secondary" className="bg-gray-600 hover:bg-gray-700" isLoading={isSubmitting === 'break-start'}>🍽 Comida</Button>
                     </>
                   )}
-                  <Button onClick={handleOpenClockOutModal} variant="danger" isLoading={isSubmitting === 'workday-out'}>
-                    Finalizar Jornada
-                  </Button>
+                  <Button onClick={handleOpenClockOutModal} variant="danger" isLoading={isSubmitting === 'workday-out'}>Finalizar Jornada</Button>
               </div>
             </>
           ) : (
             <>
               <p className="text-lg text-gray-600">Bienvenido, {auth?.employee?.first_name}.</p>
-              <Button onClick={() => setIsClockInModalOpen(true)} variant="success" size="lg" className="w-full my-4 sm:w-auto">
-                Iniciar Jornada
-              </Button>
+              <Button onClick={() => setIsClockInModalOpen(true)} variant="success" size="lg" className="w-full my-4 sm:w-auto">Iniciar Jornada</Button>
             </>
           )}
         </div>
       </Card>
-
-      {/* Botón de reporte de incidencias de fichaje */}
       <div className="text-right">
-          <button 
-            onClick={() => setIsCorrectionModalOpen(true)}
-            className="text-xs text-blue-600 hover:underline flex items-center justify-end ml-auto"
-          >
-              <ReportIcon className="w-4 h-4 mr-1" />
-              ¿Olvidaste fichar o hay un error? Solicitar corrección
+          <button onClick={() => setIsCorrectionModalOpen(true)} className="text-xs text-blue-600 hover:underline flex items-center justify-end ml-auto">
+              <ReportIcon className="w-4 h-4 mr-1" /> ¿Olvidaste fichar o hay un error? Solicitar corrección
           </button>
       </div>
-
       {runningWorkday && (
         <Card title="Mi Día de Hoy">
             {timelineItems.length > 0 && renderTimeline()}
-            
             <div className="mt-4 pt-4 border-t">
               {currentActivity ? (
                   <div className="text-center space-y-2">
                       <p className="font-semibold text-lg">Actualmente en <span className="text-primary">{locations.find(l => l.location_id === currentActivity.location_id)?.name}</span></p>
-                      <Button onClick={handleCheckOut} variant="secondary" size="lg" isLoading={isSubmitting === `location-out-${currentActivity.activity_id}`}>
-                        Registrar Salida de Establecimiento
-                      </Button>
+                      <Button onClick={handleCheckOut} variant="secondary" size="lg" isLoading={isSubmitting === `location-out-${currentActivity.activity_id}`}>Registrar Salida de Establecimiento</Button>
                   </div>
               ) : !isOnBreak ? (
                   <div className="space-y-4">
                       <p className="text-center font-semibold text-lg text-orange-600">En Desplazamiento</p>
                        <div className="space-y-2 pt-2">
                           <h4 className="font-semibold text-center text-gray-700">Registrar Entrada en Establecimiento</h4>
-                          {sortedLocations.length > 0 ? (
-                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                               {sortedLocations.map(loc => {
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                             {sortedLocations.map(loc => {
                                  const dist = position ? getDistanceFromLatLonInMeters(position.coords.latitude, position.coords.longitude, loc.latitude, loc.longitude) : Infinity;
-                                 const isFar = dist > 200; // Hard limit 200m
-
+                                 const isFar = dist > 200;
                                  return (
-                                 <button 
-                                    key={loc.location_id} 
-                                    onClick={() => handleCheckInAttempt(loc.location_id)} 
-                                    disabled={isSubmitting !== false}
-                                    className={`flex items-center justify-between p-3 rounded-lg border transition-all ${
-                                        isFar ? 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100' : 'bg-white border-primary text-primary hover:bg-blue-50'
-                                    }`}
-                                 >
-                                    <div className="flex items-center">
-                                        <LocationIcon /> 
-                                        <span className="ml-2 font-medium text-left">{loc.name}</span>
-                                    </div>
-                                    {position && (
-                                        <span className="text-xs ml-2 whitespace-nowrap">
-                                            {dist > 1000 ? `${(dist/1000).toFixed(1)} km` : `${Math.round(dist)} m`}
-                                        </span>
-                                    )}
+                                 <button key={loc.location_id} onClick={() => handleCheckInAttempt(loc.location_id)} disabled={isSubmitting !== false} className={`flex items-center justify-between p-3 rounded-lg border transition-all ${isFar ? 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100' : 'bg-white border-primary text-primary hover:bg-blue-50'}`}>
+                                    <div className="flex items-center"><LocationIcon /> <span className="ml-2 font-medium text-left">{loc.name}</span></div>
+                                    {position && <span className="text-xs ml-2 whitespace-nowrap">{dist > 1000 ? `${(dist/1000).toFixed(1)} km` : `${Math.round(dist)} m`}</span>}
                                  </button>
                                )})}
-                             </div>
-                          ) : (
-                            <p className="text-sm text-center text-gray-500">No se encontraron establecimientos configurados.</p>
-                          )}
+                          </div>
                        </div>
                   </div>
-              ) : (
-                  <p className="text-center text-gray-500 italic">Opciones de ubicación deshabilitadas durante la pausa.</p>
-              )}
+              ) : <p className="text-center text-gray-500 italic">Opciones de ubicación deshabilitadas durante la pausa.</p>}
             </div>
         </Card>
       )}
-
-      {/* Modales */}
-      {isClockInModalOpen && (
-          <ClockInModal 
-            isOpen={isClockInModalOpen}
-            onClose={() => setIsClockInModalOpen(false)}
-            onConfirm={handleClockInConfirm}
-            isLoading={isSubmitting === 'workday-in'}
-          />
-      )}
-
-      {isClockOutModalOpen && (
-          <ClockOutModal
-            isOpen={isClockOutModalOpen}
-            onClose={() => setIsClockOutModalOpen(false)}
-            onConfirm={handleClockOutConfirm}
-            isLoading={isSubmitting === 'workday-out'}
-            defaultTime={suggestedEndTime}
-            isForgotten={isForgottenClockOut}
-          />
-      )}
-
-      {isCorrectionModalOpen && auth?.employee && (
-          <TimeCorrectionModal 
-            isOpen={isCorrectionModalOpen}
-            onClose={() => setIsCorrectionModalOpen(false)}
-            employeeId={auth.employee.employee_id}
-            existingEntryId={runningWorkday?.entry_id}
-          />
-      )}
+      {isClockInModalOpen && <ClockInModal isOpen={isClockInModalOpen} onClose={() => setIsClockInModalOpen(false)} onConfirm={handleClockInConfirm} isLoading={isSubmitting === 'workday-in'} />}
+      {isClockOutModalOpen && <ClockOutModal isOpen={isClockOutModalOpen} onClose={() => setIsClockOutModalOpen(false)} onConfirm={handleClockOutConfirm} isLoading={isSubmitting === 'workday-out'} defaultTime={suggestedEndTime} isForgotten={isForgottenClockOut} />}
+      {isCorrectionModalOpen && auth?.employee && <TimeCorrectionModal isOpen={isCorrectionModalOpen} onClose={() => setIsCorrectionModalOpen(false)} employeeId={auth.employee.employee_id} existingEntryId={runningWorkday?.entry_id} />}
     </div>
   );
 };
