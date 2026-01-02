@@ -1,6 +1,6 @@
 
 import { GoogleGenAI } from "@google/genai";
-import { Employee, Room, Location, InventoryItem, MaintenancePlan, ShiftConfig, StockLog, StockPrediction } from '../types';
+import { Employee, Room, Location, InventoryItem, MaintenancePlan, ShiftConfig, StockPrediction } from '../types';
 
 export interface ContextData {
     employees: Employee[];
@@ -23,10 +23,6 @@ export interface PayrollMapping {
     employee_name: string;
 }
 
-/**
- * Interface representing a chat message for AI context.
- */
-// Added ChatMessage interface as it was missing and needed by AIAssistant.tsx
 export interface ChatMessage {
     role: 'user' | 'model';
     text: string;
@@ -36,10 +32,13 @@ export interface ChatMessage {
  * Analiza un PDF de nóminas y mapea cada página a un ID de empleado.
  */
 export const identifyPayrollPages = async (pdfBase64: string, employees: Employee[]): Promise<PayrollMapping[]> => {
+    if (!process.env.API_KEY) {
+        throw new Error("API Key de Gemini no configurada.");
+    }
+    
     try {
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         const base64Data = pdfBase64.split(',')[1] || pdfBase64;
-
         const employeeList = employees.map(e => `${e.first_name} ${e.last_name} (ID: ${e.employee_id})`).join('\n');
 
         const prompt = `
@@ -50,13 +49,10 @@ export const identifyPayrollPages = async (pdfBase64: string, employees: Employe
 
         INSTRUCCIONES:
         1. Identifica qué empleado aparece en cada página del documento.
-        2. El nombre en la nómina puede no ser exacto, usa lógica difusa para emparejarlo con la lista proporcionada.
-        3. Devuelve un array JSON con el número de página (empezando en 1) y el ID del empleado correspondiente.
+        2. Devuelve un array JSON con el número de página (empezando en 1) y el ID del empleado correspondiente.
 
         RESPUESTA ESPERADA (JSON):
         [{"page_number": 1, "employee_id": "id1", "employee_name": "Nombre Detectado"}]
-        
-        Retorna SOLO el JSON.
         `;
 
         const response = await ai.models.generateContent({
@@ -67,86 +63,55 @@ export const identifyPayrollPages = async (pdfBase64: string, employees: Employe
                     { inlineData: { mimeType: 'application/pdf', data: base64Data } }
                 ] 
             },
-            config: { responseMimeType: 'application/json' }
+            config: { 
+                responseMimeType: 'application/json'
+            }
         });
 
         return JSON.parse(response.text || "[]");
-    } catch (error) {
-        console.error("AI Payroll Analysis Error:", error);
-        throw new Error("Error analizando el PDF de nóminas.");
+    } catch (error: any) {
+        console.error("AI Error:", error);
+        throw new Error(error.message || "Error analizando el PDF.");
     }
 };
 
 /**
- * Analiza comandos de voz y texto para ejecutar acciones operativas directas.
+ * Analiza cuadrantes de horarios (PDF o Imagen)
  */
-// Updated history parameter to use ChatMessage[] instead of any[]
-export const processNaturalLanguageCommand = async (history: ChatMessage[], context: ContextData): Promise<AIResponse> => {
+export const parseScheduleImage = async (imageBase64: string, employees: Employee[], shiftConfigs: ShiftConfig[], month: number, year: number): Promise<any[]> => {
+    if (!process.env.API_KEY) {
+        throw new Error("API Key de Gemini no configurada.");
+    }
+
     try {
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-        
-        const roomContext = context.rooms?.map(r => `Habitación ${r.name} (ID: ${r.room_id})`).join(', ') || 'No hay habitaciones.';
-        const empContext = context.employees.map(e => `${e.first_name} (ID: ${e.employee_id})`).join(', ');
+        const base64Data = imageBase64.split(',')[1] || imageBase64;
+        const mimeType = imageBase64.includes('application/pdf') ? 'application/pdf' : 'image/png';
 
-        const systemInstruction = `
-        Eres el cerebro de gestión de 'Como en Casa'. Tu objetivo es procesar órdenes rápidas de empleados.
-        
-        CONTEXTO OPERATIVO:
-        - Habitaciones: ${roomContext}
-        - Personal: ${empContext}
+        const prompt = `
+        Analiza este cuadrante de turnos para el mes ${month} del año ${year}.
+        IDs de Empleados válidos: ${employees.map(e => `${e.first_name}:${e.employee_id}`).join(', ')}
+        Códigos de turno comunes: M (Mañana), T (Tarde), N (Noche), L (Libre), V (Vacaciones).
 
-        ACCIONES POSIBLES:
-        1. updateRoomStatus: Si dicen "habitación X terminada/limpia/sucia". Data: { room_id, status: 'clean' | 'dirty' | 'in_progress' }
-        2. createIncident: Si reportan una avería. Data: { description, priority: 'high'|'medium'|'low' }
-        3. updateInventory: Si dicen "añade/quita X unidades de Y". Data: { item_name, amount }
-        4. none: Si es charla general o duda.
-
-        REGLAS:
-        - Si marcan una habitación como terminada, usa 'updateRoomStatus' con status 'clean'.
-        - Responde siempre con un mensaje breve y profesional en español que pueda leerse por TTS.
+        Extrae los turnos para cada día y devuélvelos en este formato JSON:
+        {"ID_EMPLEADO": {"DIA_NUMERICO": "CODIGO_TURNO"}}
         
-        Devuelve siempre JSON con campos: action, data, message.
+        Ejemplo: {"id_juan": {"1": "M", "2": "T", "3": "L"}}
         `;
 
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
-            contents: history.map(msg => ({ role: msg.role, parts: [{ text: msg.text }] })),
+            contents: { 
+                parts: [
+                    { text: prompt }, 
+                    { inlineData: { mimeType, data: base64Data } }
+                ] 
+            },
             config: { 
-                systemInstruction: systemInstruction,
-                responseMimeType: 'application/json' 
+                responseMimeType: 'application/json'
             }
         });
 
-        return JSON.parse(response.text || '{"action":"none", "message":"No pude procesar la orden."}');
-    } catch (error: any) {
-        return { action: 'none', message: "Lo siento, hubo un error con el asistente de voz." };
-    }
-};
-
-// Funciones existentes mantenidas...
-export const analyzeStockTrends = async (inventory: InventoryItem[], logs: any[]): Promise<StockPrediction[]> => {
-    try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-        const prompt = `Analiza stock y logs de consumo. Devuelve JSON con predicciones.`;
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: { parts: [{ text: prompt }] },
-            config: { responseMimeType: 'application/json' }
-        });
-        return JSON.parse(response.text || "[]");
-    } catch (error) { return []; }
-};
-
-export const parseScheduleImage = async (imageBase64: string, employees: Employee[], shiftConfigs: ShiftConfig[], month: number, year: number): Promise<any[]> => {
-    try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-        const base64Data = imageBase64.split(',')[1] || imageBase64;
-        const prompt = `Analiza cuadrante mensual. IDs: ${employees.map(e => e.employee_id).join(',')}. Retorna JSON.`;
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: { parts: [{ text: prompt }, { inlineData: { mimeType: 'image/png', data: base64Data } }] },
-            config: { responseMimeType: 'application/json' }
-        });
         const compactData = JSON.parse(response.text || '{}');
         const results: any[] = [];
         Object.entries(compactData).forEach(([empId, days]: [string, any]) => {
@@ -155,5 +120,50 @@ export const parseScheduleImage = async (imageBase64: string, employees: Employe
             });
         });
         return results;
-    } catch (error: any) { throw new Error(error.message); }
+    } catch (error: any) {
+        throw new Error("La IA no pudo procesar la imagen: " + error.message);
+    }
+};
+
+export const processNaturalLanguageCommand = async (history: ChatMessage[], context: ContextData): Promise<AIResponse> => {
+    if (!process.env.API_KEY) return { action: 'none', message: "API Key no configurada." };
+    
+    try {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const roomContext = context.rooms?.map(r => `Habitación ${r.name} (ID: ${r.room_id})`).join(', ') || '';
+        
+        const systemInstruction = `
+        Eres el asistente de 'Como en Casa'. Procesa órdenes de voz/texto.
+        Contexto: Habitaciones: ${roomContext}.
+        Acciones: updateRoomStatus, createIncident, updateInventory, addToShiftLog.
+        Devuelve JSON: { action, data, message }.
+        `;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: history.map(msg => ({ role: msg.role, parts: [{ text: msg.text }] })),
+            config: { 
+                systemInstruction: systemInstruction,
+                responseMimeType: "application/json"
+            }
+        });
+
+        return JSON.parse(response.text || '{"action":"none", "message":"No entiendo la orden."}');
+    } catch (error) {
+        return { action: 'none', message: "Error de conexión con el asistente." };
+    }
+};
+
+export const analyzeStockTrends = async (inventory: InventoryItem[], logs: any[]): Promise<StockPrediction[]> => {
+    if (!process.env.API_KEY) return [];
+    try {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const prompt = `Analiza stock y logs. Devuelve JSON con predicciones de agotamiento de stock.`;
+        const response = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: { parts: [{ text: prompt }] },
+            config: { responseMimeType: "application/json" }
+        });
+        return JSON.parse(response.text || "[]");
+    } catch (error) { return []; }
 };

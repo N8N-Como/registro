@@ -13,6 +13,7 @@ import SignaturePad from '../shared/SignaturePad';
 import * as XLSX from 'xlsx';
 import { PencilIcon } from '../icons';
 
+// Fixed DailyLog interface to include originalEntry property
 interface DailyLog {
     day: number;
     date: string;
@@ -24,6 +25,7 @@ interface DailyLog {
         isManual: boolean;
         type: string;
         status: string;
+        originalEntry: TimeEntry;
     }[];
     totalDuration: number;
 }
@@ -139,7 +141,7 @@ const MonthlyWorkLogReport: React.FC = () => {
                         date: dateObj.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' }),
                         entries: formattedEntries,
                         totalDuration: dailyTotalMs,
-                    };
+                    } as DailyLog;
                 });
                 
                 allEmployeeReports.push({
