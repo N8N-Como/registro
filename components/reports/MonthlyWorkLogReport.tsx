@@ -13,7 +13,6 @@ import SignaturePad from '../shared/SignaturePad';
 import * as XLSX from 'xlsx';
 import { PencilIcon } from '../icons';
 
-// Fixed DailyLog interface to include originalEntry property
 interface DailyLog {
     day: number;
     date: string;
@@ -67,7 +66,7 @@ const MonthlyWorkLogReport: React.FC = () => {
             }
         };
         fetchData();
-    }, [auth?.employee]);
+    }, [auth?.employee, selectedEmployeeId]);
 
     const handleGenerateReport = async () => {
         setIsGenerating(true);
@@ -77,7 +76,6 @@ const MonthlyWorkLogReport: React.FC = () => {
             const year = parseInt(selectedYear, 10);
 
             const allEmployeeReports: EmployeeReportData[] = [];
-            // Si es admin, puede generar de todos o del seleccionado. Para visualización, procesamos el seleccionado.
             const targetEmployees = isAdmin 
                 ? (selectedEmployeeId === 'all' ? employees : employees.filter(e => e.employee_id === selectedEmployeeId))
                 : employees.filter(e => e.employee_id === auth?.employee?.employee_id);
@@ -177,7 +175,7 @@ const MonthlyWorkLogReport: React.FC = () => {
                 ...editingEntry,
                 clock_in_time: new Date(editingEntry.clock_in_time).toISOString(),
                 clock_out_time: new Date(editingEntry.clock_out_time).toISOString(),
-                status: 'pending_employee_approval', // El empleado debe aceptarlo
+                status: 'pending_employee_approval',
                 is_manual: true
             };
             await updateTimeEntry(updated);
@@ -283,20 +281,14 @@ const MonthlyWorkLogReport: React.FC = () => {
                     </div>
                     {reportData.map((data, idx) => (
                         <div key={idx} className="relative">
-                            {isAdmin && (
-                                <div className="absolute top-4 right-4 no-print text-xs font-bold text-gray-400">VISTA ADMINISTRADOR</div>
-                            )}
                             <PrintableMonthlyLog data={[data]} month={parseInt(selectedMonth)} year={parseInt(selectedYear)} />
-                            
-                            {/* Overlay de Edición para Admin */}
                             {isAdmin && (
                                 <div className="mt-4 p-4 border rounded bg-blue-50 no-print">
                                     <h4 className="font-bold text-blue-800 mb-2">Herramientas Admin</h4>
-                                    <p className="text-xs text-blue-600 mb-4">Puedes modificar las horas de cualquier tramo. El empleado recibirá un aviso para aceptar el cambio.</p>
                                     <div className="space-y-2">
                                         {data.dailyLogs.flatMap(dl => dl.entries).map(e => (
                                             <div key={e.entry_id} className="flex justify-between items-center bg-white p-2 rounded border text-sm">
-                                                <span>Día {new Date(e.originalEntry.clock_in_time).getDate()}: {e.clockIn} - {e.clockOut} ({e.status})</span>
+                                                <span>Día {new Date(e.originalEntry.clock_in_time).getDate()}: {e.clockIn} - {e.clockOut}</span>
                                                 <button onClick={() => handleEditEntry(e)} className="text-blue-600 hover:text-blue-800"><PencilIcon className="w-4 h-4"/></button>
                                             </div>
                                         ))}

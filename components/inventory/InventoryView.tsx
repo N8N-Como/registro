@@ -1,16 +1,16 @@
 
-import React, { useState, useEffect, useContext, useMemo } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { AuthContext } from '../../App';
-import { getInventoryItems, addInventoryItem, updateInventoryItem, logStockMovement, getLocations, getStockLogs } from '../../services/mockApi';
+import { getInventoryItems, updateInventoryItem, logStockMovement, getLocations, getStockLogs } from '../../services/mockApi';
 import { InventoryItem, Location, StockPrediction } from '../../types';
 import Card from '../shared/Card';
 import Button from '../shared/Button';
 import Spinner from '../shared/Spinner';
-import { BoxIcon, ShoppingCartIcon, BuildingIcon, SparklesIcon } from '../icons';
+import { ShoppingCartIcon, SparklesIcon } from '../icons';
 import StockMovementModal from './StockMovementModal';
 import StockHistoryModal from './StockHistoryModal';
-import AIAssistant, { InputMode } from '../shared/AIAssistant';
-import { AIResponse, analyzeStockTrends } from '../../services/geminiService';
+import AIAssistant from '../shared/AIAssistant';
+import { analyzeStockTrends } from '../../services/geminiService';
 
 const InventoryView: React.FC = () => {
     const auth = useContext(AuthContext);
@@ -20,7 +20,6 @@ const InventoryView: React.FC = () => {
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [predictions, setPredictions] = useState<StockPrediction[]>([]);
     
-    const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
     const [historyItem, setHistoryItem] = useState<InventoryItem | null>(null);
     
@@ -86,11 +85,10 @@ const InventoryView: React.FC = () => {
                     <Button variant="secondary" onClick={handleRunAIAnalysis} isLoading={isAnalyzing} disabled={items.length === 0}>
                         <SparklesIcon className="w-4 h-4 mr-2" /> Analizar con IA
                     </Button>
-                    <Button onClick={() => setIsCreateModalOpen(true)}>+ Producto</Button>
+                    <Button onClick={() => alert("Función de creación manual en desarrollo")}>+ Producto</Button>
                 </div>
             </div>
 
-            {/* AI PREDICTIONS PANEL */}
             {predictions.length > 0 && (
                 <Card title="Previsión de Suministros (IA)" className="border-2 border-primary-light bg-blue-50/30">
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -147,6 +145,11 @@ const InventoryView: React.FC = () => {
             {historyItem && (
                 <StockHistoryModal isOpen={!!historyItem} onClose={() => setHistoryItem(null)} item={historyItem} />
             )}
+            <AIAssistant 
+                context={{ employees: [], locations, inventory: items, currentUser: auth?.employee || undefined }} 
+                onAction={() => loadData()}
+                allowedInputs={['voice', 'text']}
+            />
         </div>
     );
 };

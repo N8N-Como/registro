@@ -142,7 +142,6 @@ const LostItemFormModal: React.FC<LostItemFormModalProps> = ({ isOpen, onClose, 
 
   const title = item ? 'Gestionar Objeto' : 'Registrar Objeto Olvidado';
   const filteredRooms = rooms.filter(r => r.location_id === formData.found_at_location_id);
-  const isReturning = item && item.status !== 'returned';
   const isAlreadyReturned = item?.status === 'returned';
 
   return (

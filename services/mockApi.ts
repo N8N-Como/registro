@@ -1,178 +1,48 @@
 
 import { createClient } from '@supabase/supabase-js';
-import { Role, Employee, Location, TimeEntry, Announcement, Room, Task, TaskTimeLog, Incident, ShiftLogEntry, InventoryItem, StockLog, RoomStatus } from '../types';
+import { Role, Employee, Location, TimeEntry, Room, TaskTimeLog, Incident, ShiftLogEntry, InventoryItem, StockLog, RoomStatus } from '../types';
 
-// --- CONFIGURACIÓN DE CONEXIÓN REAL ---
 const SUPABASE_URL = 'https://acinnuphpdnsrmijsbsu.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFjaW5udXBocGRuc3JtaWpzYnN1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMzOTIyNjgsImV4cCI6MjA3ODk2ODI2OH0.DcaNxpI68W0gaGppraL9yZO6a9fHStVkU1ee4_zKbsg';
-
-// Inicialización del cliente de Supabase
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
-// --- LOCAL STORAGE KEYS (Para modo offline / caché) ---
 const LOCAL_ROOMS_KEY = 'local_rooms_status';
 
-const getLocalData = <T>(key: string): T[] => {
-    try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; }
-};
-const saveLocalData = <T>(key: string, data: T[]) => {
-    localStorage.setItem(key, JSON.stringify(data));
-};
+const getLocalData = <T>(key: string): T[] => { try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; } };
+const saveLocalData = <T>(key: string, data: T[]) => localStorage.setItem(key, JSON.stringify(data));
 
-// --- SERVICIOS DE DATOS ---
-
-export const getRoles = async (): Promise<Role[]> => {
-    try {
-        const { data, error } = await supabase.from('roles').select('*');
-        if (error) throw error;
-        return data || [];
-    } catch (e) {
-        console.error("Error fetching roles:", e);
-        return [];
-    }
-};
-
-export const getEmployees = async (): Promise<Employee[]> => {
-    try {
-        const { data, error } = await supabase.from('employees').select('*');
-        if (error) throw error;
-        return data || [];
-    } catch (e) {
-        console.error("Error fetching employees:", e);
-        return [];
-    }
-};
-
-export const getLocations = async (): Promise<Location[]> => {
-    try {
-        const { data, error } = await supabase.from('locations').select('*');
-        if (error) throw error;
-        return data || [];
-    } catch { return []; }
-};
-
-export const getRooms = async (): Promise<Room[]> => {
-    try {
-        const { data, error } = await supabase.from('rooms').select('*');
-        if (error || !data) return getLocalData<Room>(LOCAL_ROOMS_KEY);
-        saveLocalData(LOCAL_ROOMS_KEY, data);
-        return data;
-    } catch { return getLocalData<Room>(LOCAL_ROOMS_KEY); }
-};
-
+export const getRoles = async (): Promise<Role[]> => { try { const { data } = await supabase.from('roles').select('*'); return data || []; } catch { return []; } };
+export const getEmployees = async (): Promise<Employee[]> => { try { const { data } = await supabase.from('employees').select('*'); return data || []; } catch { return []; } };
+export const getLocations = async (): Promise<Location[]> => { try { const { data } = await supabase.from('locations').select('*'); return data || []; } catch { return []; } };
+export const getRooms = async (): Promise<Room[]> => { try { const { data, error } = await supabase.from('rooms').select('*'); if (error || !data) return getLocalData<Room>(LOCAL_ROOMS_KEY); saveLocalData(LOCAL_ROOMS_KEY, data); return data; } catch { return getLocalData<Room>(LOCAL_ROOMS_KEY); } };
 export const updateRoomStatus = async (roomId: string, status: RoomStatus, employeeId?: string): Promise<Room> => {
-    const isClean = status === 'clean';
-    const now = new Date().toISOString();
-    const updateData: any = { status, last_updated: now };
-    if (isClean) {
-        updateData.last_cleaned_at = now;
-        updateData.last_cleaned_by = employeeId || null;
-        updateData.is_priority = false;
-    }
-    
-    try {
-        const { data, error } = await supabase.from('rooms').update(updateData).eq('room_id', roomId).select().single();
-        if (error) throw error;
-        return data;
-    } catch (e) {
-        throw new Error("Error actualizando habitación");
-    }
+    const now = new Date().toISOString(); const upData: any = { status, last_updated: now };
+    if (status === 'clean') { upData.last_cleaned_at = now; upData.last_cleaned_by = employeeId || null; upData.is_priority = false; }
+    try { const { data, error } = await supabase.from('rooms').update(upData).eq('room_id', roomId).select().single(); if (error) throw error; return data; } catch { throw new Error("Error"); }
 };
-
-export const getTimeEntriesForEmployee = async (id: string) => { 
-    try { 
-        const { data } = await supabase.from('time_entries').select('*').eq('employee_id', id).order('clock_in_time', { ascending: false }); 
-        return data || [];
-    } catch (e) { return []; } 
-};
-
+export const getTimeEntriesForEmployee = async (id: string) => { try { const { data } = await supabase.from('time_entries').select('*').eq('employee_id', id).order('clock_in_time', { ascending: false }); return data || []; } catch { return []; } };
 export const clockIn = async (employeeId: string, _locationId: any, lat: any, lon: any, workType: any, workMode: any, deviceData: any, customTime?: string) => { 
     const entryTime = customTime || new Date().toISOString();
-    const payload = { 
-        employee_id: employeeId, 
-        clock_in_time: entryTime, 
-        clock_in_latitude: lat || null, 
-        clock_in_longitude: lon || null, 
-        work_type: workType, 
-        work_mode: workMode, 
-        device_id: deviceData?.deviceId || null, 
-        device_info: deviceData?.deviceInfo || null, 
-        is_manual: !!customTime, 
-        status: 'running' 
-    };
-    try { 
-        const { data, error } = await supabase.from('time_entries').insert([payload]).select().single(); 
-        if (error) throw error;
-        return data; 
-    } catch (e: any) { 
-        throw e;
-    } 
+    const payload = { employee_id: employeeId, clock_in_time: entryTime, clock_in_latitude: lat || null, clock_in_longitude: lon || null, work_type: workType, work_mode: workMode, device_id: deviceData?.deviceId || null, device_info: deviceData?.deviceInfo || null, is_manual: !!customTime, status: 'running' };
+    try { const { data, error } = await supabase.from('time_entries').insert([payload]).select().single(); if (error) throw error; return data; } catch (e: any) { throw e; } 
 };
-
 export const clockOut = async (id: string, _l: any, _isManual: boolean, t: any) => { 
     const clockOutTime = t || new Date().toISOString();
-    try { 
-        const { data, error } = await supabase.from('time_entries').update({clock_out_time: clockOutTime, status: 'completed'}).eq('entry_id', id).select().single(); 
-        if (error) throw error;
-        return data; 
-    } catch (e) { 
-        throw e;
-    } 
+    try { const { data, error } = await supabase.from('time_entries').update({clock_out_time: clockOutTime, status: 'completed'}).eq('entry_id', id).select().single(); if (error) throw error; return data; } catch (e) { throw e; } 
 };
-
 export const checkInToLocation = async (timeEntryId: string, employeeId: string, locationId: string, lat: number, lon: number) => { 
     const payload = { time_entry_id: timeEntryId, employee_id: employeeId, location_id: locationId, check_in_time: new Date().toISOString(), check_in_latitude: lat, check_in_longitude: lon };
-    try { 
-        const { data, error } = await supabase.from('activity_logs').insert([payload]).select().single(); 
-        if (error) throw error;
-        return data;
-    } catch (e) { throw e; } 
+    try { const { data, error } = await supabase.from('activity_logs').insert([payload]).select().single(); if (error) throw error; return data; } catch (e) { throw e; } 
 };
-
 export const checkOutOfLocation = async (activityId: string) => { 
-    try { 
-        const { data, error } = await supabase.from('activity_logs').update({check_out_time: new Date().toISOString()}).eq('activity_id', activityId).select().single(); 
-        if (error) throw error;
-        return data;
-    } catch (e) { throw e; } 
+    try { const { data, error } = await supabase.from('activity_logs').update({check_out_time: new Date().toISOString()}).eq('activity_id', activityId).select().single(); if (error) throw error; return data; } catch (e) { throw e; } 
 };
-
-export const getActivityLogsForTimeEntry = async (id: string) => { 
-    try { 
-        const { data } = await supabase.from('activity_logs').select('*').eq('time_entry_id', id); 
-        return data || [];
-    } catch { return []; } 
-};
-
-export const getBreaksForTimeEntry = async (id: string) => { 
-    try { 
-        const { data } = await supabase.from('break_logs').select('*').eq('time_entry_id', id); 
-        return data || [];
-    } catch { return []; } 
-};
-
-export const startBreak = async (t: string, b: string) => { 
-    try { 
-        const { data, error } = await supabase.from('break_logs').insert([{time_entry_id: t, break_type: b, start_time: new Date().toISOString()}]).select().single(); 
-        if (error) throw error;
-        return data;
-    } catch { return {} as any; } 
-};
-
-export const endBreak = async (id: string) => { 
-    try { 
-        const { data, error } = await supabase.from('break_logs').update({end_time: new Date().toISOString()}).eq('break_id', id).select().single(); 
-        if (error) throw error;
-        return data;
-    } catch { return {} as any; } 
-};
-
+export const getActivityLogsForTimeEntry = async (id: string) => { try { const { data } = await supabase.from('activity_logs').select('*').eq('time_entry_id', id); return data || []; } catch { return []; } };
+export const getBreaksForTimeEntry = async (id: string) => { try { const { data } = await supabase.from('break_logs').select('*').eq('time_entry_id', id); return data || []; } catch { return []; } };
+export const startBreak = async (t: string, b: string) => { try { const { data, error } = await supabase.from('break_logs').insert([{time_entry_id: t, break_type: b, start_time: new Date().toISOString()}]).select().single(); if (error) throw error; return data; } catch { return {} as any; } };
+export const endBreak = async (id: string) => { try { const { data, error } = await supabase.from('break_logs').update({end_time: new Date().toISOString()}).eq('break_id', id).select().single(); if (error) throw error; return data; } catch { return {} as any; } };
 export const getInventoryItems = async (): Promise<InventoryItem[]> => { try { const { data } = await supabase.from('inventory_items').select('*'); return data || []; } catch { return []; } };
-export const addInventoryItem = async (d: any) => { try { const { data } = await supabase.from('inventory_items').insert([d]).select().single(); return data; } catch { return d; } };
 export const updateInventoryItem = async (data: InventoryItem): Promise<InventoryItem> => { try { const { data: updated } = await supabase.from('inventory_items').update({...data, last_updated: new Date().toISOString()}).eq('item_id', data.item_id).select().single(); return updated || data; } catch { return data; } };
-export const logStockMovement = async (itemId: string, changeAmount: number, reason: string, employeeId: string): Promise<void> => {
-    try { await supabase.from('stock_logs').insert([{ item_id: itemId, change_amount: changeAmount, reason, employee_id: employeeId, created_at: new Date().toISOString() }]); } catch {}
-};
+export const logStockMovement = async (itemId: string, changeAmount: number, reason: string, employeeId: string): Promise<void> => { try { await supabase.from('stock_logs').insert([{ item_id: itemId, change_amount: changeAmount, reason, employee_id: employeeId, created_at: new Date().toISOString() }]); } catch {} };
 export const getStockLogs = async (itemId?: string): Promise<StockLog[]> => { try { let q = supabase.from('stock_logs').select('*').order('created_at', { ascending: false }); if (itemId) q = q.eq('item_id', itemId); const { data } = await q; return data || []; } catch { return []; } };
 export const getShiftLog = async (): Promise<ShiftLogEntry[]> => { try { const { data } = await supabase.from('shift_log').select('*').order('created_at', { ascending: false }); return data || []; } catch { return []; } };
 export const addShiftLogEntry = async (d: any) => { try { const { data } = await supabase.from('shift_log').insert([d]).select().single(); return data; } catch { return d; } };
@@ -208,8 +78,7 @@ export const updateIncident = async (incident: Incident, inventoryUsage: { item_
             }
         }
         const { data, error } = await supabase.from('incidents').update(incident).eq('incident_id', incident.incident_id).select().single();
-        if (error) throw error;
-        return data;
+        if (error) throw error; return data;
     } catch { return incident; }
 };
 export const deleteIncident = async (id: string) => { try { await supabase.from('incidents').delete().eq('incident_id', id); } catch {} };
@@ -222,16 +91,11 @@ export const finishTask = async (logId: string, taskId: string, inventoryUsage: 
     try {
         for (const usage of inventoryUsage) {
             const { data: item } = await supabase.from('inventory_items').select('*').eq('item_id', usage.item_id).single();
-            if (item) {
-                const newQty = Math.max(0, item.quantity - usage.amount);
-                await supabase.from('inventory_items').update({ quantity: newQty, last_updated: new Date().toISOString() }).eq('item_id', usage.item_id);
-                if (employeeId) await logStockMovement(usage.item_id, -usage.amount, `Consumo en tarea: ${taskId}`, employeeId);
-            }
+            if (item) { const nq = Math.max(0, item.quantity - usage.amount); await supabase.from('inventory_items').update({ quantity: nq, last_updated: new Date().toISOString() }).eq('item_id', usage.item_id); if (employeeId) await logStockMovement(usage.item_id, -usage.amount, `Consumo: ${taskId}`, employeeId); }
         }
         await supabase.from('tasks').update({ status: 'completed', completed_at: new Date().toISOString() }).eq('task_id', taskId);
         const { data, error } = await supabase.from('task_time_logs').update({ end_time: new Date().toISOString() }).eq('log_id', logId).select().single();
-        if (error) throw error;
-        return data;
+        if (error) throw error; return data;
     } catch { return { log_id: logId } as any; }
 };
 export const getActiveTaskLogForEmployee = async (id: string) => { try { const { data } = await supabase.from('task_time_logs').select('*').eq('employee_id', id).is('end_time', null).maybeSingle(); return data; } catch { return null; } };
@@ -258,17 +122,19 @@ export const logAccessAttempt = async (d: any) => { try { await supabase.from('a
 export const getTimeCorrectionRequests = async () => { try { const { data } = await supabase.from('time_correction_requests').select('*').order('created_at', { ascending: false }); return data || []; } catch { return []; } };
 export const createTimeCorrectionRequest = async (d: any) => { try { const { data } = await supabase.from('time_correction_requests').insert([d]).select().single(); return data; } catch { return d; } };
 export const resolveTimeCorrectionRequest = async (id: string, s: string, r: string) => { try { await supabase.from('time_correction_requests').update({status: s, reviewed_by: r, reviewed_at: new Date().toISOString()}).eq('request_id', id); } catch {} };
-export const updateTimeEntry = async (entry: TimeEntry): Promise<TimeEntry> => { try { const { data, error } = await supabase.from('time_entries').update(entry).eq('entry_id', entry.entry_id).select().single(); if (error) throw error; return data; } catch (e) { return entry; } };
-export const addEmployee = async (d: any) => { try { const { data } = await supabase.from('employees').insert([d]).select().single(); return data; } catch { return d; } };
-export const updateEmployee = async (d: any) => { try { const { data } = await supabase.from('employees').update(d).eq('employee_id', d.employee_id).select().single(); return data; } catch { return d; } };
+export const updateTimeEntry = async (entry: TimeEntry): Promise<TimeEntry> => { try { const { data, error } = await supabase.from('time_entries').update(entry).eq('entry_id', entry.entry_id).select().single(); if (error) throw error; return data; } catch { return entry; } };
 export const deleteEmployee = async (id: string) => { try { await supabase.from('employees').delete().eq('employee_id', id); } catch {} };
-export const addLocation = async (d: any) => { try { const { data } = await supabase.from('locations').insert([d]).select().single(); return data; } catch { return d; } };
-export const updateLocation = async (d: any) => { try { const { data } = await supabase.from('locations').update(d).eq('location_id', d.location_id).select().single(); return data; } catch { return d; } };
 export const deleteLocation = async (id: string) => { try { await supabase.from('locations').delete().eq('location_id', id); } catch {} };
 export const updateRole = async (d: any) => { try { const { data } = await supabase.from('roles').update(d).eq('role_id', d.role_id).select().single(); return data; } catch { return d; } };
-export const addRoom = async (d: any) => { try { const { data } = await supabase.from('rooms').insert([d]).select().single(); return data; } catch { return d; } };
-export const updateRoom = async (d: any) => { try { const { data } = await supabase.from('rooms').update(d).eq('room_id', d.room_id).select().single(); return data; } catch { return d; } };
 export const deleteRoom = async (id: string) => { try { await supabase.from('rooms').delete().eq('room_id', id); } catch {} };
 export const getAllRunningTimeEntries = async () => { try { const { data } = await supabase.from('time_entries').select('*').eq('status', 'running'); return data || []; } catch { return []; } };
 export const getCurrentEstablishmentStatus = async () => { try { const { data } = await supabase.from('activity_logs').select('*').is('check_out_time', null); return data || []; } catch { return []; } };
 export const getBreaksForTimeEntries = async (ids: string[]) => { try { const { data } = await supabase.from('break_logs').select('*').in('time_entry_id', ids); return data || []; } catch { return []; } };
+
+// Fix: Add missing export functions addEmployee, updateEmployee, addLocation, updateLocation, addRoom, and updateRoom
+export const addEmployee = async (d: any) => { try { const { data, error } = await supabase.from('employees').insert([d]).select().single(); if (error) throw error; return data; } catch (e: any) { throw e; } };
+export const updateEmployee = async (d: any) => { try { const { data, error } = await supabase.from('employees').update(d).eq('employee_id', d.employee_id).select().single(); if (error) throw error; return data; } catch (e: any) { throw e; } };
+export const addLocation = async (d: any) => { try { const { data, error } = await supabase.from('locations').insert([d]).select().single(); if (error) throw error; return data; } catch (e: any) { throw e; } };
+export const updateLocation = async (d: any) => { try { const { data, error } = await supabase.from('locations').update(d).eq('location_id', d.location_id).select().single(); if (error) throw error; return data; } catch (e: any) { throw e; } };
+export const addRoom = async (d: any) => { try { const { data, error } = await supabase.from('rooms').insert([d]).select().single(); if (error) throw error; return data; } catch (e: any) { throw e; } };
+export const updateRoom = async (d: any) => { try { const { data, error } = await supabase.from('rooms').update(d).eq('room_id', d.room_id).select().single(); if (error) throw error; return data; } catch (e: any) { throw e; } };
