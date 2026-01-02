@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useContext } from 'react';
-import { getEmployees, getTimeEntriesForEmployee, getMonthlySignature, saveMonthlySignature, getBreaksForTimeEntries } from '../../services/mockApi';
-import { Employee, MonthlySignature } from '../../types';
+import { getEmployees, getTimeEntriesForEmployee, getMonthlySignature, saveMonthlySignature, getBreaksForTimeEntries, updateTimeEntry } from '../../services/mockApi';
+import { Employee, MonthlySignature, TimeEntry } from '../../types';
 import { AuthContext } from '../../App';
 import Button from '../shared/Button';
 import Spinner from '../shared/Spinner';
@@ -11,16 +11,19 @@ import { formatTime, getDaysInMonth, formatDuration } from '../../utils/helpers'
 import PrintableMonthlyLog from './PrintableMonthlyLog';
 import SignaturePad from '../shared/SignaturePad';
 import * as XLSX from 'xlsx';
+import { PencilIcon } from '../icons';
 
 interface DailyLog {
     day: number;
     date: string;
     entries: { 
+        entry_id: string;
         clockIn: string; 
         clockOut: string; 
         duration: number; 
         isManual: boolean;
         type: string;
+        status: string;
     }[];
     totalDuration: number;
 }
@@ -35,6 +38,7 @@ interface EmployeeReportData {
 const MonthlyWorkLogReport: React.FC = () => {
     const auth = useContext(AuthContext);
     const [employees, setEmployees] = useState<Employee[]>([]);
+    const [selectedEmployeeId, setSelectedEmployeeId] = useState(auth?.employee?.employee_id || '');
     const [selectedMonth, setSelectedMonth] = useState((new Date().getMonth() + 1).toString());
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
     const [reportData, setReportData] = useState<EmployeeReportData[] | null>(null);
@@ -42,13 +46,18 @@ const MonthlyWorkLogReport: React.FC = () => {
     const [isGenerating, setIsGenerating] = useState(false);
     
     const [isSigningModalOpen, setIsSigningModalOpen] = useState(false);
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [editingEntry, setEditingEntry] = useState<any>(null);
     const [isSavingSignature, setIsSavingSignature] = useState(false);
+
+    const isAdmin = auth?.role?.role_id === 'admin' || auth?.role?.role_id === 'administracion';
 
     useEffect(() => {
         const fetchData = async () => {
             try {
                 const emps = await getEmployees();
                 setEmployees(emps);
+                if (!selectedEmployeeId && auth?.employee) setSelectedEmployeeId(auth.employee.employee_id);
             } catch (error) {
                 console.error("Failed to load employees", error);
             } finally {
@@ -56,7 +65,7 @@ const MonthlyWorkLogReport: React.FC = () => {
             }
         };
         fetchData();
-    }, []);
+    }, [auth?.employee]);
 
     const handleGenerateReport = async () => {
         setIsGenerating(true);
@@ -66,8 +75,9 @@ const MonthlyWorkLogReport: React.FC = () => {
             const year = parseInt(selectedYear, 10);
 
             const allEmployeeReports: EmployeeReportData[] = [];
-            const targetEmployees = (auth?.role?.role_id === 'admin' || auth?.role?.role_id === 'administracion') 
-                ? employees 
+            // Si es admin, puede generar de todos o del seleccionado. Para visualización, procesamos el seleccionado.
+            const targetEmployees = isAdmin 
+                ? (selectedEmployeeId === 'all' ? employees : employees.filter(e => e.employee_id === selectedEmployeeId))
                 : employees.filter(e => e.employee_id === auth?.employee?.employee_id);
 
             for (const employee of targetEmployees) {
@@ -80,15 +90,9 @@ const MonthlyWorkLogReport: React.FC = () => {
                     const entryDate = new Date(entry.clock_in_time);
                     return entryDate.getFullYear() === year && 
                            entryDate.getMonth() === month - 1 && 
-                           entry.status === 'completed' && 
+                           (entry.status === 'completed' || entry.status === 'pending_employee_approval') && 
                            entry.clock_out_time;
                 });
-
-                if (filteredEntries.length === 0 && auth?.role?.role_id !== 'admin' && employee.employee_id === auth?.employee?.employee_id) {
-                    // Si es el usuario actual y no tiene datos, permitimos ver tabla vacía
-                } else if (filteredEntries.length === 0 && auth?.role?.role_id === 'admin') {
-                    continue; // No mostrar empleados sin actividad en la vista global de admin
-                }
 
                 const entryIds = filteredEntries.map(e => e.entry_id);
                 const allBreaks = await getBreaksForTimeEntries(entryIds);
@@ -117,11 +121,14 @@ const MonthlyWorkLogReport: React.FC = () => {
                         dailyTotalMs += effectiveDuration;
                         
                         return {
+                            entry_id: e.entry_id,
                             clockIn: formatTime(new Date(e.clock_in_time)),
                             clockOut: formatTime(new Date(e.clock_out_time!)),
                             duration: effectiveDuration,
-                            isManual: e.is_manual === true, // Captura explícita del flag
-                            type: e.work_type || 'ordinaria'
+                            isManual: e.is_manual === true,
+                            type: e.work_type || 'ordinaria',
+                            status: e.status,
+                            originalEntry: e
                         };
                     });
 
@@ -152,6 +159,31 @@ const MonthlyWorkLogReport: React.FC = () => {
         }
     };
     
+    const handleEditEntry = (entry: any) => {
+        setEditingEntry({
+            ...entry.originalEntry,
+            clock_in_time: new Date(entry.originalEntry.clock_in_time).toISOString().slice(0, 16),
+            clock_out_time: new Date(entry.originalEntry.clock_out_time).toISOString().slice(0, 16)
+        });
+        setIsEditModalOpen(true);
+    };
+
+    const handleSaveEdit = async () => {
+        if (!editingEntry) return;
+        try {
+            const updated = {
+                ...editingEntry,
+                clock_in_time: new Date(editingEntry.clock_in_time).toISOString(),
+                clock_out_time: new Date(editingEntry.clock_out_time).toISOString(),
+                status: 'pending_employee_approval', // El empleado debe aceptarlo
+                is_manual: true
+            };
+            await updateTimeEntry(updated);
+            setIsEditModalOpen(false);
+            handleGenerateReport();
+        } catch (e) { alert("Error al actualizar"); }
+    };
+
     const handleSaveSignature = async (signatureUrl: string) => {
         if (!auth?.employee) return;
         setIsSavingSignature(true);
@@ -169,7 +201,7 @@ const MonthlyWorkLogReport: React.FC = () => {
     };
 
     const handleExportExcel = () => {
-        if (!reportData || reportData.length === 0) return;
+        if (!reportData) return;
         const rows: any[] = [];
         reportData.forEach(rep => {
             rep.dailyLogs.forEach(dayLog => {
@@ -194,7 +226,7 @@ const MonthlyWorkLogReport: React.FC = () => {
     
     if (isLoading) return <Spinner />;
     
-    const years = [2025, 2024];
+    const years = [2026, 2025, 2024];
     const months = Array.from({length: 12}, (_, i) => ({
         value: (i + 1).toString(),
         name: new Date(0, i).toLocaleString('es-ES', { month: 'long' })
@@ -206,7 +238,16 @@ const MonthlyWorkLogReport: React.FC = () => {
     return (
         <Card title="Generar Registro Mensual de Jornada">
             <div className="p-4 bg-gray-50 border rounded-md mb-6 flex items-end space-x-4 flex-wrap no-print">
-                <div className="flex-grow min-w-[150px]">
+                {isAdmin && (
+                    <div className="flex-grow min-w-[200px]">
+                        <label className="block text-sm font-medium text-gray-700">Empleado</label>
+                        <select value={selectedEmployeeId} onChange={e => setSelectedEmployeeId(e.target.value)} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                            <option value="all">-- Todos los empleados --</option>
+                            {employees.map(e => <option key={e.employee_id} value={e.employee_id}>{e.first_name} {e.last_name}</option>)}
+                        </select>
+                    </div>
+                )}
+                <div className="flex-grow min-w-[120px]">
                     <label className="block text-sm font-medium text-gray-700">Mes</label>
                     <select value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm capitalize">
                         {months.map(m => <option key={m.value} value={m.value}>{m.name}</option>)}
@@ -234,23 +275,60 @@ const MonthlyWorkLogReport: React.FC = () => {
             {isGenerating && <div className="text-center py-10"><Spinner/></div>}
 
             {reportData && reportData.length > 0 && (
-                <div className="space-y-4">
+                <div className="space-y-8">
                     <div className="flex justify-end no-print">
-                        <Button variant="success" onClick={handleExportExcel} size="sm">
-                            📥 Exportar Excel
-                        </Button>
+                        <Button variant="success" onClick={handleExportExcel} size="sm">📥 Exportar Excel</Button>
                     </div>
-                    <PrintableMonthlyLog data={reportData} month={parseInt(selectedMonth)} year={parseInt(selectedYear)} />
+                    {reportData.map((data, idx) => (
+                        <div key={idx} className="relative">
+                            {isAdmin && (
+                                <div className="absolute top-4 right-4 no-print text-xs font-bold text-gray-400">VISTA ADMINISTRADOR</div>
+                            )}
+                            <PrintableMonthlyLog data={[data]} month={parseInt(selectedMonth)} year={parseInt(selectedYear)} />
+                            
+                            {/* Overlay de Edición para Admin */}
+                            {isAdmin && (
+                                <div className="mt-4 p-4 border rounded bg-blue-50 no-print">
+                                    <h4 className="font-bold text-blue-800 mb-2">Herramientas Admin</h4>
+                                    <p className="text-xs text-blue-600 mb-4">Puedes modificar las horas de cualquier tramo. El empleado recibirá un aviso para aceptar el cambio.</p>
+                                    <div className="space-y-2">
+                                        {data.dailyLogs.flatMap(dl => dl.entries).map(e => (
+                                            <div key={e.entry_id} className="flex justify-between items-center bg-white p-2 rounded border text-sm">
+                                                <span>Día {new Date(e.originalEntry.clock_in_time).getDate()}: {e.clockIn} - {e.clockOut} ({e.status})</span>
+                                                <button onClick={() => handleEditEntry(e)} className="text-blue-600 hover:text-blue-800"><PencilIcon className="w-4 h-4"/></button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    ))}
                 </div>
+            )}
+
+            {isEditModalOpen && (
+                <Modal isOpen={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} title="Modificar Tramo Horario">
+                    <div className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium">Entrada</label>
+                            <input type="datetime-local" value={editingEntry.clock_in_time} onChange={e => setEditingEntry({...editingEntry, clock_in_time: e.target.value})} className="w-full border rounded p-2" />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium">Salida</label>
+                            <input type="datetime-local" value={editingEntry.clock_out_time} onChange={e => setEditingEntry({...editingEntry, clock_out_time: e.target.value})} className="w-full border rounded p-2" />
+                        </div>
+                        <div className="pt-4 flex justify-end gap-2">
+                            <Button variant="secondary" onClick={() => setIsEditModalOpen(false)}>Cancelar</Button>
+                            <Button onClick={handleSaveEdit}>Proponer Cambio</Button>
+                        </div>
+                    </div>
+                </Modal>
             )}
 
             {isSigningModalOpen && (
                 <Modal isOpen={isSigningModalOpen} onClose={() => setIsSigningModalOpen(false)} title="Firma de Registro Mensual">
                     {isSavingSignature ? <Spinner/> : (
-                        <SignaturePad 
-                            onSave={handleSaveSignature}
-                            onClear={() => {}} 
-                        />
+                        <SignaturePad onSave={handleSaveSignature} onClear={() => {}} />
                     )}
                 </Modal>
             )}

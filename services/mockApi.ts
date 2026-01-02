@@ -1,7 +1,6 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { Role, Employee, Location, TimeEntry, Policy, Announcement, Room, Task, TaskTimeLog, Incident, ShiftLogEntry, ActivityLog, LostItem, AccessLog, BreakLog, WorkType, WorkMode, MonthlySignature, TimeOffRequest, WorkShift, ShiftConfig, CompanyDocument, DocumentSignature, MaintenancePlan, TimeCorrectionRequest, InventoryItem, StockLog, RoomStatus } from '../types';
-import { addToQueue } from './offlineManager';
 
 const SUPABASE_URL = 'https://acinnuphpdnsrmijsbsu.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFjaW5udXBocGRuc3JtaWpzYnN1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMzOTIyNjgsImV4cCI6MjA3ODk2ODI2OH0.DcaNxpI68W0gaGppraL9yZO6a9fHStVkU1ee4_zKbsg';
@@ -13,6 +12,7 @@ const LOCAL_SHIFTS_KEY = 'local_work_shifts';
 const LOCAL_ROOMS_KEY = 'local_rooms_status';
 const LOCAL_TIME_ENTRIES_KEY = 'local_time_entries';
 const LOCAL_ACTIVITY_LOGS_KEY = 'local_activity_logs';
+const LOCAL_CORRECTIONS_KEY = 'local_time_corrections';
 
 const getLocalData = <T>(key: string): T[] => {
     try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; }
@@ -67,52 +67,27 @@ export const getRooms = async (): Promise<Room[]> => {
     try {
         const { data, error } = await supabase.from('rooms').select('*');
         if (error || !data || data.length === 0) return getLocalData<Room>(LOCAL_ROOMS_KEY);
-        // Sincronizar local storage con lo que viene de DB
         saveLocalData(LOCAL_ROOMS_KEY, data);
         return data;
-    } catch { 
-        return getLocalData<Room>(LOCAL_ROOMS_KEY); 
-    }
+    } catch { return getLocalData<Room>(LOCAL_ROOMS_KEY); }
 };
 
 export const updateRoomStatus = async (roomId: string, status: RoomStatus, employeeId?: string): Promise<Room> => {
     const isClean = status === 'clean';
     const now = new Date().toISOString();
-    
-    // Preparar objeto de actualización
-    const updateData: any = { 
-        status, 
-        last_cleaned_at: isClean ? now : undefined,
-        last_cleaned_by: isClean ? (employeeId || null) : undefined,
-        is_priority: isClean ? false : undefined 
-    };
-
-    // Eliminar undefined para que Supabase no intente sobrescribir con null a menos que queramos
+    const updateData: any = { status, last_cleaned_at: isClean ? now : undefined, last_cleaned_by: isClean ? (employeeId || null) : undefined, is_priority: isClean ? false : undefined };
     Object.keys(updateData).forEach(key => updateData[key] === undefined && delete updateData[key]);
-
     try {
-        // 1. Intentar en Supabase
         const { data, error } = await supabase.from('rooms').update(updateData).eq('room_id', roomId).select().single();
         if (error) throw error;
-        
-        // 2. Actualizar Local Storage
         const local = getLocalData<Room>(LOCAL_ROOMS_KEY);
         const idx = local.findIndex(r => r.room_id === roomId);
-        if (idx !== -1) {
-            local[idx] = { ...local[idx], ...updateData };
-            saveLocalData(LOCAL_ROOMS_KEY, local);
-        }
-        
+        if (idx !== -1) { local[idx] = { ...local[idx], ...updateData }; saveLocalData(LOCAL_ROOMS_KEY, local); }
         return data;
     } catch (e) {
-        console.warn("Fallo en actualización de habitación en DB, usando local storage:", e);
         const local = getLocalData<Room>(LOCAL_ROOMS_KEY);
         const idx = local.findIndex(r => r.room_id === roomId);
-        if (idx !== -1) {
-            local[idx] = { ...local[idx], ...updateData };
-            saveLocalData(LOCAL_ROOMS_KEY, local);
-            return local[idx];
-        }
+        if (idx !== -1) { local[idx] = { ...local[idx], ...updateData }; saveLocalData(LOCAL_ROOMS_KEY, local); return local[idx]; }
         throw new Error("Habitación no encontrada");
     }
 };
@@ -123,13 +98,9 @@ export const getTimeEntriesForEmployee = async (id: string) => {
         const remoteEntries = (data || []) as TimeEntry[];
         const localEntries = getLocalData<TimeEntry>(LOCAL_TIME_ENTRIES_KEY).filter(e => e.employee_id === id);
         const combined = [...localEntries];
-        remoteEntries.forEach(re => {
-            if (!combined.some(le => le.entry_id === re.entry_id)) combined.push(re);
-        });
+        remoteEntries.forEach(re => { if (!combined.some(le => le.entry_id === re.entry_id)) combined.push(re); });
         return combined.sort((a,b) => new Date(b.clock_in_time).getTime() - new Date(a.clock_in_time).getTime());
-    } catch (e) { 
-        return getLocalData<TimeEntry>(LOCAL_TIME_ENTRIES_KEY).filter(e => e.employee_id === id); 
-    } 
+    } catch (e) { return getLocalData<TimeEntry>(LOCAL_TIME_ENTRIES_KEY).filter(e => e.employee_id === id); } 
 };
 
 export const getAllRunningTimeEntries = async () => {
@@ -138,13 +109,9 @@ export const getAllRunningTimeEntries = async () => {
         const remote = (data || []) as TimeEntry[];
         const local = getLocalData<TimeEntry>(LOCAL_TIME_ENTRIES_KEY).filter(e => e.status === 'running');
         const combined = [...local];
-        remote.forEach(re => {
-            if (!combined.some(le => le.entry_id === re.entry_id)) combined.push(re);
-        });
+        remote.forEach(re => { if (!combined.some(le => le.entry_id === re.entry_id)) combined.push(re); });
         return combined;
-    } catch (e) {
-        return getLocalData<TimeEntry>(LOCAL_TIME_ENTRIES_KEY).filter(e => e.status === 'running');
-    }
+    } catch (e) { return getLocalData<TimeEntry>(LOCAL_TIME_ENTRIES_KEY).filter(e => e.status === 'running'); }
 };
 
 export const getCurrentEstablishmentStatus = async () => {
@@ -153,37 +120,20 @@ export const getCurrentEstablishmentStatus = async () => {
         const remote = (data || []) as ActivityLog[];
         const local = getLocalData<ActivityLog>(LOCAL_ACTIVITY_LOGS_KEY).filter(a => !a.check_out_time);
         const combined = [...local];
-        remote.forEach(ra => {
-            if (!combined.some(la => la.activity_id === ra.activity_id)) combined.push(ra);
-        });
+        remote.forEach(ra => { if (!combined.some(la => la.activity_id === ra.activity_id)) combined.push(ra); });
         return combined;
-    } catch (e) {
-        return getLocalData<ActivityLog>(LOCAL_ACTIVITY_LOGS_KEY).filter(a => !a.check_out_time);
-    }
+    } catch (e) { return getLocalData<ActivityLog>(LOCAL_ACTIVITY_LOGS_KEY).filter(a => !a.check_out_time); }
 };
 
 export const clockIn = async (employeeId: string, locationId: any, lat: any, lon: any, workType: any, workMode: any, deviceData: any, customTime?: string) => { 
     const isManual = !!customTime;
     const entryTime = customTime || new Date().toISOString();
-    const payload: TimeEntry = {
-        entry_id: 'entry_' + Date.now() + Math.random().toString(36).substr(2, 5),
-        employee_id: employeeId, 
-        clock_in_time: entryTime, 
-        clock_in_latitude: lat || null, 
-        clock_in_longitude: lon || null, 
-        work_type: workType, 
-        work_mode: workMode, 
-        device_id: deviceData?.deviceId || null, 
-        device_info: deviceData?.deviceInfo || null, 
-        is_manual: isManual,
-        status: 'running'
-    };
+    const payload: TimeEntry = { entry_id: 'entry_' + Date.now() + Math.random().toString(36).substr(2, 5), employee_id: employeeId, clock_in_time: entryTime, clock_in_latitude: lat || null, clock_in_longitude: lon || null, work_type: workType, work_mode: workMode, device_id: deviceData?.deviceId || null, device_info: deviceData?.deviceInfo || null, is_manual: isManual, status: 'running' };
     try { 
         const { data, error } = await supabase.from('time_entries').insert([payload]).select().single(); 
         if (error) throw error;
         return data; 
     } catch (e: any) { 
-        console.warn("Fichaje guardado LOCALMENTE:", e.message);
         const local = getLocalData<TimeEntry>(LOCAL_TIME_ENTRIES_KEY);
         local.push(payload);
         saveLocalData(LOCAL_TIME_ENTRIES_KEY, local);
@@ -192,16 +142,7 @@ export const clockIn = async (employeeId: string, locationId: any, lat: any, lon
 };
 
 export const checkInToLocation = async (timeEntryId: string, employeeId: string, locationId: string, lat: number, lon: number) => { 
-    const payload: ActivityLog = {
-        activity_id: 'act_' + Date.now() + Math.random().toString(36).substr(2, 5),
-        time_entry_id: timeEntryId,
-        employee_id: employeeId,
-        location_id: locationId,
-        check_in_time: new Date().toISOString(),
-        check_out_time: null,
-        check_in_latitude: lat,
-        check_in_longitude: lon
-    };
+    const payload: ActivityLog = { activity_id: 'act_' + Date.now() + Math.random().toString(36).substr(2, 5), time_entry_id: timeEntryId, employee_id: employeeId, location_id: locationId, check_in_time: new Date().toISOString(), check_out_time: null, check_in_latitude: lat, check_in_longitude: lon };
     try { 
         if (timeEntryId.startsWith('entry_')) throw new Error("Parent entry is local");
         const { data, error } = await supabase.from('activity_logs').insert([payload]).select().single(); 
@@ -225,10 +166,7 @@ export const checkOutOfLocation = async (activityId: string) => {
     } catch (e) { 
         const local = getLocalData<ActivityLog>(LOCAL_ACTIVITY_LOGS_KEY);
         const idx = local.findIndex(a => a.activity_id === activityId);
-        if (idx !== -1) {
-            local[idx].check_out_time = outTime;
-            saveLocalData(LOCAL_ACTIVITY_LOGS_KEY, local);
-        }
+        if (idx !== -1) { local[idx].check_out_time = outTime; saveLocalData(LOCAL_ACTIVITY_LOGS_KEY, local); }
         return { check_out_time: outTime } as any;
     } 
 };
@@ -239,13 +177,9 @@ export const getActivityLogsForTimeEntry = async (id: string) => {
         const remote = (data || []) as ActivityLog[];
         const local = getLocalData<ActivityLog>(LOCAL_ACTIVITY_LOGS_KEY).filter(a => a.time_entry_id === id);
         const combined = [...local];
-        remote.forEach(ra => {
-            if (!combined.some(la => la.activity_id === ra.activity_id)) combined.push(ra);
-        });
+        remote.forEach(ra => { if (!combined.some(la => la.activity_id === ra.activity_id)) combined.push(ra); });
         return combined;
-    } catch { 
-        return getLocalData<ActivityLog>(LOCAL_ACTIVITY_LOGS_KEY).filter(a => a.time_entry_id === id); 
-    } 
+    } catch { return getLocalData<ActivityLog>(LOCAL_ACTIVITY_LOGS_KEY).filter(a => a.time_entry_id === id); } 
 };
 
 export const clockOut = async (id: string, l: any, isManual: boolean, t: any) => { 
@@ -259,15 +193,64 @@ export const clockOut = async (id: string, l: any, isManual: boolean, t: any) =>
     } catch (e) { 
         const local = getLocalData<TimeEntry>(LOCAL_TIME_ENTRIES_KEY);
         const idx = local.findIndex(e => e.entry_id === id);
-        if (idx !== -1) {
-            local[idx].clock_out_time = clockOutTime;
-            local[idx].status = 'completed';
-            saveLocalData(LOCAL_TIME_ENTRIES_KEY, local);
-        }
+        if (idx !== -1) { local[idx].clock_out_time = clockOutTime; local[idx].status = 'completed'; saveLocalData(LOCAL_TIME_ENTRIES_KEY, local); }
         return { status: 'completed' } as any; 
     } 
 };
 
+export const createTimeCorrectionRequest = async (d: any) => { 
+    const payload: TimeCorrectionRequest = {
+        request_id: 'req_' + Date.now() + Math.random().toString(36).substr(2, 5),
+        created_at: new Date().toISOString(),
+        status: 'pending',
+        ...d
+    };
+    try { 
+        const { data, error } = await supabase.from('time_correction_requests').insert([payload]).select().single(); 
+        if (error) throw error;
+        return data;
+    } catch (e) { 
+        const local = getLocalData<TimeCorrectionRequest>(LOCAL_CORRECTIONS_KEY);
+        local.push(payload);
+        saveLocalData(LOCAL_CORRECTIONS_KEY, local);
+        return payload;
+    } 
+};
+
+export const getTimeCorrectionRequests = async () => { 
+    try { 
+        const { data } = await supabase.from('time_correction_requests').select('*').order('created_at', { ascending: false }); 
+        const remote = (data || []) as TimeCorrectionRequest[];
+        const local = getLocalData<TimeCorrectionRequest>(LOCAL_CORRECTIONS_KEY);
+        const combined = [...local];
+        remote.forEach(rc => { if (!combined.some(lc => lc.request_id === rc.request_id)) combined.push(rc); });
+        return combined.sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    } catch { return getLocalData<TimeCorrectionRequest>(LOCAL_CORRECTIONS_KEY); } 
+};
+
+export const resolveTimeCorrectionRequest = async (id: string, s: string, r: string) => { 
+    try { 
+        await supabase.from('time_correction_requests').update({status: s, reviewed_by: r, reviewed_at: new Date().toISOString()}).eq('request_id', id); 
+        const local = getLocalData<TimeCorrectionRequest>(LOCAL_CORRECTIONS_KEY);
+        const idx = local.findIndex(c => c.request_id === id);
+        if (idx !== -1) { local[idx].status = s as any; saveLocalData(LOCAL_CORRECTIONS_KEY, local); }
+    } catch {} 
+};
+
+export const updateTimeEntry = async (entry: TimeEntry): Promise<TimeEntry> => {
+    try {
+        const { data, error } = await supabase.from('time_entries').update(entry).eq('entry_id', entry.entry_id).select().single();
+        if (error) throw error;
+        return data;
+    } catch (e) {
+        const local = getLocalData<TimeEntry>(LOCAL_TIME_ENTRIES_KEY);
+        const idx = local.findIndex(e => e.entry_id === entry.entry_id);
+        if (idx !== -1) { local[idx] = entry; saveLocalData(LOCAL_TIME_ENTRIES_KEY, local); }
+        return entry;
+    }
+};
+
+// --- MÉTODOS RESTANTES (MANTENIDOS) ---
 export const finishTask = async (logId: string, taskId: string, inventoryUsage: { item_id: string, amount: number }[] = [], employeeId?: string): Promise<TaskTimeLog> => {
     try {
         for (const usage of inventoryUsage) {
@@ -284,7 +267,6 @@ export const finishTask = async (logId: string, taskId: string, inventoryUsage: 
         return data;
     } catch { return { log_id: logId } as any; }
 };
-
 export const updateIncident = async (incident: Incident, inventoryUsage: { item_id: string, amount: number }[] = [], employeeId?: string): Promise<Incident> => {
     try {
         if (incident.status === 'resolved') {
@@ -302,11 +284,9 @@ export const updateIncident = async (incident: Incident, inventoryUsage: { item_
         return data;
     } catch { return incident; }
 };
-
 export const logStockMovement = async (itemId: string, changeAmount: number, reason: string, employeeId: string): Promise<void> => {
     try { await supabase.from('stock_logs').insert([{ item_id: itemId, change_amount: changeAmount, reason, employee_id: employeeId, created_at: new Date().toISOString() }]); } catch {}
 };
-
 export const getInventoryItems = async (): Promise<InventoryItem[]> => { try { const { data } = await supabase.from('inventory_items').select('*'); return data || []; } catch { return []; } };
 export const updateInventoryItem = async (data: InventoryItem): Promise<InventoryItem> => { try { const { data: updated } = await supabase.from('inventory_items').update({...data, last_updated: new Date().toISOString()}).eq('item_id', data.item_id).select().single(); return updated || data; } catch { return data; } };
 export const getStockLogs = async (itemId?: string): Promise<StockLog[]> => { try { let q = supabase.from('stock_logs').select('*').order('created_at', { ascending: false }); if (itemId) q = q.eq('item_id', itemId); const { data } = await q; return data || []; } catch { return []; } };
@@ -345,8 +325,6 @@ export const addAnnouncement = async (d: any) => { try { const { data } = await 
 export const updateAnnouncement = async (d: any) => { try { const { data } = await supabase.from('announcements').update(d).eq('announcement_id', d.announcement_id).select().single(); return data; } catch { return d; } };
 export const deleteAnnouncement = async (id: string) => { try { await supabase.from('announcements').delete().eq('announcement_id', id); } catch {} };
 export const getBreaksForTimeEntries = async (ids: string[]) => { try { const { data } = await supabase.from('break_logs').select('*').in('time_entry_id', ids); return data || []; } catch { return []; } };
-export const getTimeCorrectionRequests = async () => { try { const { data } = await supabase.from('time_correction_requests').select('*'); return data || []; } catch { return []; } };
-export const resolveTimeCorrectionRequest = async (id: string, s: string, r: string) => { try { await supabase.from('time_correction_requests').update({status: s, reviewed_by: r, reviewed_at: new Date().toISOString()}).eq('request_id', id); } catch {} };
 export const createTimeOffRequest = async (d: any) => { try { const { data } = await supabase.from('time_off_requests').insert([d]).select().single(); return data; } catch { return d; } };
 export const getTimeOffRequests = async () => { try { const { data } = await supabase.from('time_off_requests').select('*'); return data || []; } catch { return []; } };
 export const updateTimeOffRequestStatus = async (id: string, s: string, r: string) => { try { await supabase.from('time_off_requests').update({status: s, reviewed_by: r, reviewed_at: new Date().toISOString()}).eq('request_id', id); } catch {} };
@@ -362,7 +340,6 @@ export const getDocumentSignatures = async (id: string) => { try { const { data 
 export const addMaintenancePlan = async (d: any) => { try { const { data } = await supabase.from('maintenance_plans').insert([d]).select().single(); return data; } catch { return d; } };
 export const updateMaintenancePlan = async (d: any) => { try { const { data } = await supabase.from('maintenance_plans').update(d).eq('plan_id', d.plan_id).select().single(); return data; } catch { return d; } };
 export const deleteMaintenancePlan = async (id: string) => { try { await supabase.from('maintenance_plans').delete().eq('plan_id', id); } catch {} };
-export const createTimeCorrectionRequest = async (d: any) => { try { const { data } = await supabase.from('time_correction_requests').insert([d]).select().single(); return data; } catch { return d; } };
 export const addInventoryItem = async (d: any) => { try { const { data } = await supabase.from('inventory_items').insert([d]).select().single(); return data; } catch { return d; } };
 export const addEmployee = async (d: any) => { try { const { data } = await supabase.from('employees').insert([d]).select().single(); return data; } catch { return d; } };
 export const deleteEmployee = async (id: string) => { try { await supabase.from('employees').delete().eq('employee_id', id); } catch {} };

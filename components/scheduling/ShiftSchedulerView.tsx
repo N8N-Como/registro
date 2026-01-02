@@ -28,7 +28,8 @@ const WORK_CODES = ['M', 'T', 'P', 'MM', 'R', 'A', 'D', 'TH', 'BH', 'BM', 'AD', 
 
 const ShiftSchedulerView: React.FC = () => {
     const auth = useContext(AuthContext);
-    const [currentMonth, setCurrentMonth] = useState(new Date(2025, 0, 1)); 
+    // FIX: Detect actual current month and year instead of 2025
+    const [currentMonth, setCurrentMonth] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1)); 
     const [shifts, setShifts] = useState<WorkShift[]>([]);
     const [employees, setEmployees] = useState<Employee[]>([]);
     const [locations, setLocations] = useState<Location[]>([]);
@@ -147,7 +148,7 @@ const ShiftSchedulerView: React.FC = () => {
                     <Button variant="secondary" size="sm" onClick={() => {
                         const d = new Date(currentMonth); d.setMonth(d.getMonth() - 1); setCurrentMonth(d);
                     }}>&lt;</Button>
-                    <Button variant="secondary" size="sm" onClick={() => setCurrentMonth(new Date(2025, 0, 1))}>HOY</Button>
+                    <Button variant="secondary" size="sm" onClick={() => setCurrentMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1))}>HOY</Button>
                     <Button variant="secondary" size="sm" onClick={() => {
                         const d = new Date(currentMonth); d.setMonth(d.getMonth() + 1); setCurrentMonth(d);
                     }}>&gt;</Button>
@@ -160,7 +161,6 @@ const ShiftSchedulerView: React.FC = () => {
             </div>
 
             {isMobile ? (
-                // --- VISTA MÓVIL (TARJETAS) ---
                 <div className="space-y-4">
                     {employees.map(emp => {
                         const mHours = calculateMonthlyHours(emp.employee_id);
@@ -191,7 +191,6 @@ const ShiftSchedulerView: React.FC = () => {
                     })}
                 </div>
             ) : (
-                // --- VISTA DESKTOP (TABLA) ---
                 <Card className="overflow-hidden p-0 border-0 shadow-xl">
                     <div className="overflow-x-auto">
                         <table className="w-full border-collapse">
