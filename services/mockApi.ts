@@ -1,6 +1,6 @@
 
 import { createClient } from '@supabase/supabase-js';
-import { Role, Employee, Location, TimeEntry, Policy, Announcement, Room, Task, TaskTimeLog, Incident, ShiftLogEntry, ActivityLog, LostItem, AccessLog, BreakLog, WorkType, WorkMode, MonthlySignature, TimeOffRequest, WorkShift, ShiftConfig, CompanyDocument, DocumentSignature, MaintenancePlan, TimeCorrectionRequest, InventoryItem, StockLog, RoomStatus } from '../types';
+import { Role, Employee, Location, TimeEntry, Announcement, Room, Task, TaskTimeLog, Incident, ShiftLogEntry, InventoryItem, StockLog, RoomStatus } from '../types';
 
 // --- CONFIGURACIÓN DE CONEXIÓN REAL ---
 const SUPABASE_URL = 'https://acinnuphpdnsrmijsbsu.supabase.co';
@@ -10,11 +10,7 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // --- LOCAL STORAGE KEYS (Para modo offline / caché) ---
-const LOCAL_SHIFTS_KEY = 'local_work_shifts';
 const LOCAL_ROOMS_KEY = 'local_rooms_status';
-const LOCAL_TIME_ENTRIES_KEY = 'local_time_entries';
-const LOCAL_ACTIVITY_LOGS_KEY = 'local_activity_logs';
-const LOCAL_CORRECTIONS_KEY = 'local_time_corrections';
 
 const getLocalData = <T>(key: string): T[] => {
     try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; }
@@ -90,7 +86,7 @@ export const getTimeEntriesForEmployee = async (id: string) => {
     } catch (e) { return []; } 
 };
 
-export const clockIn = async (employeeId: string, locationId: any, lat: any, lon: any, workType: any, workMode: any, deviceData: any, customTime?: string) => { 
+export const clockIn = async (employeeId: string, _locationId: any, lat: any, lon: any, workType: any, workMode: any, deviceData: any, customTime?: string) => { 
     const entryTime = customTime || new Date().toISOString();
     const payload = { 
         employee_id: employeeId, 
@@ -113,7 +109,7 @@ export const clockIn = async (employeeId: string, locationId: any, lat: any, lon
     } 
 };
 
-export const clockOut = async (id: string, l: any, isManual: boolean, t: any) => { 
+export const clockOut = async (id: string, _l: any, _isManual: boolean, t: any) => { 
     const clockOutTime = t || new Date().toISOString();
     try { 
         const { data, error } = await supabase.from('time_entries').update({clock_out_time: clockOutTime, status: 'completed'}).eq('entry_id', id).select().single(); 
@@ -172,7 +168,6 @@ export const endBreak = async (id: string) => {
 };
 
 export const getInventoryItems = async (): Promise<InventoryItem[]> => { try { const { data } = await supabase.from('inventory_items').select('*'); return data || []; } catch { return []; } };
-// Added addInventoryItem to fix import error in InventoryView.tsx
 export const addInventoryItem = async (d: any) => { try { const { data } = await supabase.from('inventory_items').insert([d]).select().single(); return data; } catch { return d; } };
 export const updateInventoryItem = async (data: InventoryItem): Promise<InventoryItem> => { try { const { data: updated } = await supabase.from('inventory_items').update({...data, last_updated: new Date().toISOString()}).eq('item_id', data.item_id).select().single(); return updated || data; } catch { return data; } };
 export const logStockMovement = async (itemId: string, changeAmount: number, reason: string, employeeId: string): Promise<void> => {

@@ -3,10 +3,7 @@ import {
     clockIn, 
     clockOut, 
     checkInToLocation, 
-    checkOutOfLocation, 
-    startTask, 
-    finishTask,
-    addIncident
+    checkOutOfLocation
 } from './mockApi';
 
 export type OfflineActionType = 
@@ -72,7 +69,6 @@ export const processQueue = async (): Promise<boolean> => {
         try {
             switch (action.type) {
                 case 'CLOCK_IN':
-                    // Update: Match new 8-argument signature
                     await clockIn(
                         action.payload.employeeId,
                         action.payload.locationId,
@@ -80,8 +76,8 @@ export const processQueue = async (): Promise<boolean> => {
                         action.payload.longitude,
                         action.payload.workType,
                         action.payload.workMode,
-                        action.payload.deviceData, // Argument 7: Device data
-                        action.payload.customTime  // Argument 8: Custom time
+                        action.payload.deviceData, 
+                        action.payload.customTime  
                     );
                     break;
                 case 'CLOCK_OUT':
