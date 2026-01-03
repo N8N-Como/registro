@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useContext } from 'react';
 import Card from '../../shared/Card';
 import Spinner from '../../shared/Spinner';
@@ -43,7 +44,7 @@ const ReceptionistDashboard: React.FC = () => {
 
                 // Filter shift logs
                 const relevantLogs = logs.filter(log =>
-                    log.target_role_id === 'all' || log.target_role_id === auth.role.role_id
+                    log.target_role_id === 'all' || (auth?.role && log.target_role_id === auth.role.role_id)
                 );
                 setShiftLogEntries(relevantLogs.slice(0, 5)); // show latest 5
 

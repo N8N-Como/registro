@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Incident, Location, Employee, Room, InventoryItem } from '../../types';
+import { Incident, Location, Employee, InventoryItem } from '../../types';
 import Modal from '../shared/Modal';
 import Button from '../shared/Button';
 import { getInventoryItems } from '../../services/mockApi';
@@ -13,11 +13,10 @@ interface IncidentFormModalProps {
   incident: Incident | null;
   locations: Location[];
   employees: Employee[];
-  rooms: Room[];
   canManage: boolean;
 }
 
-const IncidentFormModal: React.FC<IncidentFormModalProps> = ({ isOpen, onClose, onSave, incident, locations, rooms, canManage }) => {
+const IncidentFormModal: React.FC<IncidentFormModalProps> = ({ isOpen, onClose, onSave, incident, locations, canManage }) => {
   const [formData, setFormData] = useState<Partial<Incident>>({});
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [usageMap, setUsageMap] = useState<Record<string, number>>({});

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useContext, useCallback } from 'react';
 import { AuthContext } from '../../../App';
 import { getShiftLog, getEmployees, getRoles } from '../../../services/mockApi';
@@ -36,7 +37,7 @@ const ShiftLogWidget: React.FC = () => {
                         break;
                     default:
                         // El resto ve los mensajes generales y los de su propio rol
-                        relevantLogs = logs.filter(log => log.target_role_id === 'all' || log.target_role_id === auth.role.role_id);
+                        relevantLogs = logs.filter(log => auth?.role && (log.target_role_id === 'all' || log.target_role_id === auth.role.role_id));
                         break;
                 }
             }

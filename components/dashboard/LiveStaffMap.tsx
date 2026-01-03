@@ -2,7 +2,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Card from '../shared/Card';
 import { getLocations, getAllRunningTimeEntries, getEmployees } from '../../services/mockApi';
-import { Location, Employee, TimeEntry } from '../../types';
 
 declare var L: any; // Leaflet Global
 
@@ -112,7 +111,7 @@ const LiveStaffMap: React.FC = () => {
             <div className="absolute top-12 right-4 z-[1000] no-print">
                 <button 
                     onClick={toggleFullscreen}
-                    className="bg-white p-2 rounded-lg shadow-md border hover:bg-gray-50 flex items-center gap-2 text-xs font-bold text-gray-700"
+                    className="bg-white p-2 rounded-lg shadow-md border hover:bg-gray-100 flex items-center gap-2 text-xs font-bold text-gray-700"
                 >
                     {isFullscreen ? '⏹ Salir Fullscreen' : '⛶ Pantalla Completa'}
                 </button>

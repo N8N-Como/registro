@@ -31,7 +31,6 @@ const SignDocumentModal: React.FC<SignDocumentModalProps> = ({ isOpen, onClose, 
     };
 
     const isLink = document.type === 'link';
-    const isPDF = document.type === 'file' && document.content_url.startsWith('data:application/pdf');
     const isImage = document.type === 'file' && document.content_url.startsWith('data:image');
 
     return (

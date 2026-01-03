@@ -4,8 +4,7 @@ import { getEmployees, getLocations, getIncidents, getTimeCorrectionRequests } f
 import { TimeCorrectionRequest, Employee } from '../../../types';
 import Card from '../../shared/Card';
 import Spinner from '../../shared/Spinner';
-import { AdminIcon, LocationIcon, IncidentIcon, ReportIcon } from '../../icons';
-import Button from '../../shared/Button';
+import { AdminIcon, LocationIcon, IncidentIcon } from '../../icons';
 
 const AdminDashboard: React.FC = () => {
   const [stats, setStats] = useState({ employees: 0, locations: 0, incidents: 0 });

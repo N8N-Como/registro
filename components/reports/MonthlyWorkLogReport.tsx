@@ -7,7 +7,7 @@ import Button from '../shared/Button';
 import Spinner from '../shared/Spinner';
 import Card from '../shared/Card';
 import Modal from '../shared/Modal';
-import { formatTime, getDaysInMonth, formatDuration } from '../../utils/helpers';
+import { formatTime, getDaysInMonth } from '../../utils/helpers';
 import PrintableMonthlyLog from './PrintableMonthlyLog';
 import SignaturePad from '../shared/SignaturePad';
 import * as XLSX from 'xlsx';

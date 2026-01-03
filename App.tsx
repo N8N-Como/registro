@@ -62,11 +62,11 @@ const App: React.FC = () => {
       if (!completed) {
           setIsOnboardingVisible(true);
       } else {
-          checkAnnouncements(employeeId);
+          checkAnnouncements();
       }
   };
 
-  const checkAnnouncements = async (employeeId: string) => {
+  const checkAnnouncements = async () => {
       const announcement = await getActiveAnnouncement();
       if (announcement) {
           const seenAnnouncements = JSON.parse(localStorage.getItem('seenAnnouncements') || '[]');
@@ -111,7 +111,7 @@ const App: React.FC = () => {
           localStorage.setItem(`onboarding_completed_${currentUser.employee_id}`, 'true');
       }
       setIsOnboardingVisible(false);
-      if (currentUser) checkAnnouncements(currentUser.employee_id);
+      if (currentUser) checkAnnouncements();
   };
 
   const triggerOnboardingManually = () => {
