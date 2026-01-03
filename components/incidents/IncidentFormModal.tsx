@@ -16,7 +16,7 @@ interface IncidentFormModalProps {
   canManage: boolean;
 }
 
-const IncidentFormModal: React.FC<IncidentFormModalProps> = ({ isOpen, onClose, onSave, incident, locations, employees, canManage }) => {
+const IncidentFormModal: React.FC<IncidentFormModalProps> = ({ isOpen, onClose, onSave, incident, locations, canManage }) => {
   const [formData, setFormData] = useState<Partial<Incident>>({});
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [usageMap, setUsageMap] = useState<Record<string, number>>({});

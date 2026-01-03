@@ -48,11 +48,7 @@ const CleaningView: React.FC = () => {
                  return (t.assigned_to === auth.employee?.employee_id || t.assigned_to === 'all_cleaners') && 
                         dueDate >= today && 
                         dueDate < sevenDaysFromNow;
-            }).sort((a, b) => {
-                if (a.status === 'completed' && b.status !== 'completed') return 1;
-                if (a.status !== 'completed' && b.status === 'completed') return -1;
-                return 0;
-            });
+            }).sort((a, _b) => a.status === 'completed' ? 1 : -1);
             
             setTasks(myTasks);
             setRooms(allRooms);
@@ -98,6 +94,7 @@ const CleaningView: React.FC = () => {
         if (!activeTaskLog || !auth?.employee) return;
         setIsSubmitting(activeTaskLog.task_id);
         
+        // Fixed unknown type error by explicitly casting qty to number
         const inventoryUsage = Object.entries(usageMap)
             .filter(([_, qty]) => (qty as number) > 0)
             .map(([itemId, qty]) => ({ item_id: itemId, amount: qty as number }));
