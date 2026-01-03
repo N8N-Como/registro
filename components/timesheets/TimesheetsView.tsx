@@ -2,13 +2,12 @@
 import React, { useState, useEffect, useContext, useMemo, useCallback } from 'react';
 import { AuthContext } from '../../App';
 import { useGeolocation } from '../../hooks/useGeolocation';
-import { getLocations, getTimeEntriesForEmployee, clockIn, clockOut, getActivityLogsForTimeEntry, checkInToLocation, checkOutOfLocation, logAccessAttempt, getBreaksForTimeEntry, startBreak, endBreak } from '../../services/mockApi';
-import { getDistanceFromLatLonInMeters, formatDuration, formatTime } from '../../utils/helpers';
-import { TimeEntry, Location as OfficeLocation, ActivityLog, BreakLog, WorkType, WorkMode } from '../../types';
+import { getTimeEntriesForEmployee, clockIn, clockOut, getBreaksForTimeEntry, startBreak, endBreak } from '../../services/mockApi';
+import { formatDuration } from '../../utils/helpers';
+import { TimeEntry, BreakLog } from '../../types';
 import Button from '../shared/Button';
 import Spinner from '../shared/Spinner';
 import Card from '../shared/Card';
-import { LocationIcon, CarIcon, BuildingIcon, FlagIcon, DotIcon, ReportIcon } from '../icons';
 import ClockInModal from './ClockInModal';
 import ClockOutModal from './ClockOutModal';
 import TimeCorrectionModal from './TimeCorrectionModal';
@@ -17,8 +16,6 @@ const TimesheetsView: React.FC = () => {
   const auth = useContext(AuthContext);
   const { position, getLocation } = useGeolocation();
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
-  const [locations, setLocations] = useState<OfficeLocation[]>([]);
-  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [breakLogs, setBreakLogs] = useState<BreakLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState<string | false>(false);
@@ -29,23 +26,30 @@ const TimesheetsView: React.FC = () => {
   const [isOnBreak, setIsOnBreak] = useState(false);
 
   const runningWorkday = useMemo(() => timeEntries.find(t => t.status === 'running'), [timeEntries]);
-  const currentActivity = useMemo(() => activityLogs.find(a => !a.check_out_time), [activityLogs]);
   const currentBreak = useMemo(() => breakLogs.find(b => !b.end_time), [breakLogs]);
 
   const fetchData = useCallback(async () => {
     if (!auth?.employee) return;
     try {
-      const [entries, locs] = await Promise.all([getTimeEntriesForEmployee(auth.employee.employee_id), getLocations()]);
-      setTimeEntries(entries); setLocations(locs);
+      const entries = await getTimeEntriesForEmployee(auth.employee.employee_id);
+      setTimeEntries(entries);
       const rw = entries.find(t => t.status === 'running');
       if (rw) {
-        const [logs, breaks] = await Promise.all([getActivityLogsForTimeEntry(rw.entry_id), getBreaksForTimeEntry(rw.entry_id)]);
-        setActivityLogs(logs); setBreakLogs(breaks); setIsOnBreak(breaks.some(b => !b.end_time));
+        const breaks = await getBreaksForTimeEntry(rw.entry_id);
+        setBreakLogs(breaks); 
+        setIsOnBreak(breaks.some(b => !b.end_time));
       }
-    } catch (e) { console.error(e); } finally { setIsLoading(false); }
+    } catch (e) { 
+      console.error(e); 
+    } finally { 
+      setIsLoading(false); 
+    }
   }, [auth?.employee]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => { 
+    fetchData();
+    getLocation(); 
+  }, [fetchData, getLocation]);
   
   useEffect(() => {
     if (runningWorkday) {
@@ -78,8 +82,8 @@ const TimesheetsView: React.FC = () => {
         </div>
       </Card>
       <div className="text-right"><button onClick={() => setIsCorrectionModalOpen(true)} className="text-xs text-blue-600">¿Error? Solicitar corrección</button></div>
-      {isClockInModalOpen && <ClockInModal isOpen={isClockInModalOpen} onClose={() => setIsClockInModalOpen(false)} onConfirm={async (d) => { if (auth?.employee) { setIsSubmitting('in'); await clockIn(auth.employee.employee_id, null, position?.coords.latitude, position?.coords.longitude, d.workType, d.workMode, d.deviceData, d.customTime); fetchData(); setIsClockInModalOpen(false); setIsSubmitting(false); } }} isLoading={isSubmitting==='in'} />}
-      {isClockOutModalOpen && <ClockOutModal isOpen={isClockOutModalOpen} onClose={() => setIsClockOutModalOpen(false)} onConfirm={async (t) => { if (runningWorkday) { setIsSubmitting('out'); await clockOut(runningWorkday.entry_id, null, false, t); fetchData(); setIsClockOutModalOpen(false); setIsSubmitting(false); } }} isLoading={isSubmitting==='out'} isForgotten={false} />}
+      {isClockInModalOpen && <ClockInModal isOpen={isClockInModalOpen} onClose={() => setIsClockInModalOpen(false)} onConfirm={async (d) => { if (auth?.employee) { setIsSubmitting('in'); try { await clockIn(auth.employee.employee_id, null, position?.coords.latitude, position?.coords.longitude, d.workType, d.workMode, d.deviceData, d.customTime); fetchData(); setIsClockInModalOpen(false); } catch (e: any) { console.error("Clock In failed", e); const msg = e.message || ""; if (msg.includes("column")) { alert("Error de base de datos: Faltan columnas en la tabla 'time_entries'. Por favor, ve a la sección de ADMINISTRACIÓN y pulsa en 'Actualizar BD (SQL)' para ejecutar el script de migración."); } else { alert("Error al iniciar la jornada: " + msg); } } setIsSubmitting(false); } }} isLoading={isSubmitting==='in'} />}
+      {isClockOutModalOpen && <ClockOutModal isOpen={isClockOutModalOpen} onClose={() => setIsClockOutModalOpen(false)} onConfirm={async (t) => { if (runningWorkday) { setIsSubmitting('out'); try { await clockOut(runningWorkday.entry_id, null, false, t); fetchData(); setIsClockOutModalOpen(false); } catch (e) { console.error("Clock Out failed", e); alert("Error al registrar salida."); } setIsSubmitting(false); } }} isLoading={isSubmitting==='out'} isForgotten={false} />}
       {isCorrectionModalOpen && auth?.employee && <TimeCorrectionModal isOpen={isCorrectionModalOpen} onClose={() => setIsCorrectionModalOpen(false)} employeeId={auth.employee.employee_id} />}
     </div>
   );

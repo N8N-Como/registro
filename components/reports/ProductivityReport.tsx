@@ -5,7 +5,6 @@ import { Employee, Location } from '../../types';
 import Spinner from '../shared/Spinner';
 import Card from '../shared/Card';
 import { formatDuration } from '../../utils/helpers';
-import { CarIcon, BuildingIcon } from '../icons';
 import Button from '../shared/Button';
 
 interface ProductivityData {

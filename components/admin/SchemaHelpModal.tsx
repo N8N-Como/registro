@@ -15,6 +15,7 @@ const SchemaHelpModal: React.FC<SchemaHelpModalProps> = ({ isOpen, onClose }) =>
 -- Ejecuta este script en el Editor SQL de Supabase para actualizar tu base de datos.
 -- No perderás datos: solo se añadirán las columnas nuevas si no existen.
 
+-- 1. Actualizar tabla EMPLOYEES
 ALTER TABLE employees 
 ADD COLUMN IF NOT EXISTS province text,
 ADD COLUMN IF NOT EXISTS annual_hours_contract numeric DEFAULT 1784,
@@ -22,7 +23,17 @@ ADD COLUMN IF NOT EXISTS default_location_id uuid REFERENCES locations(location_
 ADD COLUMN IF NOT EXISTS default_start_time text DEFAULT '09:00',
 ADD COLUMN IF NOT EXISTS default_end_time text DEFAULT '17:00';
 
--- También asegúrate de que existan las tablas nuevas si aún no las tienes:
+-- 2. Actualizar tabla TIME_ENTRIES para geofencing y auditoría
+ALTER TABLE time_entries
+ADD COLUMN IF NOT EXISTS clock_in_location_id uuid REFERENCES locations(location_id),
+ADD COLUMN IF NOT EXISTS clock_out_location_id uuid REFERENCES locations(location_id),
+ADD COLUMN IF NOT EXISTS work_type text DEFAULT 'ordinaria',
+ADD COLUMN IF NOT EXISTS work_mode text DEFAULT 'presencial',
+ADD COLUMN IF NOT EXISTS device_id text,
+ADD COLUMN IF NOT EXISTS device_info text,
+ADD COLUMN IF NOT EXISTS is_manual boolean DEFAULT false;
+
+-- 3. Crear tablas de CUADRANTES
 CREATE TABLE IF NOT EXISTS shift_configs (
   config_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   code text,
@@ -57,7 +68,7 @@ CREATE TABLE IF NOT EXISTS work_shifts (
             <div className="space-y-4">
                 <div className="bg-blue-50 border-l-4 border-blue-500 p-4 text-sm text-blue-700">
                     <p className="font-bold">¿Por qué veo esto?</p>
-                    <p>La aplicación ha detectado que faltan campos en tu base de datos para guardar la información nueva (horarios, convenios, etc.).</p>
+                    <p>La aplicación ha detectado que faltan campos en tu base de datos para guardar la información nueva (horarios, convenios, auditoría de dispositivos, etc.).</p>
                 </div>
                 
                 <p className="text-gray-600 text-sm">

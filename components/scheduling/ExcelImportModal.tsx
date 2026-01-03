@@ -23,7 +23,6 @@ interface ParsedRow {
 }
 
 const ExcelImportModal: React.FC<ExcelImportModalProps> = ({ isOpen, onClose, onImport, employees, locations }) => {
-    const [file, setFile] = useState<File | null>(null);
     const [parsedRows, setParsedRows] = useState<ParsedRow[]>([]);
     const [isProcessing, setIsProcessing] = useState(false);
     const [isImporting, setIsImporting] = useState(false);
@@ -74,7 +73,6 @@ const ExcelImportModal: React.FC<ExcelImportModalProps> = ({ isOpen, onClose, on
     const handleFileProcess = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const selectedFile = e.target.files?.[0];
         if (!selectedFile) return;
-        setFile(selectedFile);
         setIsProcessing(true);
         setParsedRows([]);
 
@@ -87,7 +85,7 @@ const ExcelImportModal: React.FC<ExcelImportModalProps> = ({ isOpen, onClose, on
                 const ws = wb.Sheets[wsname];
                 const data = XLSX.utils.sheet_to_json(ws);
 
-                const rows: ParsedRow[] = data.map((row: any, _index: number) => {
+                const rows: ParsedRow[] = data.map((row: any) => {
                     const pin = row["PIN (Obligatorio)"]?.toString();
                     const dateStr = parseExcelDate(row["Fecha (YYYY-MM-DD)"]);
                     const startTimeStr = parseExcelTime(row["Hora Inicio (HH:MM)"]);

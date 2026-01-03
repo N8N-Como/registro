@@ -6,7 +6,7 @@ import Spinner from '../shared/Spinner';
 import { AuthContext } from '../../App';
 import { getShiftLog, addShiftLogEntry, getEmployees, getRoles, updateShiftLogEntry } from '../../services/mockApi';
 import { ShiftLogEntry, Employee, Role } from '../../types';
-import AIAssistant, { InputMode } from '../shared/AIAssistant';
+import AIAssistant from '../shared/AIAssistant';
 import { AIResponse } from '../../services/geminiService';
 
 const ShiftLogView: React.FC = () => {

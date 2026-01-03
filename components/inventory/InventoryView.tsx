@@ -5,7 +5,6 @@ import { getInventoryItems, updateInventoryItem, logStockMovement, getLocations,
 import { InventoryItem, Location, StockPrediction } from '../../types';
 import Card from '../shared/Card';
 import Button from '../shared/Button';
-import Spinner from '../shared/Spinner';
 import { ShoppingCartIcon, SparklesIcon } from '../icons';
 import StockMovementModal from './StockMovementModal';
 import StockHistoryModal from './StockHistoryModal';
@@ -16,7 +15,6 @@ const InventoryView: React.FC = () => {
     const auth = useContext(AuthContext);
     const [items, setItems] = useState<InventoryItem[]>([]);
     const [locations, setLocations] = useState<Location[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [predictions, setPredictions] = useState<StockPrediction[]>([]);
     
@@ -29,13 +27,11 @@ const InventoryView: React.FC = () => {
     useEffect(() => { loadData(); }, []);
 
     const loadData = async () => {
-        setIsLoading(true);
         try {
             const [inv, locs] = await Promise.all([getInventoryItems(), getLocations()]);
             setItems(inv);
             setLocations(locs);
-        } catch (e) { console.error(e); } 
-        finally { setIsLoading(false); }
+        } catch (e) { console.error(e); }
     };
 
     const handleRunAIAnalysis = async () => {

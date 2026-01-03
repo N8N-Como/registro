@@ -21,7 +21,6 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ context, onAction, allowedInp
     ]);
     const [inputText, setInputText] = useState('');
     const [isListening, setIsListening] = useState(false);
-    const [isProcessing, setIsProcessing] = useState(false);
     
     const recognitionRef = useRef<any>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -61,7 +60,6 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ context, onAction, allowedInp
         const newHistory = [...messages, userMsg];
         setMessages(newHistory);
         setInputText('');
-        setIsProcessing(true);
         try {
             const rooms = await getRooms();
             const result = await processNaturalLanguageCommand(newHistory, { ...context, rooms });
@@ -77,7 +75,7 @@ const AIAssistant: React.FC<AIAssistantProps> = ({ context, onAction, allowedInp
                 ut.lang = 'es-ES';
                 window.speechSynthesis.speak(ut);
             }
-        } catch (e) { setMessages(prev => [...prev, { role: 'model', text: "Error procesando comando." }]); } finally { setIsProcessing(false); }
+        } catch (e) { setMessages(prev => [...prev, { role: 'model', text: "Error procesando comando." }]); }
     };
 
     return (

@@ -4,7 +4,6 @@ import { Employee, WorkShift, ShiftConfig, ShiftType } from '../../types';
 import Modal from '../shared/Modal';
 import Button from '../shared/Button';
 import Spinner from '../shared/Spinner';
-import { CalendarIcon } from '../icons';
 import { blobToBase64 } from '../../utils/helpers';
 import { parseScheduleImage } from '../../services/geminiService';
 
