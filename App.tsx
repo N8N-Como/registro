@@ -57,8 +57,8 @@ const App: React.FC = () => {
     fetchInitialData();
   }, []);
 
-  const checkOnboardingStatus = (employeeId: string) => {
-      const completed = localStorage.getItem(`onboarding_completed_${employeeId}`);
+  const checkOnboardingStatus = (id: string) => {
+      const completed = localStorage.getItem(`onboarding_completed_${id}`);
       if (!completed) {
           setIsOnboardingVisible(true);
       } else {
