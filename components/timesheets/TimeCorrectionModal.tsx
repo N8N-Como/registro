@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import Modal from '../shared/Modal';
 import Button from '../shared/Button';
 import { createTimeCorrectionRequest } from '../../services/mockApi';
+import { addToQueue } from '../../services/offlineManager';
 
 interface TimeCorrectionModalProps {
     isOpen: boolean;
@@ -36,33 +37,45 @@ const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({ isOpen, onClo
         }
 
         setIsSubmitting(true);
+        const requestId = 'req_' + Date.now() + Math.random().toString(36).substr(2, 5);
+        const payload: any = {
+            request_id: requestId,
+            employee_id: employeeId,
+            original_entry_id: existingEntryId,
+            correction_type: getCorrectionType(),
+            requested_date: date,
+            reason: `[${errorType.toUpperCase()}] ${reason}`,
+            status: 'pending',
+            created_at: new Date().toISOString()
+        };
+
+        if (errorType === 'entry') {
+            payload.requested_clock_in = time;
+        } else if (errorType === 'exit') {
+            payload.requested_clock_out = time;
+            payload.requested_clock_in = "N/A"; // Evitar null en DB
+        } else if (errorType === 'break') {
+            payload.correction_type = 'fix_time'; 
+            payload.requested_clock_in = '00:00'; 
+            payload.reason = `[PAUSA INCORRECTA] Hora correcta: ${time}. Detalle: ${reason}`;
+        }
+
         try {
-            const payload: any = {
-                employee_id: employeeId,
-                original_entry_id: existingEntryId,
-                correction_type: getCorrectionType(),
-                requested_date: date,
-                reason: `[${errorType.toUpperCase()}] ${reason}`,
-                status: 'pending',
-                created_at: new Date().toISOString()
-            };
-
-            if (errorType === 'entry') {
-                payload.requested_clock_in = time;
-            } else if (errorType === 'exit') {
-                payload.requested_clock_out = time;
-                payload.requested_clock_in = "N/A"; // Evitar null en DB
-            } else if (errorType === 'break') {
-                payload.correction_type = 'fix_time'; 
-                payload.requested_clock_in = '00:00'; 
-                payload.reason = `[PAUSA INCORRECTA] Hora correcta: ${time}. Detalle: ${reason}`;
-            }
-
             await createTimeCorrectionRequest(payload);
             alert("Solicitud enviada correctamente.");
             onClose();
         } catch (error) {
-            alert("Error al enviar la solicitud.");
+            console.warn("Fallo al enviar a Supabase, guardando en cola offline...");
+            // Guardamos localmente para que aparezca en el panel de admin si es el mismo dispositivo
+            const local = JSON.parse(localStorage.getItem('local_time_corrections') || '[]');
+            local.push(payload);
+            localStorage.setItem('local_time_corrections', JSON.stringify(local));
+            
+            // Añadimos a la cola de sincronización para que se suba sola al tener red
+            addToQueue('ADD_CORRECTION', payload);
+            
+            alert("No hay conexión con el servidor. La solicitud se ha guardado en tu dispositivo y se enviará automáticamente cuando recuperes la conexión.");
+            onClose();
         } finally {
             setIsSubmitting(false);
         }
