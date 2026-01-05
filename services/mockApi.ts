@@ -9,11 +9,8 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // --- LOCAL STORAGE KEYS ---
-const LOCAL_SHIFTS_KEY = 'local_work_shifts';
-const LOCAL_ROOMS_KEY = 'local_rooms_status';
-const LOCAL_TIME_ENTRIES_KEY = 'local_time_entries';
-const LOCAL_ACTIVITY_LOGS_KEY = 'local_activity_logs';
 const LOCAL_CORRECTIONS_KEY = 'local_time_corrections';
+const LOCAL_TIME_ENTRIES_KEY = 'local_time_entries';
 
 const getLocalData = <T>(key: string): T[] => {
     try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; }
@@ -22,207 +19,16 @@ const saveLocalData = <T>(key: string, data: T[]) => {
     localStorage.setItem(key, JSON.stringify(data));
 };
 
-// --- FALLBACK DATA ---
-const FALLBACK_ROLES: Role[] = [
-    { role_id: 'admin', name: 'Administrador', permissions: ['manage_employees', 'manage_locations', 'manage_announcements', 'view_reports', 'manage_incidents', 'access_shift_log', 'schedule_tasks', 'audit_records', 'manage_documents', 'manage_inventory'] },
-    { role_id: 'gobernanta', name: 'Gobernanta', permissions: ['manage_tasks', 'schedule_tasks', 'view_reports', 'access_shift_log', 'manage_incidents', 'manage_inventory'] },
-    { role_id: 'cleaner', name: 'Camarera de Pisos', permissions: ['manage_tasks', 'manage_inventory'] },
-    { role_id: 'maintenance', name: 'Mantenimiento', permissions: ['manage_incidents', 'manage_inventory'] },
-    { role_id: 'receptionist', name: 'Recepción', permissions: ['access_shift_log', 'manage_incidents', 'view_reports'] },
-    { role_id: 'revenue', name: 'Revenue', permissions: ['view_reports', 'access_shift_log'] },
-    { role_id: 'administracion', name: 'Administración', permissions: ['manage_employees', 'view_reports', 'manage_documents'] }
-];
-
-const FALLBACK_EMPLOYEES: Employee[] = [
-    { employee_id: 'noelia', first_name: 'Noelia', last_name: '', pin: '0001', role_id: 'cleaner', status: 'active', policy_accepted: true, photo_url: '' },
-    { employee_id: 'lydia', first_name: 'Lydia', last_name: '', pin: '0002', role_id: 'cleaner', status: 'active', policy_accepted: true, photo_url: '' },
-    { employee_id: 'anxo', first_name: 'Anxo', last_name: 'Bernárdez', pin: '8724', role_id: 'admin', status: 'active', policy_accepted: true, photo_url: '' },
-    { employee_id: 'emp_admin', first_name: 'Admin', last_name: 'Sistema', pin: '1234', role_id: 'admin', status: 'active', policy_accepted: true, photo_url: 'https://ui-avatars.com/api/?name=Admin+Sistema&background=0D8ABC&color=fff' },
-];
-
-export const getRoles = async (): Promise<Role[]> => {
-    try {
-        const { data, error } = await supabase.from('roles').select('*');
-        if (error || !data || data.length === 0) return FALLBACK_ROLES;
-        return data;
-    } catch { return FALLBACK_ROLES; }
-};
-
-export const getEmployees = async (): Promise<Employee[]> => {
-    try {
-        const { data, error } = await supabase.from('employees').select('*');
-        if (error || !data || data.length === 0) return FALLBACK_EMPLOYEES;
-        return data;
-    } catch { return FALLBACK_EMPLOYEES; }
-};
-
-export const getLocations = async (): Promise<Location[]> => {
-    try {
-        const { data, error } = await supabase.from('locations').select('*');
-        if (error || !data) return [];
-        return data;
-    } catch { return []; }
-};
-
-export const getRooms = async (): Promise<Room[]> => {
-    try {
-        const { data, error } = await supabase.from('rooms').select('*');
-        if (error || !data || data.length === 0) return getLocalData<Room>(LOCAL_ROOMS_KEY);
-        saveLocalData(LOCAL_ROOMS_KEY, data);
-        return data;
-    } catch { return getLocalData<Room>(LOCAL_ROOMS_KEY); }
-};
-
-export const updateRoomStatus = async (roomId: string, status: RoomStatus, employeeId?: string): Promise<Room> => {
-    const isClean = status === 'clean';
-    const now = new Date().toISOString();
-    const updateData: any = { 
-        status, 
-        last_cleaned_at: isClean ? now : undefined,
-        last_cleaned_by: isClean ? (employeeId || null) : undefined,
-        is_priority: isClean ? false : undefined 
-    };
-    Object.keys(updateData).forEach(key => updateData[key] === undefined && delete updateData[key]);
-    try {
-        const { data, error } = await supabase.from('rooms').update(updateData).eq('room_id', roomId).select().single();
-        if (error) throw error;
-        const local = getLocalData<Room>(LOCAL_ROOMS_KEY);
-        const idx = local.findIndex(r => r.room_id === roomId);
-        if (idx !== -1) { local[idx] = { ...local[idx], ...updateData }; saveLocalData(LOCAL_ROOMS_KEY, local); }
-        return data;
-    } catch (e) {
-        const local = getLocalData<Room>(LOCAL_ROOMS_KEY);
-        const idx = local.findIndex(r => r.room_id === roomId);
-        if (idx !== -1) {
-            local[idx] = { ...local[idx], ...updateData };
-            saveLocalData(LOCAL_ROOMS_KEY, local);
-            return local[idx];
-        }
-        throw new Error("Habitación no encontrada");
-    }
-};
-
-export const getTimeEntriesForEmployee = async (id: string) => { 
-    try { 
-        const { data } = await supabase.from('time_entries').select('*').eq('employee_id', id).order('clock_in_time', { ascending: false }); 
-        const remoteEntries = (data || []) as TimeEntry[];
-        const localEntries = getLocalData<TimeEntry>(LOCAL_TIME_ENTRIES_KEY).filter(e => e.employee_id === id);
-        const combined = [...localEntries];
-        remoteEntries.forEach(re => {
-            if (!combined.some(le => le.entry_id === re.entry_id)) combined.push(re);
-        });
-        return combined.sort((a,b) => new Date(b.clock_in_time).getTime() - new Date(a.clock_in_time).getTime());
-    } catch (e) { 
-        return getLocalData<TimeEntry>(LOCAL_TIME_ENTRIES_KEY).filter(e => e.employee_id === id); 
-    } 
-};
-
-export const getAllRunningTimeEntries = async () => {
-    try {
-        const { data } = await supabase.from('time_entries').select('*').eq('status', 'running');
-        const remote = (data || []) as TimeEntry[];
-        const local = getLocalData<TimeEntry>(LOCAL_TIME_ENTRIES_KEY).filter(e => e.status === 'running');
-        const combined = [...local];
-        remote.forEach(re => {
-            if (!combined.some(le => le.entry_id === re.entry_id)) combined.push(re);
-        });
-        return combined;
-    } catch (e) {
-        return getLocalData<TimeEntry>(LOCAL_TIME_ENTRIES_KEY).filter(e => e.status === 'running');
-    }
-};
-
-export const getCurrentEstablishmentStatus = async () => {
-    try {
-        const { data } = await supabase.from('activity_logs').select('*').is('check_out_time', null);
-        const remote = (data || []) as ActivityLog[];
-        const local = getLocalData<ActivityLog>(LOCAL_ACTIVITY_LOGS_KEY).filter(a => !a.check_out_time);
-        const combined = [...local];
-        remote.forEach(ra => {
-            if (!combined.some(la => la.activity_id === ra.activity_id)) combined.push(ra);
-        });
-        return combined;
-    } catch (e) {
-        return getLocalData<ActivityLog>(LOCAL_ACTIVITY_LOGS_KEY).filter(a => !a.check_out_time);
-    }
-};
-
-export const clockIn = async (employeeId: string, locationId: any, lat: any, lon: any, workType: any, workMode: any, deviceData: any, customTime?: string) => { 
-    const isManual = !!customTime;
-    const entryTime = customTime || new Date().toISOString();
-    const payload: TimeEntry = {
-        entry_id: 'entry_' + Date.now() + Math.random().toString(36).substr(2, 5),
-        employee_id: employeeId, 
-        clock_in_time: entryTime, 
-        clock_in_latitude: lat || null, 
-        clock_in_longitude: lon || null, 
-        work_type: workType, 
-        work_mode: workMode, 
-        device_id: deviceData?.deviceId || null, 
-        device_info: deviceData?.deviceInfo || null, 
-        is_manual: isManual,
-        status: 'running'
-    };
-    try { 
-        const { data, error } = await supabase.from('time_entries').insert([payload]).select().single(); 
-        if (error) throw error;
-        return data; 
-    } catch (e: any) { 
-        const local = getLocalData<TimeEntry>(LOCAL_TIME_ENTRIES_KEY);
-        local.push(payload);
-        saveLocalData(LOCAL_TIME_ENTRIES_KEY, local);
-        return payload;
-    } 
-};
-
-export const checkInToLocation = async (timeEntryId: string, employeeId: string, locationId: string, lat: number, lon: number) => { 
-    const payload: ActivityLog = {
-        activity_id: 'act_' + Date.now() + Math.random().toString(36).substr(2, 5),
-        time_entry_id: timeEntryId,
-        employee_id: employeeId,
-        location_id: locationId,
-        check_in_time: new Date().toISOString(),
-        check_out_time: null,
-        check_in_latitude: lat,
-        check_in_longitude: lon
-    };
-    try { 
-        if (timeEntryId.startsWith('entry_')) throw new Error("Parent is local");
-        const { data, error } = await supabase.from('activity_logs').insert([payload]).select().single(); 
-        if (error) throw error;
-        return data;
-    } catch (e) { 
-        const local = getLocalData<ActivityLog>(LOCAL_ACTIVITY_LOGS_KEY);
-        local.push(payload);
-        saveLocalData(LOCAL_ACTIVITY_LOGS_KEY, local);
-        return payload;
-    } 
-};
-
-export const checkOutOfLocation = async (activityId: string) => { 
-    const outTime = new Date().toISOString();
-    try { 
-        if (activityId.startsWith('act_')) throw new Error("Local activity");
-        const { data, error } = await supabase.from('activity_logs').update({check_out_time: outTime}).eq('activity_id', activityId).select().single(); 
-        if (error) throw error;
-        return data;
-    } catch (e) { 
-        const local = getLocalData<ActivityLog>(LOCAL_ACTIVITY_LOGS_KEY);
-        const idx = local.findIndex(a => a.activity_id === activityId);
-        if (idx !== -1) {
-            local[idx].check_out_time = outTime;
-            saveLocalData(LOCAL_ACTIVITY_LOGS_KEY, local);
-        }
-        return { check_out_time: outTime } as any;
-    } 
-};
+// --- MÉTODOS DE CORRECCIÓN MEJORADOS ---
 
 export const getTimeCorrectionRequests = async () => { 
     try { 
-        const { data } = await supabase.from('time_correction_requests').select('*'); 
+        const { data, error } = await supabase.from('time_correction_requests').select('*'); 
+        if (error) throw error;
         const remote = (data || []) as TimeCorrectionRequest[];
         const local = getLocalData<TimeCorrectionRequest>(LOCAL_CORRECTIONS_KEY);
         
+        // Unir local y remoto evitando duplicados por ID
         const combined = [...local];
         remote.forEach(rr => {
             if (!combined.some(lr => lr.request_id === rr.request_id)) {
@@ -236,10 +42,6 @@ export const getTimeCorrectionRequests = async () => {
     } 
 };
 
-/**
- * Intenta guardar una corrección en Supabase. 
- * Si falla, lanza un error para que el llamador decida si añadirlo a la cola offline.
- */
 export const createTimeCorrectionRequest = async (d: any) => { 
     const payload: TimeCorrectionRequest = {
         request_id: d.request_id || ('req_' + Date.now() + Math.random().toString(36).substr(2, 5)),
@@ -248,105 +50,179 @@ export const createTimeCorrectionRequest = async (d: any) => {
         ...d
     };
     
-    const { data, error } = await supabase.from('time_correction_requests').insert([payload]).select().single(); 
-    if (error) throw error;
-    
-    // Si llegamos aquí, se guardó en Supabase. Limpiamos del local storage si existía
-    const local = getLocalData<TimeCorrectionRequest>(LOCAL_CORRECTIONS_KEY);
-    saveLocalData(LOCAL_CORRECTIONS_KEY, local.filter(req => req.request_id !== payload.request_id));
-    
-    return data;
+    try { 
+        // Intentar subir a Supabase
+        const { error } = await supabase.from('time_correction_requests').insert([payload]); 
+        if (error) throw error;
+        
+        // Si funcionó, nos aseguramos de que no esté en local para no duplicar
+        const local = getLocalData<TimeCorrectionRequest>(LOCAL_CORRECTIONS_KEY);
+        saveLocalData(LOCAL_CORRECTIONS_KEY, local.filter(req => req.request_id !== payload.request_id));
+        
+        return payload;
+    } catch (e) { 
+        // Si hay error de red/servidor, guardamos en local y lanzamos error para que el modal lo gestione
+        const local = getLocalData<TimeCorrectionRequest>(LOCAL_CORRECTIONS_KEY);
+        if (!local.some(r => r.request_id === payload.request_id)) {
+            local.push(payload);
+            saveLocalData(LOCAL_CORRECTIONS_KEY, local);
+        }
+        throw new Error("Offline");
+    } 
 };
 
-export const resolveTimeCorrectionRequest = async (id: string, s: string, r: string) => { 
-    const update = { status: s, reviewed_by: r, reviewed_at: new Date().toISOString() };
-    try { 
-        await supabase.from('time_correction_requests').update(update).eq('request_id', id); 
-        const local = getLocalData<TimeCorrectionRequest>(LOCAL_CORRECTIONS_KEY);
-        const idx = local.findIndex(req => req.request_id === id);
-        if (idx !== -1) {
-            local[idx] = { ...local[idx], ...update as any };
-            saveLocalData(LOCAL_CORRECTIONS_KEY, local);
+/**
+ * Aprobación o Rechazo de una corrección.
+ * Si se aprueba, se modifica/crea el fichaje real en 'time_entries'.
+ */
+export const resolveTimeCorrectionRequest = async (id: string, status: 'approved' | 'rejected', reviewerId: string) => { 
+    try {
+        // 1. Obtener los datos de la solicitud (puede estar en local o remoto)
+        const allRequests = await getTimeCorrectionRequests();
+        const request = allRequests.find(r => r.request_id === id);
+        
+        if (!request) throw new Error("Solicitud no encontrada.");
+
+        const reviewedAt = new Date().toISOString();
+
+        // 2. Si se aprueba, realizar el cambio real en la tabla de fichajes
+        if (status === 'approved') {
+            const dateStr = request.requested_date; // YYYY-MM-DD
+            const clockInISO = `${dateStr}T${request.requested_clock_in}:00Z`;
+            const clockOutISO = request.requested_clock_out ? `${dateStr}T${request.requested_clock_out}:00Z` : null;
+
+            if (request.correction_type === 'create_entry') {
+                // Crear nuevo fichaje
+                await supabase.from('time_entries').insert([{
+                    employee_id: request.employee_id,
+                    clock_in_time: clockInISO,
+                    clock_out_time: clockOutISO,
+                    status: clockOutISO ? 'completed' : 'running',
+                    is_manual: true,
+                    work_type: 'ordinaria',
+                    work_mode: 'presencial'
+                }]);
+            } else if (request.correction_type === 'fix_time' && request.original_entry_id) {
+                // Actualizar fichaje existente
+                const updateData: any = {
+                    clock_in_time: clockInISO,
+                    is_manual: true
+                };
+                if (clockOutISO) {
+                    updateData.clock_out_time = clockOutISO;
+                    updateData.status = 'completed';
+                }
+                await supabase.from('time_entries').update(updateData).eq('entry_id', request.original_entry_id);
+            }
         }
+
+        // 3. Actualizar estado de la solicitud en Supabase
+        await supabase.from('time_correction_requests').update({ 
+            status, 
+            reviewed_by: reviewerId, 
+            reviewed_at: reviewedAt 
+        }).eq('request_id', id);
+
+        // 4. Limpieza Crucial: Borrar de local storage si existía allí
+        const local = getLocalData<TimeCorrectionRequest>(LOCAL_CORRECTIONS_KEY);
+        saveLocalData(LOCAL_CORRECTIONS_KEY, local.filter(req => req.request_id !== id));
+
     } catch (e) {
+        console.error("Error al resolver corrección:", e);
+        // Si falla Supabase, al menos actualizamos el estado en local para que el admin vea que "hizo algo"
         const local = getLocalData<TimeCorrectionRequest>(LOCAL_CORRECTIONS_KEY);
         const idx = local.findIndex(req => req.request_id === id);
         if (idx !== -1) {
-            local[idx] = { ...local[idx], ...update as any };
+            local[idx].status = status;
+            local[idx].reviewed_by = reviewerId;
+            local[idx].reviewed_at = new Date().toISOString();
             saveLocalData(LOCAL_CORRECTIONS_KEY, local);
         }
+        throw e;
     }
 };
 
-// --- MÉTODOS RESTANTES (SIN CAMBIOS) ---
-export const getActivityLogsForTimeEntry = async (id: string) => { try { const { data } = await supabase.from('activity_logs').select('*').eq('time_entry_id', id); const remote = (data || []) as ActivityLog[]; const local = getLocalData<ActivityLog>(LOCAL_ACTIVITY_LOGS_KEY).filter(a => a.time_entry_id === id); const combined = [...local]; remote.forEach(ra => { if (!combined.some(la => la.activity_id === ra.activity_id)) combined.push(ra); }); return combined; } catch { return getLocalData<ActivityLog>(LOCAL_ACTIVITY_LOGS_KEY).filter(a => a.time_entry_id === id); } };
-export const clockOut = async (id: string, l: any, isManual: boolean, t: any) => { const clockOutTime = t || new Date().toISOString(); try { const { data, error } = await supabase.from('time_entries').update({clock_out_time: clockOutTime, status: 'completed'}).eq('entry_id', id).select().single(); if (error) throw error; const local = getLocalData<TimeEntry>(LOCAL_TIME_ENTRIES_KEY); saveLocalData(LOCAL_TIME_ENTRIES_KEY, local.filter(e => e.entry_id !== id)); return data; } catch (e) { const local = getLocalData<TimeEntry>(LOCAL_TIME_ENTRIES_KEY); const idx = local.findIndex(e => e.entry_id === id); if (idx !== -1) { local[idx].clock_out_time = clockOutTime; local[idx].status = 'completed'; saveLocalData(LOCAL_TIME_ENTRIES_KEY, local); } return { status: 'completed' } as any; } };
-export const finishTask = async (logId: string, taskId: string, inventoryUsage: { item_id: string, amount: number }[] = [], employeeId?: string): Promise<TaskTimeLog> => { try { for (const usage of inventoryUsage) { const { data: item } = await supabase.from('inventory_items').select('*').eq('item_id', usage.item_id).single(); if (item) { const newQty = Math.max(0, item.quantity - usage.amount); await supabase.from('inventory_items').update({ quantity: newQty, last_updated: new Date().toISOString() }).eq('item_id', usage.item_id); if (employeeId) await logStockMovement(usage.item_id, -usage.amount, `Consumo en tarea: ${taskId}`, employeeId); } } await supabase.from('tasks').update({ status: 'completed', completed_at: new Date().toISOString() }).eq('task_id', taskId); const { data, error } = await supabase.from('task_time_logs').update({ end_time: new Date().toISOString() }).eq('log_id', logId).select().single(); if (error) throw error; return data; } catch { return { log_id: logId } as any; } };
-export const updateIncident = async (incident: Incident, inventoryUsage: { item_id: string, amount: number }[] = [], employeeId?: string): Promise<Incident> => { try { if (incident.status === 'resolved') { for (const usage of inventoryUsage) { const { data: item } = await supabase.from('inventory_items').select('*').eq('item_id', usage.item_id).single(); if (item) { const newQty = Math.max(0, item.quantity - usage.amount); await supabase.from('inventory_items').update({ quantity: newQty, last_updated: new Date().toISOString() }).eq('item_id', usage.item_id); if (employeeId) await logStockMovement(usage.item_id, -usage.amount, `Repuesto en incidencia: ${incident.incident_id}`, employeeId); } } } const { data, error } = await supabase.from('incidents').update(incident).eq('incident_id', incident.incident_id).select().single(); if (error) throw error; return data; } catch { return incident; } };
-export const logStockMovement = async (itemId: string, changeAmount: number, reason: string, employeeId: string): Promise<void> => { try { await supabase.from('stock_logs').insert([{ item_id: itemId, change_amount: changeAmount, reason, employee_id: employeeId, created_at: new Date().toISOString() }]); } catch {} };
-export const getInventoryItems = async (): Promise<InventoryItem[]> => { try { const { data } = await supabase.from('inventory_items').select('*'); return data || []; } catch { return []; } };
-export const updateInventoryItem = async (data: InventoryItem): Promise<InventoryItem> => { try { const { data: updated } = await supabase.from('inventory_items').update({...data, last_updated: new Date().toISOString()}).eq('item_id', data.item_id).select().single(); return updated || data; } catch { return data; } };
-export const getStockLogs = async (itemId?: string): Promise<StockLog[]> => { try { let q = supabase.from('stock_logs').select('*').order('created_at', { ascending: false }); if (itemId) q = q.eq('item_id', itemId); const { data } = await q; return data || []; } catch { return []; } };
-export const getShiftLog = async (): Promise<ShiftLogEntry[]> => { try { const { data } = await supabase.from('shift_log').select('*').order('created_at', { ascending: false }); return data || []; } catch { return []; } };
-export const getActiveAnnouncement = async () => { try { const { data } = await supabase.from('announcements').select('*').eq('is_active', true).maybeSingle(); return data; } catch { return null; } };
-export const acceptPolicy = async (id: string) => { try { await supabase.from('employees').update({ policy_accepted: true }).eq('employee_id', id); } catch {} };
-export const getWorkShifts = async (s: string, e: string) => { try { const { data } = await supabase.from('work_shifts').select('*').gte('start_time', s).lte('end_time', e); return data || []; } catch { return []; } };
-export const getShiftConfigs = async () => { try { const { data } = await supabase.from('shift_configs').select('*'); return data || []; } catch { return []; } };
-export const getIncidents = async () => { try { const { data } = await supabase.from('incidents').select('*'); return data || []; } catch { return []; } };
-export const getTasks = async () => { try { const { data } = await supabase.from('tasks').select('*'); return data || []; } catch { return []; } };
-export const addTask = async (d: any) => { try { const { data } = await supabase.from('tasks').insert([d]).select().single(); return data; } catch { return d; } };
-export const updateTask = async (d: any) => { try { const { data } = await supabase.from('tasks').update(d).eq('task_id', d.task_id).select().single(); return data; } catch { return d; } };
-export const deleteTask = async (id: string) => { try { await supabase.from('tasks').delete().eq('task_id', id); } catch {} };
-export const addIncident = async (d: any) => { try { const { data } = await supabase.from('incidents').insert([d]).select().single(); return data; } catch { return d; } };
-export const deleteIncident = async (id: string) => { try { await supabase.from('incidents').delete().eq('incident_id', id); } catch {} };
-export const getActiveTaskLogForEmployee = async (id: string) => { try { const { data } = await supabase.from('task_time_logs').select('*').eq('employee_id', id).is('end_time', null).maybeSingle(); return data; } catch { return null; } };
-export const startTask = async (id: string, emp: string, loc: string) => { try { await supabase.from('tasks').update({ status: 'in_progress' }).eq('task_id', id); const { data } = await supabase.from('task_time_logs').insert([{task_id: id, employee_id: emp, start_time: new Date().toISOString(), location_id: loc}]).select().single(); return data; } catch { return { task_id: id } as any; } };
-export const getLostItems = async () => { try { const { data } = await supabase.from('lost_items').select('*'); return data || []; } catch { return []; } };
-export const addLostItem = async (d: any) => { try { const { data } = await supabase.from('lost_items').insert([d]).select().single(); return data; } catch { return d; } };
-export const updateLostItem = async (d: any) => { try { const { data } = await supabase.from('lost_items').update(d).eq('item_id', d.item_id).select().single(); return data; } catch { return d; } };
-export const getMonthlySignature = async (id: string, m: number, y: number) => { try { const { data } = await supabase.from('monthly_signatures').select('*').eq('employee_id', id).eq('month', m).eq('year', y).maybeSingle(); return data; } catch { return null; } };
-export const saveMonthlySignature = async (id: string, m: number, y: number, s: string) => { try { const { data } = await supabase.from('monthly_signatures').insert([{employee_id: id, month: m, year: y, signature_url: s, signed_at: new Date().toISOString()}]).select().single(); return data; } catch { return { signature_id: 'mock' } as any; } };
-export const getEmployeeDocuments = async (id: string) => { try { const { data } = await supabase.from('document_signatures').select('*, document:company_documents(*)').eq('employee_id', id); return data || []; } catch { return []; } };
-export const getMaintenancePlans = async () => { try { const { data } = await supabase.from('maintenance_plans').select('*'); return data || []; } catch { return []; } };
+// --- MÉTODOS DE BASE MANTENIDOS ---
+export const getRoles = async (): Promise<Role[]> => { try { const { data } = await supabase.from('roles').select('*'); return data || []; } catch { return []; } };
+export const getEmployees = async (): Promise<Employee[]> => { try { const { data } = await supabase.from('employees').select('*'); return data || []; } catch { return []; } };
+export const getLocations = async (): Promise<Location[]> => { try { const { data } = await supabase.from('locations').select('*'); return data || []; } catch { return []; } };
+export const getRooms = async (): Promise<Room[]> => { try { const { data } = await supabase.from('rooms').select('*'); return data || []; } catch { return []; } };
+export const updateRoomStatus = async (roomId: string, status: RoomStatus, employeeId?: string): Promise<Room> => { const isClean = status === 'clean'; const now = new Date().toISOString(); const updateData: any = { status, last_cleaned_at: isClean ? now : undefined, last_cleaned_by: isClean ? (employeeId || null) : undefined, is_priority: isClean ? false : undefined }; Object.keys(updateData).forEach(key => updateData[key] === undefined && delete updateData[key]); const { data } = await supabase.from('rooms').update(updateData).eq('room_id', roomId).select().single(); return data; };
+export const getTimeEntriesForEmployee = async (id: string) => { try { const { data } = await supabase.from('time_entries').select('*').eq('employee_id', id).order('clock_in_time', { ascending: false }); return (data || []) as TimeEntry[]; } catch { return []; } };
+export const getAllRunningTimeEntries = async () => { try { const { data } = await supabase.from('time_entries').select('*').eq('status', 'running'); return (data || []) as TimeEntry[]; } catch { return []; } };
+export const getCurrentEstablishmentStatus = async () => { try { const { data } = await supabase.from('activity_logs').select('*').is('check_out_time', null); return (data || []) as ActivityLog[]; } catch { return []; } };
+export const clockIn = async (employeeId: string, locationId: any, lat: any, lon: any, workType: any, workMode: any, deviceData: any, customTime?: string) => { const entryTime = customTime || new Date().toISOString(); const payload = { employee_id: employeeId, clock_in_time: entryTime, clock_in_latitude: lat || null, clock_in_longitude: lon || null, work_type: workType, work_mode: workMode, device_id: deviceData?.deviceId || null, device_info: deviceData?.deviceInfo || null, is_manual: !!customTime, status: 'running' }; const { data } = await supabase.from('time_entries').insert([payload]).select().single(); return data; };
+export const clockOut = async (id: string, l: any, isManual: boolean, t: any) => { const clockOutTime = t || new Date().toISOString(); const { data } = await supabase.from('time_entries').update({clock_out_time: clockOutTime, status: 'completed'}).eq('entry_id', id).select().single(); return data; };
+export const checkInToLocation = async (timeEntryId: string, employeeId: string, locationId: string, lat: number, lon: number) => { const { data } = await supabase.from('activity_logs').insert([{ time_entry_id: timeEntryId, employee_id: employeeId, location_id: locationId, check_in_time: new Date().toISOString(), check_in_latitude: lat, check_in_longitude: lon }]).select().single(); return data; };
+export const checkOutOfLocation = async (activityId: string) => { const { data } = await supabase.from('activity_logs').update({check_out_time: new Date().toISOString()}).eq('activity_id', activityId).select().single(); return data; };
+export const getActivityLogsForTimeEntry = async (id: string) => { const { data } = await supabase.from('activity_logs').select('*').eq('time_entry_id', id); return (data || []) as ActivityLog[]; };
+export const getActiveTaskLogForEmployee = async (id: string) => { const { data } = await supabase.from('task_time_logs').select('*').eq('employee_id', id).is('end_time', null).maybeSingle(); return data; };
+export const startTask = async (id: string, emp: string, loc: string) => { await supabase.from('tasks').update({ status: 'in_progress' }).eq('task_id', id); const { data } = await supabase.from('task_time_logs').insert([{task_id: id, employee_id: emp, start_time: new Date().toISOString(), location_id: loc}]).select().single(); return data; };
+export const finishTask = async (logId: string, taskId: string, inventoryUsage: any[] = [], employeeId?: string) => { await supabase.from('tasks').update({ status: 'completed', completed_at: new Date().toISOString() }).eq('task_id', taskId); const { data } = await supabase.from('task_time_logs').update({ end_time: new Date().toISOString() }).eq('log_id', logId).select().single(); return data; };
+export const getInventoryItems = async (): Promise<InventoryItem[]> => { const { data } = await supabase.from('inventory_items').select('*'); return data || []; };
+// Fix: Added missing addInventoryItem export
+export const addInventoryItem = async (d: any) => { const { data } = await supabase.from('inventory_items').insert([{...d, last_updated: new Date().toISOString()}]).select().single(); return data; };
+export const updateInventoryItem = async (data: InventoryItem): Promise<InventoryItem> => { const { data: updated } = await supabase.from('inventory_items').update({...data, last_updated: new Date().toISOString()}).eq('item_id', data.item_id).select().single(); return updated || data; };
+export const logStockMovement = async (itemId: string, changeAmount: number, reason: string, employeeId: string) => { await supabase.from('stock_logs').insert([{ item_id: itemId, change_amount: changeAmount, reason, employee_id: employeeId, created_at: new Date().toISOString() }]); };
+export const getStockLogs = async (itemId?: string): Promise<StockLog[]> => { let q = supabase.from('stock_logs').select('*').order('created_at', { ascending: false }); if (itemId) q = q.eq('item_id', itemId); const { data } = await q; return data || []; };
+export const getShiftLog = async (): Promise<ShiftLogEntry[]> => { const { data } = await supabase.from('shift_log').select('*').order('created_at', { ascending: false }); return data || []; };
+export const addShiftLogEntry = async (d: any) => { const { data } = await supabase.from('shift_log').insert([d]).select().single(); return data; };
+export const updateShiftLogEntry = async (d: any) => { const { data } = await supabase.from('shift_log').update(d).eq('log_id', d.log_id).select().single(); return data; };
+export const getActiveAnnouncement = async () => { const { data } = await supabase.from('announcements').select('*').eq('is_active', true).maybeSingle(); return data; };
+export const getAnnouncements = async () => { const { data } = await supabase.from('announcements').select('*'); return data || []; };
+export const addAnnouncement = async (d: any) => { const { data } = await supabase.from('announcements').insert([d]).select().single(); return data; };
+export const updateAnnouncement = async (d: any) => { const { data } = await supabase.from('announcements').update(d).eq('announcement_id', d.announcement_id).select().single(); return data; };
+export const deleteAnnouncement = async (id: string) => { await supabase.from('announcements').delete().eq('announcement_id', id); };
+export const getPolicies = async () => { const { data } = await supabase.from('policies').select('*').order('version', { ascending: false }); return data || []; };
+export const acceptPolicy = async (id: string) => { await supabase.from('employees').update({ policy_accepted: true }).eq('employee_id', id); };
+export const getWorkShifts = async (s: string, e: string) => { const { data } = await supabase.from('work_shifts').select('*').gte('start_time', s).lte('end_time', e); return data || []; };
+export const getShiftConfigs = async () => { const { data } = await supabase.from('shift_configs').select('*'); return data || []; };
+export const createWorkShift = async (d: any) => { const { data } = await supabase.from('work_shifts').insert([d]).select().single(); return data; };
+export const updateWorkShift = async (d: any) => { const { data } = await supabase.from('work_shifts').update(d).eq('shift_id', d.shift_id).select().single(); return data; };
+export const deleteWorkShift = async (id: string) => { await supabase.from('work_shifts').delete().eq('shift_id', id); };
+export const createBulkWorkShifts = async (d: any[]) => { await supabase.from('work_shifts').insert(d); };
+export const getIncidents = async () => { const { data } = await supabase.from('incidents').select('*'); return data || []; };
+export const addIncident = async (d: any) => { const { data } = await supabase.from('incidents').insert([d]).select().single(); return data; };
+export const updateIncident = async (d: any) => { const { data } = await supabase.from('incidents').update(d).eq('incident_id', d.incident_id).select().single(); return data; };
+export const deleteIncident = async (id: string) => { await supabase.from('incidents').delete().eq('incident_id', id); };
+export const getTasks = async () => { const { data } = await supabase.from('tasks').select('*'); return data || []; };
+export const addTask = async (d: any) => { const { data } = await supabase.from('tasks').insert([d]).select().single(); return data; };
+export const updateTask = async (d: any) => { const { data } = await supabase.from('tasks').update(d).eq('task_id', d.task_id).select().single(); return data; };
+export const deleteTask = async (id: string) => { await supabase.from('tasks').delete().eq('task_id', id); };
+export const getLostItems = async () => { const { data } = await supabase.from('lost_items').select('*'); return data || []; };
+export const addLostItem = async (d: any) => { const { data } = await supabase.from('lost_items').insert([d]).select().single(); return data; };
+export const updateLostItem = async (d: any) => { const { data } = await supabase.from('lost_items').update(d).eq('item_id', d.item_id).select().single(); return data; };
+export const getMonthlySignature = async (id: string, m: number, y: number) => { const { data } = await supabase.from('monthly_signatures').select('*').eq('employee_id', id).eq('month', m).eq('year', y).maybeSingle(); return data; };
+export const saveMonthlySignature = async (id: string, m: number, y: number, s: string) => { const { data } = await supabase.from('monthly_signatures').insert([{employee_id: id, month: m, year: y, signature_url: s, signed_at: new Date().toISOString()}]).select().single(); return data; };
+export const getEmployeeDocuments = async (id: string) => { const { data } = await supabase.from('document_signatures').select('*, document:company_documents(*)').eq('employee_id', id); return data || []; };
+export const getDocuments = async () => { const { data } = await supabase.from('company_documents').select('*'); return data || []; };
+export const createDocument = async (d: any, ids: string[]) => { const { data } = await supabase.from('company_documents').insert([d]).select().single(); const sigs = ids.map(id => ({ document_id: data.document_id, employee_id: id, status: 'pending' })); await supabase.from('document_signatures').insert(sigs); };
+export const signDocument = async (id: string, s: string) => { await supabase.from('document_signatures').update({status: 'signed', signature_url: s, signed_at: new Date().toISOString()}).eq('id', id); };
+export const markDocumentAsViewed = async (id: string) => { await supabase.from('document_signatures').update({status: 'viewed', viewed_at: new Date().toISOString()}).eq('id', id); };
+export const getDocumentSignatures = async (id: string) => { const { data } = await supabase.from('document_signatures').select('*').eq('document_id', id); return data || []; };
+export const getMaintenancePlans = async () => { const { data } = await supabase.from('maintenance_plans').select('*'); return data || []; };
+export const addMaintenancePlan = async (d: any) => { const { data } = await supabase.from('maintenance_plans').insert([d]).select().single(); return data; };
+export const updateMaintenancePlan = async (d: any) => { const { data } = await supabase.from('maintenance_plans').update(d).eq('plan_id', d.plan_id).select().single(); return data; };
+export const deleteMaintenancePlan = async (id: string) => { await supabase.from('maintenance_plans').delete().eq('plan_id', id); };
+export const getBreaksForTimeEntry = async (id: string) => { const { data } = await supabase.from('break_logs').select('*').eq('time_entry_id', id); return data || []; };
+export const getBreaksForTimeEntries = async (ids: string[]) => { const { data } = await supabase.from('break_logs').select('*').in('time_entry_id', ids); return data || []; };
+export const startBreak = async (t: string, b: string) => { const { data } = await supabase.from('break_logs').insert([{time_entry_id: t, break_type: b, start_time: new Date().toISOString()}]).select().single(); return data; };
+export const endBreak = async (id: string) => { const { data } = await supabase.from('break_logs').update({end_time: new Date().toISOString()}).eq('break_id', id).select().single(); return data; };
+export const getTimeOffRequests = async () => { const { data } = await supabase.from('time_off_requests').select('*'); return data || []; };
+export const createTimeOffRequest = async (d: any) => { const { data } = await supabase.from('time_off_requests').insert([d]).select().single(); return data; };
+export const updateTimeOffRequestStatus = async (id: string, s: string, r: string) => { await supabase.from('time_off_requests').update({status: s, reviewed_by: r, reviewed_at: new Date().toISOString()}).eq('request_id', id); };
+export const addEmployee = async (d: any) => { const { data } = await supabase.from('employees').insert([d]).select().single(); return data; };
+export const updateEmployee = async (d: any) => { const { data } = await supabase.from('employees').update(d).eq('employee_id', d.employee_id).select().single(); return data; };
+export const deleteEmployee = async (id: string) => { await supabase.from('employees').delete().eq('employee_id', id); };
+export const addLocation = async (d: any) => { const { data } = await supabase.from('locations').insert([d]).select().single(); return data; };
+export const updateLocation = async (d: any) => { const { data } = await supabase.from('locations').update(d).eq('location_id', d.location_id).select().single(); return data; };
+export const deleteLocation = async (id: string) => { await supabase.from('locations').delete().eq('location_id', id); };
+export const updateRole = async (d: any) => { const { data } = await supabase.from('roles').update(d).eq('role_id', d.role_id).select().single(); return data; };
+export const addShiftConfig = async (d: any) => { const { data } = await supabase.from('shift_configs').insert([d]).select().single(); return data; };
+export const updateShiftConfig = async (d: any) => { const { data } = await supabase.from('shift_configs').update(d).eq('config_id', d.config_id).select().single(); return data; };
+export const deleteShiftConfig = async (id: string) => { await supabase.from('shift_configs').delete().eq('config_id', id); };
+export const addRoom = async (d: any) => { const { data } = await supabase.from('rooms').insert([d]).select().single(); return data; };
+export const updateRoom = async (d: any) => { const { data } = await supabase.from('rooms').update(d).eq('room_id', d.room_id).select().single(); return data; };
+export const deleteRoom = async (id: string) => { await supabase.from('rooms').delete().eq('room_id', id); };
+export const logAccessAttempt = async (d: any) => { await supabase.from('access_logs').insert([d]); };
 export const checkAndGenerateMaintenanceTasks = async () => {};
-export const getBreaksForTimeEntry = async (id: string) => { try { const { data } = await supabase.from('break_logs').select('*').eq('time_entry_id', id); return data || []; } catch { return []; } };
-export const logAccessAttempt = async (d: any) => { try { await supabase.from('access_logs').insert([d]); } catch {} };
-export const startBreak = async (t: string, b: string) => { try { const { data } = await supabase.from('break_logs').insert([{time_entry_id: t, break_type: b, start_time: new Date().toISOString()}]).select().single(); return data; } catch { return {} as any; } };
-export const endBreak = async (id: string) => { try { const { data } = await supabase.from('break_logs').update({end_time: new Date().toISOString()}).eq('break_id', id).select().single(); return data; } catch { return {} as any; } };
-export const updateEmployee = async (d: any) => { try { const { data } = await supabase.from('employees').update(d).eq('employee_id', d.employee_id).select().single(); return data; } catch { return d; } };
-export const getPolicies = async () => { try { const { data } = await supabase.from('policies').select('*').order('version', { ascending: false }); return data || []; } catch { return []; } };
-export const addShiftLogEntry = async (d: any) => { try { const { data } = await supabase.from('shift_log').insert([d]).select().single(); return data; } catch { return d; } };
-export const updateShiftLogEntry = async (d: any) => { try { const { data } = await supabase.from('shift_log').update(d).eq('log_id', d.log_id).select().single(); return data; } catch { return d; } };
-export const getAnnouncements = async () => { try { const { data } = await supabase.from('announcements').select('*'); return data || []; } catch { return []; } };
-export const addAnnouncement = async (d: any) => { try { const { data } = await supabase.from('announcements').insert([d]).select().single(); return data; } catch { return d; } };
-export const updateAnnouncement = async (d: any) => { try { const { data } = await supabase.from('announcements').update(d).eq('announcement_id', d.announcement_id).select().single(); return data; } catch { return d; } };
-export const deleteAnnouncement = async (id: string) => { try { await supabase.from('announcements').delete().eq('announcement_id', id); } catch {} };
-export const getBreaksForTimeEntries = async (ids: string[]) => { try { const { data } = await supabase.from('break_logs').select('*').in('time_entry_id', ids); return data || []; } catch { return []; } };
-export const createTimeOffRequest = async (d: any) => { try { const { data } = await supabase.from('time_off_requests').insert([d]).select().single(); return data; } catch { return d; } };
-export const getTimeOffRequests = async () => { try { const { data } = await supabase.from('time_off_requests').select('*'); return data || []; } catch { return []; } };
-export const updateTimeOffRequestStatus = async (id: string, s: string, r: string) => { try { await supabase.from('time_off_requests').update({status: s, reviewed_by: r, reviewed_at: new Date().toISOString()}).eq('request_id', id); } catch {} };
-export const createWorkShift = async (d: any) => { try { const { data } = await supabase.from('work_shifts').insert([d]).select().single(); return data; } catch { return d; } };
-export const updateWorkShift = async (d: any) => { try { const { data } = await supabase.from('work_shifts').update(d).eq('shift_id', d.shift_id).select().single(); return data; } catch { return d; } };
-export const deleteWorkShift = async (id: string) => { try { await supabase.from('work_shifts').delete().eq('shift_id', id); } catch {} };
-export const createBulkWorkShifts = async (d: any[]) => { try { await supabase.from('work_shifts').insert(d); } catch {} };
-export const getDocuments = async () => { try { const { data } = await supabase.from('company_documents').select('*'); return data || []; } catch { return []; } };
-export const createDocument = async (d: any, ids: string[]) => { try { const { data } = await supabase.from('company_documents').insert([d]).select().single(); const sigs = ids.map(id => ({ document_id: data.document_id, employee_id: id, status: 'pending' })); await supabase.from('document_signatures').insert(sigs); } catch {} };
-export const signDocument = async (id: string, s: string) => { try { await supabase.from('document_signatures').update({status: 'signed', signature_url: s, signed_at: new Date().toISOString()}).eq('id', id); } catch {} };
-export const markDocumentAsViewed = async (id: string) => { try { await supabase.from('document_signatures').update({status: 'viewed', viewed_at: new Date().toISOString()}).eq('id', id); } catch {} };
-export const getDocumentSignatures = async (id: string) => { try { const { data } = await supabase.from('document_signatures').select('*').eq('document_id', id); return data || []; } catch { return []; } };
-export const addMaintenancePlan = async (d: any) => { try { const { data } = await supabase.from('maintenance_plans').insert([d]).select().single(); return data; } catch { return d; } };
-export const updateMaintenancePlan = async (d: any) => { try { const { data } = await supabase.from('maintenance_plans').update(d).eq('plan_id', d.plan_id).select().single(); return data; } catch { return d; } };
-export const deleteMaintenancePlan = async (id: string) => { try { await supabase.from('maintenance_plans').delete().eq('plan_id', id); } catch {} };
-export const addInventoryItem = async (d: any) => { try { const { data } = await supabase.from('inventory_items').insert([d]).select().single(); return data; } catch { return d; } };
-export const addEmployee = async (d: any) => { try { const { data } = await supabase.from('employees').insert([d]).select().single(); return data; } catch { return d; } };
-export const deleteEmployee = async (id: string) => { try { await supabase.from('employees').delete().eq('employee_id', id); } catch {} };
-export const addLocation = async (d: any) => { try { const { data } = await supabase.from('locations').insert([d]).select().single(); return data; } catch { return d; } };
-export const updateLocation = async (d: any) => { try { const { data } = await supabase.from('locations').update(d).eq('location_id', d.location_id).select().single(); return data; } catch { return d; } };
-export const deleteLocation = async (id: string) => { try { await supabase.from('locations').delete().eq('location_id', id); } catch {} };
-export const updateRole = async (d: any) => { try { const { data } = await supabase.from('roles').update(d).eq('role_id', d.role_id).select().single(); return data; } catch { return d; } };
-export const addShiftConfig = async (d: any) => { try { const { data } = await supabase.from('shift_configs').insert([d]).select().single(); return data; } catch { return d; } };
-export const updateShiftConfig = async (d: any) => { try { const { data } = await supabase.from('shift_configs').update(d).eq('config_id', d.config_id).select().single(); return data; } catch { return d; } };
-export const deleteShiftConfig = async (id: string) => { try { await supabase.from('shift_configs').delete().eq('config_id', id); } catch {} };
-export const addRoom = async (d: any) => { try { const { data } = await supabase.from('rooms').insert([d]).select().single(); return data; } catch { return d; } };
-export const updateRoom = async (d: any) => { try { const { data } = await supabase.from('rooms').update(d).eq('room_id', d.room_id).select().single(); return data; } catch { return d; } };
-export const deleteRoom = async (id: string) => { try { await supabase.from('rooms').delete().eq('room_id', id); } catch {} };

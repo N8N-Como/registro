@@ -65,16 +65,13 @@ const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({ isOpen, onClo
             alert("Solicitud enviada correctamente.");
             onClose();
         } catch (error) {
-            console.warn("Fallo al enviar a Supabase, guardando en cola offline...");
-            // Guardamos localmente para que aparezca en el panel de admin si es el mismo dispositivo
-            const local = JSON.parse(localStorage.getItem('local_time_corrections') || '[]');
-            local.push(payload);
-            localStorage.setItem('local_time_corrections', JSON.stringify(local));
-            
-            // Añadimos a la cola de sincronización para que se suba sola al tener red
-            addToQueue('ADD_CORRECTION', payload);
-            
-            alert("No hay conexión con el servidor. La solicitud se ha guardado en tu dispositivo y se enviará automáticamente cuando recuperes la conexión.");
+            // Solo avisamos si es un error real de red, no un error de lógica
+            if (error instanceof Error && error.message === "Offline") {
+                addToQueue('ADD_CORRECTION', payload);
+                alert("La solicitud se ha guardado localmente y se sincronizará automáticamente.");
+            } else {
+                alert("Hubo un problema al procesar la solicitud. Por favor, reintenta.");
+            }
             onClose();
         } finally {
             setIsSubmitting(false);
