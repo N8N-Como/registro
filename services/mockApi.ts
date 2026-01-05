@@ -221,12 +221,19 @@ export const getTimeCorrectionRequests = async () => {
     try { 
         const { data } = await supabase.from('time_correction_requests').select('*'); 
         const remote = (data || []) as TimeCorrectionRequest[];
+        // IMPORTANTE: Asegurar que cogemos TODAS las correcciones locales del dispositivo
         const local = getLocalData<TimeCorrectionRequest>(LOCAL_CORRECTIONS_KEY);
+        
         const combined = [...local];
         remote.forEach(rr => {
-            if (!combined.some(lr => lr.request_id === rr.request_id)) combined.push(rr);
+            // Evitar duplicados si una local ya se subió pero sigue en caché
+            if (!combined.some(lr => lr.request_id === rr.request_id)) {
+                combined.push(rr);
+            }
         });
-        return combined;
+        
+        // Ordenar por fecha de creación descendente (más nuevas primero)
+        return combined.sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     } catch { 
         return getLocalData<TimeCorrectionRequest>(LOCAL_CORRECTIONS_KEY); 
     } 
@@ -236,17 +243,21 @@ export const createTimeCorrectionRequest = async (d: any) => {
     const payload: TimeCorrectionRequest = {
         request_id: 'req_' + Date.now() + Math.random().toString(36).substr(2, 5),
         created_at: new Date().toISOString(),
-        status: 'pending',
+        status: d.status || 'pending',
         ...d
     };
+    
+    // Siempre guardar localmente primero para visibilidad inmediata del usuario/admin en el mismo dispositivo
+    const local = getLocalData<TimeCorrectionRequest>(LOCAL_CORRECTIONS_KEY);
+    local.push(payload);
+    saveLocalData(LOCAL_CORRECTIONS_KEY, local);
+
     try { 
         const { data, error } = await supabase.from('time_correction_requests').insert([payload]).select().single(); 
         if (error) throw error;
         return data;
     } catch (e) { 
-        const local = getLocalData<TimeCorrectionRequest>(LOCAL_CORRECTIONS_KEY);
-        local.push(payload);
-        saveLocalData(LOCAL_CORRECTIONS_KEY, local);
+        console.warn("Corrección guardada solo localmente por ahora.");
         addToQueue('ADD_CORRECTION', payload);
         return payload;
     } 
