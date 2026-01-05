@@ -41,32 +41,45 @@ export const getTimeCorrectionRequests = async () => {
 };
 
 export const createTimeCorrectionRequest = async (d: any) => { 
-    // Asegurar que los campos no sean vacíos para cumplir restricciones DB
+    // Saneamiento crítico: Asegurar que los campos requeridos por la DB nunca sean nulos/vacíos
     const payload = {
         request_id: d.request_id || ('req_' + Date.now() + Math.random().toString(36).substr(2, 5)),
         created_at: d.created_at || new Date().toISOString(),
         status: d.status || 'pending',
-        requested_clock_in: d.requested_clock_in || '00:00',
-        requested_clock_out: d.requested_clock_out || '00:00',
-        ...d
+        requested_clock_in: (d.requested_clock_in && d.requested_clock_in !== '') ? d.requested_clock_in : '00:00',
+        requested_clock_out: (d.requested_clock_out && d.requested_clock_out !== '') ? d.requested_clock_out : '00:00',
+        employee_id: d.employee_id,
+        original_entry_id: d.original_entry_id || null,
+        correction_type: d.correction_type,
+        requested_date: d.requested_date,
+        reason: d.reason || 'Sin motivo especificado'
     };
     
     try { 
         const { error, status } = await supabase.from('time_correction_requests').insert([payload]); 
+        
         if (error) {
-            // Si el error es de formato o restricción (400), lo relanzamos con status para el OfflineManager
-            const customErr = new Error(error.message);
-            (customErr as any).status = status;
-            throw customErr;
+            // Si el error es de base de datos (Postgres code 22P02 o similar) o un 400, NO es un error de conexión
+            if (error.code?.startsWith('2') || (status && status >= 400 && status < 500)) {
+                const dataError = new Error(error.message);
+                (dataError as any).status = status || 400;
+                (dataError as any).code = error.code;
+                throw dataError;
+            }
+            throw error; // Otros errores irán al catch general como posibles fallos de red
         }
         
+        // Limpiar de local si se envió con éxito
         const local = getLocalData<TimeCorrectionRequest>(LOCAL_CORRECTIONS_KEY);
         saveLocalData(LOCAL_CORRECTIONS_KEY, local.filter(req => req.request_id !== payload.request_id));
         
         return payload;
     } catch (e: any) { 
+        // Si ya trae un status 4xx o código de Postgres, es un error de DATOS, no de RED.
         if (e.status && e.status >= 400 && e.status < 500) throw e;
+        if (e.code?.startsWith('2')) throw e;
 
+        // Si llegamos aquí, asumimos fallo de red y guardamos para modo offline
         const local = getLocalData<TimeCorrectionRequest>(LOCAL_CORRECTIONS_KEY);
         if (!local.some(r => r.request_id === payload.request_id)) {
             local.push(payload);
@@ -88,9 +101,8 @@ export const resolveTimeCorrectionRequest = async (id: string, status: 'approved
             
             if (request.correction_type === 'create_entry') {
                 const clockInISO = `${dateStr}T${request.requested_clock_in}:00Z`;
-                // Si clock_out es '00:00' o vacío, lo creamos como null (registro en curso)
-                const isExitSet = request.requested_clock_out && request.requested_clock_out !== '00:00';
-                const clockOutISO = isExitSet ? `${dateStr}T${request.requested_clock_out}:00Z` : null;
+                const isExitValid = request.requested_clock_out && request.requested_clock_out !== '00:00' && request.requested_clock_out !== '';
+                const clockOutISO = isExitValid ? `${dateStr}T${request.requested_clock_out}:00Z` : null;
 
                 await supabase.from('time_entries').insert([{
                     employee_id: request.employee_id,
@@ -108,7 +120,7 @@ export const resolveTimeCorrectionRequest = async (id: string, status: 'approved
                     updateData.clock_in_time = `${dateStr}T${request.requested_clock_in}:00Z`;
                 }
                 
-                if (request.requested_clock_out && request.requested_clock_out !== '00:00') {
+                if (request.requested_clock_out && request.requested_clock_out !== '00:00' && request.requested_clock_out !== '') {
                     updateData.clock_out_time = `${dateStr}T${request.requested_clock_out}:00Z`;
                     updateData.status = 'completed';
                 }

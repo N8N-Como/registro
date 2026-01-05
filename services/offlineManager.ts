@@ -105,22 +105,29 @@ export const processQueue = async (): Promise<boolean> => {
                     await checkOutOfLocation(action.payload.activityId);
                     break;
                 case 'ADD_CORRECTION':
-                    // Limpieza preventiva de datos antes de reintento
-                    if (!action.payload.requested_clock_in) action.payload.requested_clock_in = '00:00';
-                    if (!action.payload.requested_clock_out) action.payload.requested_clock_out = '00:00';
-                    await createTimeCorrectionRequest(action.payload);
+                    // Limpieza preventiva de datos antes de reintento en caso de que vinieran corruptos
+                    const cleanPayload = { ...action.payload };
+                    if (!cleanPayload.requested_clock_in || cleanPayload.requested_clock_in === '') cleanPayload.requested_clock_in = '00:00';
+                    if (!cleanPayload.requested_clock_out || cleanPayload.requested_clock_out === '') cleanPayload.requested_clock_out = '00:00';
+                    await createTimeCorrectionRequest(cleanPayload);
                     break;
             }
             removeFromQueue(action.id);
         } catch (error: any) {
             console.error(`[OfflineManager] Failed to process action ${action.type}`, error);
             
-            // SI EL ERROR ES 400 o similar (Datos inválidos), lo quitamos de la cola porque nunca funcionará
-            if (error.status >= 400 && error.status < 500) {
-                console.warn(`[OfflineManager] Permanent error detected. Removing item from queue.`);
+            // DETECCIÓN DE ERROR PERMANENTE:
+            // Si el error tiene un status de la familia 400 (Bad Request) o es un código de error de Postgres (familia 22 o 23)
+            // significa que el dato está mal formado y NUNCA se sincronizará. Debemos quitarlo de la cola para no bloquear el sistema.
+            const isDataError = (error.status && error.status >= 400 && error.status < 500) || 
+                               (error.code && error.code.startsWith('22')) ||
+                               (error.code && error.code.startsWith('23'));
+
+            if (isDataError) {
+                console.warn(`[OfflineManager] Permanent data error detected. Removing item from queue to prevent block.`);
                 removeFromQueue(action.id);
             } else {
-                // Si es error de red, lo dejamos para el siguiente ciclo
+                // Si parece un error de red (no hay status o es 5xx), lo dejamos para el siguiente ciclo
                 allSuccess = false;
             }
         }
