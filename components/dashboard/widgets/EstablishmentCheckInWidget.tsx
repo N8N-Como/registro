@@ -5,6 +5,7 @@ import { Employee, Location } from '../../../types';
 import Card from '../../shared/Card';
 import Spinner from '../../shared/Spinner';
 import { LocationIcon, CarIcon } from '../../icons';
+import { formatDuration } from '../../../utils/helpers';
 
 interface ClockedInEmployee extends Employee {
     locationName: string;

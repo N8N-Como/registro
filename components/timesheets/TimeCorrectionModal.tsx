@@ -25,7 +25,7 @@ const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({ isOpen, onClo
     const getCorrectionType = () => {
         if (errorType === 'entry') return existingEntryId ? 'fix_time' : 'create_entry';
         if (errorType === 'exit') return 'fix_time';
-        return 'fix_time'; // Breaks are handled as generic fixes for now in mock
+        return 'fix_time'; 
     };
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -37,33 +37,29 @@ const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({ isOpen, onClo
 
         setIsSubmitting(true);
         try {
-            // Construct payload based on type
             const payload: any = {
                 employee_id: employeeId,
                 original_entry_id: existingEntryId,
                 correction_type: getCorrectionType(),
                 requested_date: date,
-                reason: `[${errorType.toUpperCase()}] ${reason}`
+                reason: `[${errorType.toUpperCase()}] ${reason}`,
+                status: 'pending',
+                created_at: new Date().toISOString()
             };
 
             if (errorType === 'entry') {
                 payload.requested_clock_in = time;
             } else if (errorType === 'exit') {
                 payload.requested_clock_out = time;
-                // Need to send existing clock_in if possible, but backend handles merge or we assume partial update.
-                // For simplified mock, we send requested_clock_in as a dummy or handle in backend logic.
-                // To keep it simple: we send the specific time in 'requested_clock_in' field but tag it in reason, 
-                // or we use the flexible structure.
-                // Let's use the 'reason' to carry the specific instruction for the Admin in this version.
+                payload.requested_clock_in = "N/A"; // Evitar null en DB
             } else if (errorType === 'break') {
-                // For breaks, we just send a request description
                 payload.correction_type = 'fix_time'; 
-                payload.requested_clock_in = '00:00'; // Dummy
+                payload.requested_clock_in = '00:00'; 
                 payload.reason = `[PAUSA INCORRECTA] Hora correcta: ${time}. Detalle: ${reason}`;
             }
 
             await createTimeCorrectionRequest(payload);
-            alert("Solicitud enviada al administrador.");
+            alert("Solicitud enviada correctamente.");
             onClose();
         } catch (error) {
             alert("Error al enviar la solicitud.");
@@ -80,21 +76,21 @@ const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({ isOpen, onClo
                 </div>
 
                 <div>
-                    <label className="block text-sm font-medium text-gray-700">Tipo de Error</label>
+                    <label className="block text-sm font-medium text-gray-700">¿Qué quieres corregir?</label>
                     <div className="mt-1 grid grid-cols-3 gap-2">
                         <button
                             type="button"
                             onClick={() => setErrorType('entry')}
                             className={`py-2 px-1 text-xs sm:text-sm font-medium rounded border ${errorType === 'entry' ? 'bg-primary text-white border-primary' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
                         >
-                            Entrada
+                            Hora Entrada
                         </button>
                         <button
                             type="button"
                             onClick={() => setErrorType('exit')}
                             className={`py-2 px-1 text-xs sm:text-sm font-medium rounded border ${errorType === 'exit' ? 'bg-primary text-white border-primary' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
                         >
-                            Salida
+                            Hora Salida
                         </button>
                         <button
                             type="button"
@@ -107,7 +103,7 @@ const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({ isOpen, onClo
                 </div>
 
                 <div>
-                    <label className="block text-sm font-medium text-gray-700">Fecha del Incidente</label>
+                    <label className="block text-sm font-medium text-gray-700">Fecha del Error</label>
                     <input 
                         type="date" 
                         value={date} 
@@ -119,7 +115,7 @@ const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({ isOpen, onClo
 
                 <div>
                     <label className="block text-sm font-medium text-gray-700">
-                        {errorType === 'break' ? 'Hora Inicio/Fin Real de la Pausa' : `Hora Real de ${errorType === 'entry' ? 'Entrada' : 'Salida'}`}
+                        {errorType === 'break' ? 'Hora Real (Inicio o Fin)' : `Hora Real de ${errorType === 'entry' ? 'Entrada' : 'Salida'}`}
                     </label>
                     <input 
                         type="time" 
@@ -128,17 +124,16 @@ const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({ isOpen, onClo
                         className="mt-1 block w-full rounded-md border-gray-300 shadow-sm"
                         required
                     />
-                    {errorType === 'break' && <p className="text-xs text-gray-500 mt-1">Si hubo error en inicio y fin, indícalo en el motivo.</p>}
                 </div>
 
                 <div>
-                    <label className="block text-sm font-medium text-gray-700">Motivo y Detalles (Obligatorio)</label>
+                    <label className="block text-sm font-medium text-gray-700">Explicación del Motivo</label>
                     <textarea 
                         value={reason} 
                         onChange={(e) => setReason(e.target.value)}
                         className="mt-1 block w-full rounded-md border-gray-300 shadow-sm"
                         rows={3}
-                        placeholder={errorType === 'break' ? "Ej: Fichada de comida marcada a las 14:00 pero salí a las 14:30." : "Ej: Se me olvidó el móvil en el coche..."}
+                        placeholder="Ej: Olvidé el móvil, el GPS no me detectó, etc."
                         required
                     />
                 </div>

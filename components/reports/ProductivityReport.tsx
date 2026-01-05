@@ -1,19 +1,20 @@
 
 import React, { useState, useEffect } from 'react';
 import { getEmployees, getLocations, getTimeEntriesForEmployee, getActivityLogsForTimeEntry } from '../../services/mockApi';
-import { Employee, Location } from '../../types';
+import { Employee, Location, TimeEntry, ActivityLog } from '../../types';
 import Spinner from '../shared/Spinner';
 import Card from '../shared/Card';
 import { formatDuration } from '../../utils/helpers';
+import { CarIcon, BuildingIcon } from '../icons';
 import Button from '../shared/Button';
 
 interface ProductivityData {
     employeeId: string;
     employeeName: string;
     date: string;
-    totalWorkTime: number; 
-    locationTime: number; 
-    travelTime: number; 
+    totalWorkTime: number; // ms
+    locationTime: number; // ms
+    travelTime: number; // ms (Total - Location)
     visits: {
         locationName: string;
         duration: number;
@@ -63,6 +64,7 @@ const ProductivityReport: React.FC = () => {
             const results: ProductivityData[] = [];
 
             for (const emp of employees) {
+                // Get Workdays (Time Entries)
                 const entries = await getTimeEntriesForEmployee(emp.employee_id);
                 const relevantEntries = entries.filter(e => {
                     const d = new Date(e.clock_in_time);
@@ -71,6 +73,8 @@ const ProductivityReport: React.FC = () => {
 
                 for (const entry of relevantEntries) {
                     const totalWorkTime = new Date(entry.clock_out_time!).getTime() - new Date(entry.clock_in_time).getTime();
+                    
+                    // Get Locations (Activity Logs) within this workday
                     const logs = await getActivityLogsForTimeEntry(entry.entry_id);
                     const completedLogs = logs.filter(l => l.check_out_time);
                     
@@ -87,6 +91,9 @@ const ProductivityReport: React.FC = () => {
                         };
                     });
 
+                    // Logic: Travel Time is the gap. 
+                    // However, sometimes Travel Time can be negative if logs overlap (shouldn't happen) or 0 if data is perfect.
+                    // We ensure it's not negative.
                     const travelTime = Math.max(0, totalWorkTime - locationTime);
 
                     results.push({
@@ -100,10 +107,13 @@ const ProductivityReport: React.FC = () => {
                     });
                 }
             }
+            
+            // Sort by date desc, then employee
             results.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
             setReportData(results);
+
         } catch (error) {
-            console.error(error);
+            console.error("Error generating productivity report", error);
         } finally {
             setIsGenerating(false);
         }
@@ -144,24 +154,70 @@ const ProductivityReport: React.FC = () => {
                                         <p className="font-bold text-lg">{formatDuration(row.totalWorkTime)}</p>
                                     </div>
                                     <div className="text-center">
-                                        <p className="text-blue-600 uppercase text-xs">Establecimientos</p>
+                                        <p className="text-blue-600 uppercase text-xs">En Establecimientos</p>
                                         <p className="font-bold text-lg text-blue-700">{formatDuration(row.locationTime)}</p>
                                     </div>
                                     <div className="text-center">
-                                        <p className="text-orange-600 uppercase text-xs">Trayecto</p>
+                                        <p className="text-orange-600 uppercase text-xs">En Trayecto</p>
                                         <p className="font-bold text-lg text-orange-700">{formatDuration(row.travelTime)}</p>
                                     </div>
                                 </div>
                             </div>
+                            
+                            {/* Visual Bar */}
                             <div className="w-full h-4 bg-gray-200 rounded-full flex overflow-hidden mb-4">
-                                <div className="bg-blue-500 h-full" style={{ width: `${(row.locationTime / row.totalWorkTime) * 100}%` }}></div>
-                                <div className="bg-orange-400 h-full" style={{ width: `${(row.travelTime / row.totalWorkTime) * 100}%` }}></div>
+                                <div 
+                                    className="bg-blue-500 h-full" 
+                                    style={{ width: `${(row.locationTime / row.totalWorkTime) * 100}%` }}
+                                    title="Tiempo en Establecimientos"
+                                ></div>
+                                <div 
+                                    className="bg-orange-400 h-full" 
+                                    style={{ width: `${(row.travelTime / row.totalWorkTime) * 100}%` }}
+                                    title="Tiempo en Trayecto"
+                                ></div>
+                            </div>
+
+                            {/* Details */}
+                            <div className="bg-gray-50 p-3 rounded-md">
+                                <h4 className="text-xs font-bold text-gray-500 uppercase mb-2">Detalle de Visitas</h4>
+                                {row.visits.length > 0 ? (
+                                    <ul className="space-y-2">
+                                        {row.visits.map((visit, vIdx) => (
+                                            <li key={vIdx} className="flex justify-between items-center text-sm border-b border-gray-200 pb-1 last:border-0">
+                                                <div className="flex items-center">
+                                                    <BuildingIcon className="w-4 h-4 text-blue-500 mr-2" />
+                                                    <span>{visit.locationName}</span>
+                                                    <span className="text-gray-400 text-xs ml-2">
+                                                        ({new Date(visit.startTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - 
+                                                         {new Date(visit.endTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})})
+                                                    </span>
+                                                </div>
+                                                <span className="font-medium">{formatDuration(visit.duration)}</span>
+                                            </li>
+                                        ))}
+                                        <li className="flex justify-between items-center text-sm pt-1 text-orange-700">
+                                            <div className="flex items-center">
+                                                <CarIcon className="w-4 h-4 mr-2" />
+                                                <span>Tiempo total en desplazamientos</span>
+                                            </div>
+                                            <span className="font-medium">{formatDuration(row.travelTime)}</span>
+                                        </li>
+                                    </ul>
+                                ) : (
+                                    <p className="text-sm text-gray-500 italic">Sin visitas registradas (Todo el tiempo consta como trayecto o base).</p>
+                                )}
                             </div>
                         </Card>
                     ))}
                 </div>
             )}
-            {isGenerating && <div className="flex justify-center p-8"><Spinner /></div>}
+            
+            {isGenerating && !reportData.length && (
+                <div className="flex justify-center p-8">
+                    <Spinner />
+                </div>
+            )}
         </div>
     );
 };

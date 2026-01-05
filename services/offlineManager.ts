@@ -3,7 +3,11 @@ import {
     clockIn, 
     clockOut, 
     checkInToLocation, 
-    checkOutOfLocation
+    checkOutOfLocation, 
+    startTask, 
+    finishTask,
+    addIncident,
+    createTimeCorrectionRequest
 } from './mockApi';
 
 export type OfflineActionType = 
@@ -13,7 +17,8 @@ export type OfflineActionType =
     | 'CHECK_OUT_LOCATION'
     | 'START_TASK'
     | 'FINISH_TASK'
-    | 'ADD_INCIDENT';
+    | 'ADD_INCIDENT'
+    | 'ADD_CORRECTION';
 
 export interface OfflineAction {
     id: string;
@@ -77,7 +82,7 @@ export const processQueue = async (): Promise<boolean> => {
                         action.payload.workType,
                         action.payload.workMode,
                         action.payload.deviceData, 
-                        action.payload.customTime  
+                        action.payload.customTime 
                     );
                     break;
                 case 'CLOCK_OUT':
@@ -94,6 +99,9 @@ export const processQueue = async (): Promise<boolean> => {
                     break;
                 case 'CHECK_OUT_LOCATION':
                     await checkOutOfLocation(action.payload.activityId);
+                    break;
+                case 'ADD_CORRECTION':
+                    await createTimeCorrectionRequest(action.payload);
                     break;
             }
             removeFromQueue(action.id);

@@ -6,7 +6,7 @@ import Spinner from '../shared/Spinner';
 import { identifyPayrollPages, PayrollMapping } from '../../services/geminiService';
 import { Employee } from '../../types';
 import { blobToBase64 } from '../../utils/helpers';
-import { DocumentIcon, CheckIcon } from '../icons';
+import { DocumentIcon, CheckIcon, XMarkIcon } from '../icons';
 
 interface PayrollSplitterModalProps {
     isOpen: boolean;

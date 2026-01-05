@@ -6,11 +6,12 @@ import { CompanyDocument, Employee, DocumentSignature } from '../../types';
 import Card from '../shared/Card';
 import Button from '../shared/Button';
 import Spinner from '../shared/Spinner';
-import { DocumentIcon, PaperClipIcon, SparklesIcon } from '../icons';
+import { DocumentIcon, PaperClipIcon, CheckIcon, SparklesIcon } from '../icons';
 import DocumentUploadModal from './DocumentUploadModal';
 import SignDocumentModal from './SignDocumentModal';
 import PayrollSplitterModal from './PayrollSplitterModal';
-import { PayrollMapping } from '../../services/geminiService';
+import AIAssistant, { InputMode } from '../shared/AIAssistant';
+import { AIResponse, PayrollMapping } from '../../services/geminiService';
 
 const DocumentsView: React.FC = () => {
     const auth = useContext(AuthContext);

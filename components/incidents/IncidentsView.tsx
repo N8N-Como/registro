@@ -191,6 +191,7 @@ const IncidentsView: React.FC = () => {
                         incident={selectedIncident}
                         locations={locations}
                         employees={employees}
+                        rooms={rooms}
                         canManage={canManage}
                     />
                 )}

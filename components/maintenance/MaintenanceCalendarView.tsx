@@ -3,11 +3,12 @@ import React, { useState, useEffect, useContext } from 'react';
 import { AuthContext } from '../../App';
 import { getMaintenancePlans, getLocations, addMaintenancePlan, updateMaintenancePlan, deleteMaintenancePlan } from '../../services/mockApi';
 import { MaintenancePlan, Location } from '../../types';
+import Card from '../shared/Card';
 import Button from '../shared/Button';
 import Spinner from '../shared/Spinner';
 import MaintenancePlanFormModal from './MaintenancePlanFormModal';
 import { WrenchIcon, CalendarIcon } from '../icons';
-import AIAssistant from '../shared/AIAssistant';
+import AIAssistant, { InputMode } from '../shared/AIAssistant';
 import { AIResponse } from '../../services/geminiService';
 
 const MaintenanceCalendarView: React.FC = () => {
@@ -85,6 +86,13 @@ const MaintenanceCalendarView: React.FC = () => {
         }
     };
 
+    // Role Logic
+    let allowedInputs: InputMode[] = ['voice'];
+    const role = auth?.role?.role_id || '';
+    if (['admin', 'receptionist', 'gobernanta', 'revenue'].includes(role)) {
+        allowedInputs = ['text', 'voice', 'image'];
+    }
+
     if (isLoading) return <Spinner />;
 
     return (
@@ -126,6 +134,12 @@ const MaintenanceCalendarView: React.FC = () => {
                         </div>
                     );
                 })}
+                
+                {plans.length === 0 && (
+                    <div className="col-span-full text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300 text-gray-500">
+                        <p>No hay planes de mantenimiento definidos.</p>
+                    </div>
+                )}
             </div>
 
             {isModalOpen && auth?.employee && (
@@ -143,7 +157,7 @@ const MaintenanceCalendarView: React.FC = () => {
             <AIAssistant 
                 context={{ employees: [], locations, maintenancePlans: plans, currentUser: auth?.employee || undefined }} 
                 onAction={handleAIAction}
-                allowedInputs={['voice']}
+                allowedInputs={allowedInputs}
             />
         </div>
     );

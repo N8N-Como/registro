@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { MaintenancePlan, Location } from '../../types';
+import { MaintenancePlan, Location, Frequency } from '../../types';
 import Modal from '../shared/Modal';
 import Button from '../shared/Button';
 
@@ -33,7 +33,7 @@ const MaintenancePlanFormModal: React.FC<MaintenancePlanFormModalProps> = ({
                 created_by: employeeId
             });
         }
-    }, [plan, isOpen, locations, employeeId]);
+    }, [plan, isOpen, locations]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const { name, value } = e.target;

@@ -48,7 +48,7 @@ const CleaningView: React.FC = () => {
                  return (t.assigned_to === auth.employee?.employee_id || t.assigned_to === 'all_cleaners') && 
                         dueDate >= today && 
                         dueDate < sevenDaysFromNow;
-            }).sort((a, _b) => a.status === 'completed' ? 1 : -1);
+            }).sort((a,b) => a.status === 'completed' ? 1 : -1);
             
             setTasks(myTasks);
             setRooms(allRooms);

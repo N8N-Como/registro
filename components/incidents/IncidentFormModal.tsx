@@ -1,8 +1,9 @@
 
-import React, { useState, useEffect } from 'react';
-import { Incident, Location, Employee, InventoryItem } from '../../types';
+import React, { useState, useEffect, useRef } from 'react';
+import { Incident, Location, Employee, Room, InventoryItem } from '../../types';
 import Modal from '../shared/Modal';
 import Button from '../shared/Button';
+import { blobToBase64 } from '../../utils/helpers';
 import { getInventoryItems } from '../../services/mockApi';
 import { BoxIcon } from '../icons';
 
@@ -13,10 +14,11 @@ interface IncidentFormModalProps {
   incident: Incident | null;
   locations: Location[];
   employees: Employee[];
+  rooms: Room[];
   canManage: boolean;
 }
 
-const IncidentFormModal: React.FC<IncidentFormModalProps> = ({ isOpen, onClose, onSave, incident, locations, canManage }) => {
+const IncidentFormModal: React.FC<IncidentFormModalProps> = ({ isOpen, onClose, onSave, incident, locations, employees, rooms, canManage }) => {
   const [formData, setFormData] = useState<Partial<Incident>>({});
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [usageMap, setUsageMap] = useState<Record<string, number>>({});
@@ -53,6 +55,7 @@ const IncidentFormModal: React.FC<IncidentFormModalProps> = ({ isOpen, onClose, 
     e.preventDefault();
     setIsSaving(true);
     
+    // Fixed unknown type error by explicitly casting qty to number
     const usage = Object.entries(usageMap)
         .filter(([_, qty]) => (qty as number) > 0)
         .map(([itemId, qty]) => ({ item_id: itemId, amount: qty as number }));
@@ -62,7 +65,7 @@ const IncidentFormModal: React.FC<IncidentFormModalProps> = ({ isOpen, onClose, 
   };
 
   const isResolved = formData.status === 'resolved';
-  const isReadOnly = !!(incident && !canManage);
+  const isReadOnly = incident && !canManage;
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={incident ? 'Detalle de Incidencia' : 'Reportar Incidencia'}>
@@ -105,6 +108,7 @@ const IncidentFormModal: React.FC<IncidentFormModalProps> = ({ isOpen, onClose, 
           </div>
         </div>
 
+        {/* REPUESTOS SECTION (Solo si se está resolviendo) */}
         {canManage && isResolved && (
             <div className="bg-gray-50 p-4 rounded-lg border-2 border-dashed border-gray-300 mt-4 animate-in fade-in duration-300">
                 <h4 className="text-sm font-bold text-gray-800 mb-3 flex items-center">
