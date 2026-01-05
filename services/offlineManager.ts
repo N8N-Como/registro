@@ -43,6 +43,10 @@ const saveQueue = (queue: OfflineAction[]) => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(queue));
 };
 
+export const clearQueue = () => {
+    localStorage.removeItem(STORAGE_KEY);
+};
+
 export const addToQueue = (type: OfflineActionType, payload: any) => {
     const queue = getQueue();
     const action: OfflineAction = {
@@ -101,13 +105,24 @@ export const processQueue = async (): Promise<boolean> => {
                     await checkOutOfLocation(action.payload.activityId);
                     break;
                 case 'ADD_CORRECTION':
+                    // Limpieza preventiva de datos antes de reintento
+                    if (!action.payload.requested_clock_in) action.payload.requested_clock_in = '00:00';
+                    if (!action.payload.requested_clock_out) action.payload.requested_clock_out = '00:00';
                     await createTimeCorrectionRequest(action.payload);
                     break;
             }
             removeFromQueue(action.id);
-        } catch (error) {
+        } catch (error: any) {
             console.error(`[OfflineManager] Failed to process action ${action.type}`, error);
-            allSuccess = false;
+            
+            // SI EL ERROR ES 400 o similar (Datos inválidos), lo quitamos de la cola porque nunca funcionará
+            if (error.status >= 400 && error.status < 500) {
+                console.warn(`[OfflineManager] Permanent error detected. Removing item from queue.`);
+                removeFromQueue(action.id);
+            } else {
+                // Si es error de red, lo dejamos para el siguiente ciclo
+                allSuccess = false;
+            }
         }
     }
     

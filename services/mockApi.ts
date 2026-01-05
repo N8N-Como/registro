@@ -10,7 +10,6 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // --- LOCAL STORAGE KEYS ---
 const LOCAL_CORRECTIONS_KEY = 'local_time_corrections';
-const LOCAL_TIME_ENTRIES_KEY = 'local_time_entries';
 
 const getLocalData = <T>(key: string): T[] => {
     try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; }
@@ -42,24 +41,31 @@ export const getTimeCorrectionRequests = async () => {
 };
 
 export const createTimeCorrectionRequest = async (d: any) => { 
-    const payload: TimeCorrectionRequest = {
+    // Asegurar que los campos no sean vacíos para cumplir restricciones DB
+    const payload = {
         request_id: d.request_id || ('req_' + Date.now() + Math.random().toString(36).substr(2, 5)),
         created_at: d.created_at || new Date().toISOString(),
         status: d.status || 'pending',
+        requested_clock_in: d.requested_clock_in || '00:00',
+        requested_clock_out: d.requested_clock_out || '00:00',
         ...d
     };
     
     try { 
-        const { error } = await supabase.from('time_correction_requests').insert([payload]); 
-        if (error) throw error;
+        const { error, status } = await supabase.from('time_correction_requests').insert([payload]); 
+        if (error) {
+            // Si el error es de formato o restricción (400), lo relanzamos con status para el OfflineManager
+            const customErr = new Error(error.message);
+            (customErr as any).status = status;
+            throw customErr;
+        }
         
         const local = getLocalData<TimeCorrectionRequest>(LOCAL_CORRECTIONS_KEY);
         saveLocalData(LOCAL_CORRECTIONS_KEY, local.filter(req => req.request_id !== payload.request_id));
         
         return payload;
     } catch (e: any) { 
-        // Si el error es de formato (Postgres 22P02), no es "Offline", es un error real
-        if (e.code === '22P02') throw e;
+        if (e.status && e.status >= 400 && e.status < 500) throw e;
 
         const local = getLocalData<TimeCorrectionRequest>(LOCAL_CORRECTIONS_KEY);
         if (!local.some(r => r.request_id === payload.request_id)) {
@@ -82,9 +88,9 @@ export const resolveTimeCorrectionRequest = async (id: string, status: 'approved
             
             if (request.correction_type === 'create_entry') {
                 const clockInISO = `${dateStr}T${request.requested_clock_in}:00Z`;
-                const clockOutISO = request.requested_clock_out && request.requested_clock_out !== '00:00' 
-                    ? `${dateStr}T${request.requested_clock_out}:00Z` 
-                    : null;
+                // Si clock_out es '00:00' o vacío, lo creamos como null (registro en curso)
+                const isExitSet = request.requested_clock_out && request.requested_clock_out !== '00:00';
+                const clockOutISO = isExitSet ? `${dateStr}T${request.requested_clock_out}:00Z` : null;
 
                 await supabase.from('time_entries').insert([{
                     employee_id: request.employee_id,
@@ -96,17 +102,12 @@ export const resolveTimeCorrectionRequest = async (id: string, status: 'approved
                     work_mode: 'presencial'
                 }]);
             } else if (request.correction_type === 'fix_time' && request.original_entry_id) {
-                // Obtener registro original para no sobreescribir datos válidos
-                const { data: original } = await supabase.from('time_entries').select('*').eq('entry_id', request.original_entry_id).single();
-                
                 const updateData: any = { is_manual: true };
                 
-                // Si la solicitud trae una hora de entrada válida (!= 00:00 usualmente usado como placeholder)
                 if (request.requested_clock_in && request.requested_clock_in !== '00:00') {
                     updateData.clock_in_time = `${dateStr}T${request.requested_clock_in}:00Z`;
                 }
                 
-                // Si trae hora de salida
                 if (request.requested_clock_out && request.requested_clock_out !== '00:00') {
                     updateData.clock_out_time = `${dateStr}T${request.requested_clock_out}:00Z`;
                     updateData.status = 'completed';
@@ -116,14 +117,12 @@ export const resolveTimeCorrectionRequest = async (id: string, status: 'approved
             }
         }
 
-        // Actualizar solicitud
         await supabase.from('time_correction_requests').update({ 
             status, 
             reviewed_by: reviewerId, 
             reviewed_at: new Date().toISOString() 
         }).eq('request_id', id);
 
-        // Limpiar local
         const local = getLocalData<TimeCorrectionRequest>(LOCAL_CORRECTIONS_KEY);
         saveLocalData(LOCAL_CORRECTIONS_KEY, local.filter(req => req.request_id !== id));
 
