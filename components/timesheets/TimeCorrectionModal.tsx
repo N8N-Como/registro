@@ -41,23 +41,26 @@ const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({ isOpen, onClo
         const payload: any = {
             request_id: requestId,
             employee_id: employeeId,
-            original_entry_id: existingEntryId,
+            original_entry_id: existingEntryId || null,
             correction_type: getCorrectionType(),
             requested_date: date,
             reason: `[${errorType.toUpperCase()}] ${reason}`,
             status: 'pending',
-            created_at: new Date().toISOString()
+            created_at: new Date().toISOString(),
+            requested_clock_in: '', // Inicializar
+            requested_clock_out: ''
         };
 
         if (errorType === 'entry') {
             payload.requested_clock_in = time;
         } else if (errorType === 'exit') {
             payload.requested_clock_out = time;
-            payload.requested_clock_in = "N/A"; // Evitar null en DB
+            // Si es corrección de salida, la entrada la recuperaremos del registro original al aprobar
+            payload.requested_clock_in = '00:00'; 
         } else if (errorType === 'break') {
             payload.correction_type = 'fix_time'; 
             payload.requested_clock_in = '00:00'; 
-            payload.reason = `[PAUSA INCORRECTA] Hora correcta: ${time}. Detalle: ${reason}`;
+            payload.reason = `[PAUSA] Hora: ${time}. ${reason}`;
         }
 
         try {
@@ -65,12 +68,13 @@ const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({ isOpen, onClo
             alert("Solicitud enviada correctamente.");
             onClose();
         } catch (error) {
-            // Solo avisamos si es un error real de red, no un error de lógica
+            // Error "Offline" es el que lanzamos en mockApi cuando falla la red
             if (error instanceof Error && error.message === "Offline") {
                 addToQueue('ADD_CORRECTION', payload);
-                alert("La solicitud se ha guardado localmente y se sincronizará automáticamente.");
+                alert("Guardado localmente. Se enviará cuando recuperes la conexión.");
             } else {
-                alert("Hubo un problema al procesar la solicitud. Por favor, reintenta.");
+                console.error("Error crítico:", error);
+                alert("Error al procesar la solicitud. Comprueba tu conexión.");
             }
             onClose();
         } finally {
@@ -82,7 +86,7 @@ const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({ isOpen, onClo
         <Modal isOpen={isOpen} onClose={onClose} title="Solicitar Corrección de Horario">
             <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="bg-yellow-50 p-3 rounded-lg border border-yellow-200 text-sm text-yellow-800">
-                    <p>Las correcciones deben ser aprobadas por un administrador. Indica claramente qué hora es la correcta.</p>
+                    <p>Indica la hora que falta o que es incorrecta.</p>
                 </div>
 
                 <div>
@@ -107,7 +111,7 @@ const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({ isOpen, onClo
                             onClick={() => setErrorType('break')}
                             className={`py-2 px-1 text-xs sm:text-sm font-medium rounded border ${errorType === 'break' ? 'bg-primary text-white border-primary' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
                         >
-                            Pausa / Comida
+                            Pausa
                         </button>
                     </div>
                 </div>
@@ -125,7 +129,7 @@ const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({ isOpen, onClo
 
                 <div>
                     <label className="block text-sm font-medium text-gray-700">
-                        {errorType === 'break' ? 'Hora Real (Inicio o Fin)' : `Hora Real de ${errorType === 'entry' ? 'Entrada' : 'Salida'}`}
+                        Hora Real de {errorType === 'entry' ? 'Entrada' : errorType === 'exit' ? 'Salida' : 'Pausa'}
                     </label>
                     <input 
                         type="time" 
@@ -137,13 +141,13 @@ const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({ isOpen, onClo
                 </div>
 
                 <div>
-                    <label className="block text-sm font-medium text-gray-700">Explicación del Motivo</label>
+                    <label className="block text-sm font-medium text-gray-700">Explicación breve</label>
                     <textarea 
                         value={reason} 
                         onChange={(e) => setReason(e.target.value)}
                         className="mt-1 block w-full rounded-md border-gray-300 shadow-sm"
-                        rows={3}
-                        placeholder="Ej: Olvidé el móvil, el GPS no me detectó, etc."
+                        rows={2}
+                        placeholder="Ej: Olvidé fichar al entrar..."
                         required
                     />
                 </div>

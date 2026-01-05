@@ -76,18 +76,17 @@ const MonthlyWorkLogReport: React.FC = () => {
                     getMonthlySignature(employee.employee_id, month, year)
                 ]);
                 
+                // CAMBIO: No exigimos que el estado sea 'completed' para mostrarlo en el informe
                 const filteredEntries = timeEntries.filter(entry => {
                     const entryDate = new Date(entry.clock_in_time);
                     return entryDate.getFullYear() === year && 
-                           entryDate.getMonth() === month - 1 && 
-                           entry.status === 'completed' && 
-                           entry.clock_out_time;
+                           entryDate.getMonth() === month - 1;
                 });
 
                 if (filteredEntries.length === 0 && auth?.role?.role_id !== 'admin' && employee.employee_id === auth?.employee?.employee_id) {
-                    // Si es el usuario actual y no tiene datos, permitimos ver tabla vacía
+                    // Permitir ver tabla vacía para el propio usuario
                 } else if (filteredEntries.length === 0 && auth?.role?.role_id === 'admin') {
-                    continue; // No mostrar empleados sin actividad en la vista global de admin
+                    continue; 
                 }
 
                 const entryIds = filteredEntries.map(e => e.entry_id);
@@ -104,7 +103,9 @@ const MonthlyWorkLogReport: React.FC = () => {
                     let dailyTotalMs = 0;
                     const formattedEntries = entriesForDay.map(e => {
                         const start = new Date(e.clock_in_time).getTime();
-                        const end = new Date(e.clock_out_time!).getTime();
+                        
+                        // Si no hay hora de salida, la duración es 0 o calculada hasta ahora (pero para el informe ponemos 0 si no ha terminado)
+                        const end = e.clock_out_time ? new Date(e.clock_out_time).getTime() : start;
                         
                         const entryBreaks = allBreaks.filter(b => b.time_entry_id === e.entry_id);
                         const breakDuration = entryBreaks.reduce((acc, b) => {
@@ -113,14 +114,14 @@ const MonthlyWorkLogReport: React.FC = () => {
                             return acc + (bEnd - bStart);
                         }, 0);
 
-                        const effectiveDuration = (end - start) - breakDuration;
+                        const effectiveDuration = Math.max(0, (end - start) - breakDuration);
                         dailyTotalMs += effectiveDuration;
                         
                         return {
                             clockIn: formatTime(new Date(e.clock_in_time)),
-                            clockOut: formatTime(new Date(e.clock_out_time!)),
+                            clockOut: e.clock_out_time ? formatTime(new Date(e.clock_out_time)) : 'En curso',
                             duration: effectiveDuration,
-                            isManual: e.is_manual === true, // Captura explícita del flag
+                            isManual: e.is_manual === true,
                             type: e.work_type || 'ordinaria'
                         };
                     });

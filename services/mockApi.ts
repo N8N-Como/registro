@@ -28,7 +28,6 @@ export const getTimeCorrectionRequests = async () => {
         const remote = (data || []) as TimeCorrectionRequest[];
         const local = getLocalData<TimeCorrectionRequest>(LOCAL_CORRECTIONS_KEY);
         
-        // Unir local y remoto evitando duplicados por ID
         const combined = [...local];
         remote.forEach(rr => {
             if (!combined.some(lr => lr.request_id === rr.request_id)) {
@@ -51,17 +50,17 @@ export const createTimeCorrectionRequest = async (d: any) => {
     };
     
     try { 
-        // Intentar subir a Supabase
         const { error } = await supabase.from('time_correction_requests').insert([payload]); 
         if (error) throw error;
         
-        // Si funcionó, nos aseguramos de que no esté en local para no duplicar
         const local = getLocalData<TimeCorrectionRequest>(LOCAL_CORRECTIONS_KEY);
         saveLocalData(LOCAL_CORRECTIONS_KEY, local.filter(req => req.request_id !== payload.request_id));
         
         return payload;
-    } catch (e) { 
-        // Si hay error de red/servidor, guardamos en local y lanzamos error para que el modal lo gestione
+    } catch (e: any) { 
+        // Si el error es de formato (Postgres 22P02), no es "Offline", es un error real
+        if (e.code === '22P02') throw e;
+
         const local = getLocalData<TimeCorrectionRequest>(LOCAL_CORRECTIONS_KEY);
         if (!local.some(r => r.request_id === payload.request_id)) {
             local.push(payload);
@@ -71,28 +70,22 @@ export const createTimeCorrectionRequest = async (d: any) => {
     } 
 };
 
-/**
- * Aprobación o Rechazo de una corrección.
- * Si se aprueba, se modifica/crea el fichaje real en 'time_entries'.
- */
 export const resolveTimeCorrectionRequest = async (id: string, status: 'approved' | 'rejected', reviewerId: string) => { 
     try {
-        // 1. Obtener los datos de la solicitud (puede estar en local o remoto)
         const allRequests = await getTimeCorrectionRequests();
         const request = allRequests.find(r => r.request_id === id);
         
         if (!request) throw new Error("Solicitud no encontrada.");
 
-        const reviewedAt = new Date().toISOString();
-
-        // 2. Si se aprueba, realizar el cambio real en la tabla de fichajes
         if (status === 'approved') {
-            const dateStr = request.requested_date; // YYYY-MM-DD
-            const clockInISO = `${dateStr}T${request.requested_clock_in}:00Z`;
-            const clockOutISO = request.requested_clock_out ? `${dateStr}T${request.requested_clock_out}:00Z` : null;
-
+            const dateStr = request.requested_date;
+            
             if (request.correction_type === 'create_entry') {
-                // Crear nuevo fichaje
+                const clockInISO = `${dateStr}T${request.requested_clock_in}:00Z`;
+                const clockOutISO = request.requested_clock_out && request.requested_clock_out !== '00:00' 
+                    ? `${dateStr}T${request.requested_clock_out}:00Z` 
+                    : null;
+
                 await supabase.from('time_entries').insert([{
                     employee_id: request.employee_id,
                     clock_in_time: clockInISO,
@@ -103,46 +96,44 @@ export const resolveTimeCorrectionRequest = async (id: string, status: 'approved
                     work_mode: 'presencial'
                 }]);
             } else if (request.correction_type === 'fix_time' && request.original_entry_id) {
-                // Actualizar fichaje existente
-                const updateData: any = {
-                    clock_in_time: clockInISO,
-                    is_manual: true
-                };
-                if (clockOutISO) {
-                    updateData.clock_out_time = clockOutISO;
+                // Obtener registro original para no sobreescribir datos válidos
+                const { data: original } = await supabase.from('time_entries').select('*').eq('entry_id', request.original_entry_id).single();
+                
+                const updateData: any = { is_manual: true };
+                
+                // Si la solicitud trae una hora de entrada válida (!= 00:00 usualmente usado como placeholder)
+                if (request.requested_clock_in && request.requested_clock_in !== '00:00') {
+                    updateData.clock_in_time = `${dateStr}T${request.requested_clock_in}:00Z`;
+                }
+                
+                // Si trae hora de salida
+                if (request.requested_clock_out && request.requested_clock_out !== '00:00') {
+                    updateData.clock_out_time = `${dateStr}T${request.requested_clock_out}:00Z`;
                     updateData.status = 'completed';
                 }
+
                 await supabase.from('time_entries').update(updateData).eq('entry_id', request.original_entry_id);
             }
         }
 
-        // 3. Actualizar estado de la solicitud en Supabase
+        // Actualizar solicitud
         await supabase.from('time_correction_requests').update({ 
             status, 
             reviewed_by: reviewerId, 
-            reviewed_at: reviewedAt 
+            reviewed_at: new Date().toISOString() 
         }).eq('request_id', id);
 
-        // 4. Limpieza Crucial: Borrar de local storage si existía allí
+        // Limpiar local
         const local = getLocalData<TimeCorrectionRequest>(LOCAL_CORRECTIONS_KEY);
         saveLocalData(LOCAL_CORRECTIONS_KEY, local.filter(req => req.request_id !== id));
 
     } catch (e) {
-        console.error("Error al resolver corrección:", e);
-        // Si falla Supabase, al menos actualizamos el estado en local para que el admin vea que "hizo algo"
-        const local = getLocalData<TimeCorrectionRequest>(LOCAL_CORRECTIONS_KEY);
-        const idx = local.findIndex(req => req.request_id === id);
-        if (idx !== -1) {
-            local[idx].status = status;
-            local[idx].reviewed_by = reviewerId;
-            local[idx].reviewed_at = new Date().toISOString();
-            saveLocalData(LOCAL_CORRECTIONS_KEY, local);
-        }
+        console.error("Error al resolver:", e);
         throw e;
     }
 };
 
-// --- MÉTODOS DE BASE MANTENIDOS ---
+// --- RESTO DE MÉTODOS MANTENIDOS ---
 export const getRoles = async (): Promise<Role[]> => { try { const { data } = await supabase.from('roles').select('*'); return data || []; } catch { return []; } };
 export const getEmployees = async (): Promise<Employee[]> => { try { const { data } = await supabase.from('employees').select('*'); return data || []; } catch { return []; } };
 export const getLocations = async (): Promise<Location[]> => { try { const { data } = await supabase.from('locations').select('*'); return data || []; } catch { return []; } };
@@ -160,7 +151,6 @@ export const getActiveTaskLogForEmployee = async (id: string) => { const { data 
 export const startTask = async (id: string, emp: string, loc: string) => { await supabase.from('tasks').update({ status: 'in_progress' }).eq('task_id', id); const { data } = await supabase.from('task_time_logs').insert([{task_id: id, employee_id: emp, start_time: new Date().toISOString(), location_id: loc}]).select().single(); return data; };
 export const finishTask = async (logId: string, taskId: string, inventoryUsage: any[] = [], employeeId?: string) => { await supabase.from('tasks').update({ status: 'completed', completed_at: new Date().toISOString() }).eq('task_id', taskId); const { data } = await supabase.from('task_time_logs').update({ end_time: new Date().toISOString() }).eq('log_id', logId).select().single(); return data; };
 export const getInventoryItems = async (): Promise<InventoryItem[]> => { const { data } = await supabase.from('inventory_items').select('*'); return data || []; };
-// Fix: Added missing addInventoryItem export
 export const addInventoryItem = async (d: any) => { const { data } = await supabase.from('inventory_items').insert([{...d, last_updated: new Date().toISOString()}]).select().single(); return data; };
 export const updateInventoryItem = async (data: InventoryItem): Promise<InventoryItem> => { const { data: updated } = await supabase.from('inventory_items').update({...data, last_updated: new Date().toISOString()}).eq('item_id', data.item_id).select().single(); return updated || data; };
 export const logStockMovement = async (itemId: string, changeAmount: number, reason: string, employeeId: string) => { await supabase.from('stock_logs').insert([{ item_id: itemId, change_amount: changeAmount, reason, employee_id: employeeId, created_at: new Date().toISOString() }]); };
