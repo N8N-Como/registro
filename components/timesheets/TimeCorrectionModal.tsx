@@ -25,7 +25,6 @@ const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({ isOpen, onClo
     // Helpers to handle logic mapping
     const getCorrectionType = () => {
         if (errorType === 'entry') return existingEntryId ? 'fix_time' : 'create_entry';
-        if (errorType === 'exit') return 'fix_time';
         return 'fix_time'; 
     };
 
@@ -37,7 +36,13 @@ const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({ isOpen, onClo
         }
 
         setIsSubmitting(true);
-        const requestId = 'req_' + Date.now() + Math.random().toString(36).substr(2, 5);
+        
+        // CRITICAL: Use a real UUID for the database
+        const requestId = crypto.randomUUID();
+        
+        // Normalize time to HH:MM:SS for Postgres compatibility
+        const formattedTime = time.length === 5 ? `${time}:00` : time;
+
         const payload: any = {
             request_id: requestId,
             employee_id: employeeId,
@@ -47,36 +52,38 @@ const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({ isOpen, onClo
             reason: `[${errorType.toUpperCase()}] ${reason}`,
             status: 'pending',
             created_at: new Date().toISOString(),
-            requested_clock_in: '', // Inicializar
-            requested_clock_out: ''
+            requested_clock_in: '00:00:00',
+            requested_clock_out: '00:00:00'
         };
 
         if (errorType === 'entry') {
-            payload.requested_clock_in = time;
+            payload.requested_clock_in = formattedTime;
         } else if (errorType === 'exit') {
-            payload.requested_clock_out = time;
-            // Si es corrección de salida, la entrada la recuperaremos del registro original al aprobar
-            payload.requested_clock_in = '00:00'; 
+            payload.requested_clock_out = formattedTime;
+            // Si es corrección de salida, marcamos la entrada como 00:00:00 para cumplir el NOT NULL
+            // aunque el administrador usará la del registro original al aprobar.
+            payload.requested_clock_in = '00:00:00'; 
         } else if (errorType === 'break') {
             payload.correction_type = 'fix_time'; 
-            payload.requested_clock_in = '00:00'; 
-            payload.reason = `[PAUSA] Hora: ${time}. ${reason}`;
+            payload.requested_clock_in = '00:00:00'; 
+            payload.reason = `[PAUSA] Hora: ${formattedTime}. ${reason}`;
         }
 
         try {
             await createTimeCorrectionRequest(payload);
             alert("Solicitud enviada correctamente.");
             onClose();
-        } catch (error) {
-            // Error "Offline" es el que lanzamos en mockApi cuando falla la red
-            if (error instanceof Error && error.message === "Offline") {
+        } catch (error: any) {
+            // Si el error es específicamente "Offline" (lanzado por mockApi tras fallo de red)
+            if (error.message === "Offline") {
                 addToQueue('ADD_CORRECTION', payload);
                 alert("Guardado localmente. Se enviará cuando recuperes la conexión.");
+                onClose();
             } else {
-                console.error("Error crítico:", error);
-                alert("Error al procesar la solicitud. Comprueba tu conexión.");
+                // Si llegamos aquí es un error de DATOS o del Servidor (400, 500...)
+                console.error("Error de validación o servidor:", error);
+                alert(`Error al procesar: ${error.message || 'Datos inválidos'}. Verifica el formato.`);
             }
-            onClose();
         } finally {
             setIsSubmitting(false);
         }

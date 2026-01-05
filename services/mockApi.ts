@@ -41,13 +41,13 @@ export const getTimeCorrectionRequests = async () => {
 };
 
 export const createTimeCorrectionRequest = async (d: any) => { 
-    // Saneamiento crítico: Asegurar que los campos requeridos por la DB nunca sean nulos/vacíos
+    // Saneamiento crítico: Asegurar que los campos requeridos por la DB nunca sean nulos/vacíos y que el ID sea UUID
     const payload = {
-        request_id: d.request_id || ('req_' + Date.now() + Math.random().toString(36).substr(2, 5)),
+        request_id: d.request_id || crypto.randomUUID(),
         created_at: d.created_at || new Date().toISOString(),
         status: d.status || 'pending',
-        requested_clock_in: (d.requested_clock_in && d.requested_clock_in !== '') ? d.requested_clock_in : '00:00',
-        requested_clock_out: (d.requested_clock_out && d.requested_clock_out !== '') ? d.requested_clock_out : '00:00',
+        requested_clock_in: (d.requested_clock_in && d.requested_clock_in !== '') ? d.requested_clock_in : '00:00:00',
+        requested_clock_out: (d.requested_clock_out && d.requested_clock_out !== '') ? d.requested_clock_out : '00:00:00',
         employee_id: d.employee_id,
         original_entry_id: d.original_entry_id || null,
         correction_type: d.correction_type,
@@ -59,14 +59,11 @@ export const createTimeCorrectionRequest = async (d: any) => {
         const { error, status } = await supabase.from('time_correction_requests').insert([payload]); 
         
         if (error) {
-            // Si el error es de base de datos (Postgres code 22P02 o similar) o un 400, NO es un error de conexión
-            if (error.code?.startsWith('2') || (status && status >= 400 && status < 500)) {
-                const dataError = new Error(error.message);
-                (dataError as any).status = status || 400;
-                (dataError as any).code = error.code;
-                throw dataError;
-            }
-            throw error; // Otros errores irán al catch general como posibles fallos de red
+            // Si el servidor respondió con un error (ej: UUID inválido o falta campo), NO es un error de conexión
+            const serverError = new Error(error.message);
+            (serverError as any).status = status;
+            (serverError as any).code = error.code;
+            throw serverError;
         }
         
         // Limpiar de local si se envió con éxito
@@ -75,11 +72,11 @@ export const createTimeCorrectionRequest = async (d: any) => {
         
         return payload;
     } catch (e: any) { 
-        // Si ya trae un status 4xx o código de Postgres, es un error de DATOS, no de RED.
-        if (e.status && e.status >= 400 && e.status < 500) throw e;
-        if (e.code?.startsWith('2')) throw e;
+        // Si el error tiene un status de red (familia 400 o 500) o un código de Postgres, es un error real de datos/servidor
+        if (e.status && e.status > 0) throw e;
+        if (e.code && e.code.startsWith('2')) throw e; // Códigos Postgres (Data exceptions)
 
-        // Si llegamos aquí, asumimos fallo de red y guardamos para modo offline
+        // Si llegamos aquí y no hay status, es probable que la petición ni siquiera saliera (Red caída)
         const local = getLocalData<TimeCorrectionRequest>(LOCAL_CORRECTIONS_KEY);
         if (!local.some(r => r.request_id === payload.request_id)) {
             local.push(payload);
@@ -100,9 +97,9 @@ export const resolveTimeCorrectionRequest = async (id: string, status: 'approved
             const dateStr = request.requested_date;
             
             if (request.correction_type === 'create_entry') {
-                const clockInISO = `${dateStr}T${request.requested_clock_in}:00Z`;
-                const isExitValid = request.requested_clock_out && request.requested_clock_out !== '00:00' && request.requested_clock_out !== '';
-                const clockOutISO = isExitValid ? `${dateStr}T${request.requested_clock_out}:00Z` : null;
+                const clockInISO = `${dateStr}T${request.requested_clock_in}Z`;
+                const isExitValid = request.requested_clock_out && request.requested_clock_out !== '00:00' && request.requested_clock_out !== '00:00:00';
+                const clockOutISO = isExitValid ? `${dateStr}T${request.requested_clock_out}Z` : null;
 
                 await supabase.from('time_entries').insert([{
                     employee_id: request.employee_id,
@@ -116,12 +113,12 @@ export const resolveTimeCorrectionRequest = async (id: string, status: 'approved
             } else if (request.correction_type === 'fix_time' && request.original_entry_id) {
                 const updateData: any = { is_manual: true };
                 
-                if (request.requested_clock_in && request.requested_clock_in !== '00:00') {
-                    updateData.clock_in_time = `${dateStr}T${request.requested_clock_in}:00Z`;
+                if (request.requested_clock_in && request.requested_clock_in !== '00:00' && request.requested_clock_in !== '00:00:00') {
+                    updateData.clock_in_time = `${dateStr}T${request.requested_clock_in}Z`;
                 }
                 
-                if (request.requested_clock_out && request.requested_clock_out !== '00:00' && request.requested_clock_out !== '') {
-                    updateData.clock_out_time = `${dateStr}T${request.requested_clock_out}:00Z`;
+                if (request.requested_clock_out && request.requested_clock_out !== '00:00' && request.requested_clock_out !== '00:00:00') {
+                    updateData.clock_out_time = `${dateStr}T${request.requested_clock_out}Z`;
                     updateData.status = 'completed';
                 }
 
@@ -144,7 +141,7 @@ export const resolveTimeCorrectionRequest = async (id: string, status: 'approved
     }
 };
 
-// --- RESTO DE MÉTODOS MANTENIDOS ---
+// --- RESTO DE MÉTODOS MANTENIDOS SIN CAMBIOS ---
 export const getRoles = async (): Promise<Role[]> => { try { const { data } = await supabase.from('roles').select('*'); return data || []; } catch { return []; } };
 export const getEmployees = async (): Promise<Employee[]> => { try { const { data } = await supabase.from('employees').select('*'); return data || []; } catch { return []; } };
 export const getLocations = async (): Promise<Location[]> => { try { const { data } = await supabase.from('locations').select('*'); return data || []; } catch { return []; } };
