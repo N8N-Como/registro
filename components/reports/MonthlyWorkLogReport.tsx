@@ -65,10 +65,14 @@ const MonthlyWorkLogReport: React.FC = () => {
             const month = parseInt(selectedMonth, 10);
             const year = parseInt(selectedYear, 10);
 
-            const allEmployeeReports: EmployeeReportData[] = [];
-            const targetEmployees = (auth?.role?.role_id === 'admin' || auth?.role?.role_id === 'administracion') 
+            // SEGURIDAD: Determinar qué empleados puede ver este usuario
+            const hasFullAccess = auth?.role?.permissions.includes('view_reports') || auth?.role?.role_id === 'admin';
+            
+            const targetEmployees = hasFullAccess
                 ? employees 
                 : employees.filter(e => e.employee_id === auth?.employee?.employee_id);
+
+            const allEmployeeReports: EmployeeReportData[] = [];
 
             for (const employee of targetEmployees) {
                 const [timeEntries, signature] = await Promise.all([
@@ -76,16 +80,15 @@ const MonthlyWorkLogReport: React.FC = () => {
                     getMonthlySignature(employee.employee_id, month, year)
                 ]);
                 
-                // CAMBIO: No exigimos que el estado sea 'completed' para mostrarlo en el informe
                 const filteredEntries = timeEntries.filter(entry => {
                     const entryDate = new Date(entry.clock_in_time);
                     return entryDate.getFullYear() === year && 
                            entryDate.getMonth() === month - 1;
                 });
 
-                if (filteredEntries.length === 0 && auth?.role?.role_id !== 'admin' && employee.employee_id === auth?.employee?.employee_id) {
-                    // Permitir ver tabla vacía para el propio usuario
-                } else if (filteredEntries.length === 0 && auth?.role?.role_id === 'admin') {
+                // Si es un administrador y el empleado no tiene datos, saltamos.
+                // Si es el propio empleado, mostramos aunque esté vacío para que vea su estado.
+                if (filteredEntries.length === 0 && hasFullAccess) {
                     continue; 
                 }
 
@@ -103,8 +106,6 @@ const MonthlyWorkLogReport: React.FC = () => {
                     let dailyTotalMs = 0;
                     const formattedEntries = entriesForDay.map(e => {
                         const start = new Date(e.clock_in_time).getTime();
-                        
-                        // Si no hay hora de salida, la duración es 0 o calculada hasta ahora (pero para el informe ponemos 0 si no ha terminado)
                         const end = e.clock_out_time ? new Date(e.clock_out_time).getTime() : start;
                         
                         const entryBreaks = allBreaks.filter(b => b.time_entry_id === e.entry_id);

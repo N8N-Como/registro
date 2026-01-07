@@ -1,7 +1,8 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { getEmployees, getLocations, getTimeEntriesForEmployee, getActivityLogsForTimeEntry } from '../../services/mockApi';
 import { Employee, Location, TimeEntry, ActivityLog } from '../../types';
+import { AuthContext } from '../../App';
 import Spinner from '../shared/Spinner';
 import Card from '../shared/Card';
 import { formatDuration } from '../../utils/helpers';
@@ -24,6 +25,7 @@ interface ProductivityData {
 }
 
 const ProductivityReport: React.FC = () => {
+    const auth = useContext(AuthContext);
     const [employees, setEmployees] = useState<Employee[]>([]);
     const [locations, setLocations] = useState<Location[]>([]);
     const [startDate, setStartDate] = useState('');
@@ -61,10 +63,15 @@ const ProductivityReport: React.FC = () => {
             const end = new Date(endDate);
             end.setHours(23, 59, 59, 999);
 
+            // SEGURIDAD: Filtrar empleados según permisos
+            const hasFullAccess = auth?.role?.permissions.includes('view_reports') || auth?.role?.role_id === 'admin';
+            const targetEmployees = hasFullAccess
+                ? employees
+                : employees.filter(e => e.employee_id === auth?.employee?.employee_id);
+
             const results: ProductivityData[] = [];
 
-            for (const emp of employees) {
-                // Get Workdays (Time Entries)
+            for (const emp of targetEmployees) {
                 const entries = await getTimeEntriesForEmployee(emp.employee_id);
                 const relevantEntries = entries.filter(e => {
                     const d = new Date(e.clock_in_time);
@@ -74,7 +81,6 @@ const ProductivityReport: React.FC = () => {
                 for (const entry of relevantEntries) {
                     const totalWorkTime = new Date(entry.clock_out_time!).getTime() - new Date(entry.clock_in_time).getTime();
                     
-                    // Get Locations (Activity Logs) within this workday
                     const logs = await getActivityLogsForTimeEntry(entry.entry_id);
                     const completedLogs = logs.filter(l => l.check_out_time);
                     
@@ -91,9 +97,6 @@ const ProductivityReport: React.FC = () => {
                         };
                     });
 
-                    // Logic: Travel Time is the gap. 
-                    // However, sometimes Travel Time can be negative if logs overlap (shouldn't happen) or 0 if data is perfect.
-                    // We ensure it's not negative.
                     const travelTime = Math.max(0, totalWorkTime - locationTime);
 
                     results.push({
@@ -108,7 +111,6 @@ const ProductivityReport: React.FC = () => {
                 }
             }
             
-            // Sort by date desc, then employee
             results.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
             setReportData(results);
 
@@ -164,7 +166,6 @@ const ProductivityReport: React.FC = () => {
                                 </div>
                             </div>
                             
-                            {/* Visual Bar */}
                             <div className="w-full h-4 bg-gray-200 rounded-full flex overflow-hidden mb-4">
                                 <div 
                                     className="bg-blue-500 h-full" 
@@ -178,7 +179,6 @@ const ProductivityReport: React.FC = () => {
                                 ></div>
                             </div>
 
-                            {/* Details */}
                             <div className="bg-gray-50 p-3 rounded-md">
                                 <h4 className="text-xs font-bold text-gray-500 uppercase mb-2">Detalle de Visitas</h4>
                                 {row.visits.length > 0 ? (

@@ -1,11 +1,10 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Incident, Location, Employee, Room, InventoryItem } from '../../types';
 import Modal from '../shared/Modal';
 import Button from '../shared/Button';
-import { blobToBase64 } from '../../utils/helpers';
 import { getInventoryItems } from '../../services/mockApi';
-import { BoxIcon } from '../icons';
+import { BoxIcon, BuildingIcon, DoorOpenIcon } from '../icons';
 
 interface IncidentFormModalProps {
   isOpen: boolean;
@@ -32,7 +31,12 @@ const IncidentFormModal: React.FC<IncidentFormModalProps> = ({ isOpen, onClose, 
             setFormData(incident);
             setPreviewUrl(incident.photo_url || null);
         } else {
-            setFormData({ status: 'open', priority: 'medium', location_id: locations[0]?.location_id });
+            setFormData({ 
+                status: 'open', 
+                priority: 'medium', 
+                location_id: locations[0]?.location_id || '',
+                type: 'corrective'
+            });
             setPreviewUrl(null);
         }
         setUsageMap({});
@@ -41,7 +45,12 @@ const IncidentFormModal: React.FC<IncidentFormModalProps> = ({ isOpen, onClose, 
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    setFormData(prev => ({ 
+        ...prev, 
+        [name]: value,
+        // Si cambia la ubicación, reseteamos la habitación
+        ...(name === 'location_id' ? { room_id: '' } : {})
+    }));
   };
 
   const updateUsage = (itemId: string, delta: number) => {
@@ -53,9 +62,12 @@ const IncidentFormModal: React.FC<IncidentFormModalProps> = ({ isOpen, onClose, 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!formData.location_id) {
+        alert("Debes seleccionar un establecimiento.");
+        return;
+    }
     setIsSaving(true);
     
-    // Fixed unknown type error by explicitly casting qty to number
     const usage = Object.entries(usageMap)
         .filter(([_, qty]) => (qty as number) > 0)
         .map(([itemId, qty]) => ({ item_id: itemId, amount: qty as number }));
@@ -66,12 +78,49 @@ const IncidentFormModal: React.FC<IncidentFormModalProps> = ({ isOpen, onClose, 
 
   const isResolved = formData.status === 'resolved';
   const isReadOnly = incident && !canManage;
+  const filteredRooms = rooms.filter(r => r.location_id === formData.location_id);
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={incident ? 'Detalle de Incidencia' : 'Reportar Incidencia'}>
       <form onSubmit={handleSubmit} className="space-y-4 max-h-[80vh] overflow-y-auto pr-2">
+        
+        {/* NUEVA SECCIÓN: UBICACIÓN Y ZONA */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-gray-50 p-3 rounded-lg border border-gray-200">
+            <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-1 flex items-center">
+                    <BuildingIcon className="w-3 h-3 mr-1"/> Establecimiento
+                </label>
+                <select 
+                    name="location_id" 
+                    value={formData.location_id || ''} 
+                    onChange={handleChange} 
+                    className="block w-full rounded-md border-gray-300 shadow-sm text-sm" 
+                    required 
+                    disabled={isReadOnly}
+                >
+                    <option value="">Seleccionar...</option>
+                    {locations.map(loc => <option key={loc.location_id} value={loc.location_id}>{loc.name}</option>)}
+                </select>
+            </div>
+            <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-1 flex items-center">
+                    <DoorOpenIcon className="w-3 h-3 mr-1"/> Habitación / Zona
+                </label>
+                <select 
+                    name="room_id" 
+                    value={formData.room_id || ''} 
+                    onChange={handleChange} 
+                    className="block w-full rounded-md border-gray-300 shadow-sm text-sm"
+                    disabled={isReadOnly || !formData.location_id}
+                >
+                    <option value="">Zona General / Desconocida</option>
+                    {filteredRooms.map(room => <option key={room.room_id} value={room.room_id}>{room.name}</option>)}
+                </select>
+            </div>
+        </div>
+
         <div>
-          <label className="block text-sm font-medium text-gray-700">Descripción</label>
+          <label className="block text-sm font-medium text-gray-700">Descripción de la Avería</label>
           <textarea
             name="description"
             value={formData.description || ''}
@@ -80,6 +129,7 @@ const IncidentFormModal: React.FC<IncidentFormModalProps> = ({ isOpen, onClose, 
             rows={3}
             required
             readOnly={isReadOnly}
+            placeholder="Describe qué sucede..."
           />
         </div>
         
@@ -108,7 +158,6 @@ const IncidentFormModal: React.FC<IncidentFormModalProps> = ({ isOpen, onClose, 
           </div>
         </div>
 
-        {/* REPUESTOS SECTION (Solo si se está resolviendo) */}
         {canManage && isResolved && (
             <div className="bg-gray-50 p-4 rounded-lg border-2 border-dashed border-gray-300 mt-4 animate-in fade-in duration-300">
                 <h4 className="text-sm font-bold text-gray-800 mb-3 flex items-center">

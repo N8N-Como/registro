@@ -22,12 +22,6 @@ const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({ isOpen, onClo
     const [reason, setReason] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    // Helpers to handle logic mapping
-    const getCorrectionType = () => {
-        if (errorType === 'entry') return existingEntryId ? 'fix_time' : 'create_entry';
-        return 'fix_time'; 
-    };
-
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!reason || !time) {
@@ -37,40 +31,34 @@ const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({ isOpen, onClo
 
         setIsSubmitting(true);
         
-        // El mockApi se encargará de convertir estas horas simples en ISO correctos
+        // Formatear hora con segundos para evitar errores de casting en Postgres
+        const formattedTime = time.length === 5 ? `${time}:00` : time;
+
         const payload: any = {
             request_id: crypto.randomUUID(),
             employee_id: employeeId,
             original_entry_id: existingEntryId || null,
-            correction_type: getCorrectionType(),
+            correction_type: 'fix_time', // Forzamos fix_time para usar la lógica de sobrescritura de día
             requested_date: date,
             reason: `[${errorType.toUpperCase()}] ${reason}`,
             status: 'pending',
             created_at: new Date().toISOString(),
-            requested_clock_in: errorType === 'entry' ? time : '00:00:00',
-            requested_clock_out: errorType === 'exit' ? time : '00:00:00'
+            requested_clock_in: errorType === 'entry' ? formattedTime : '00:00:00',
+            requested_clock_out: errorType === 'exit' ? formattedTime : '00:00:00'
         };
-
-        if (errorType === 'break') {
-            payload.correction_type = 'fix_time'; 
-            payload.requested_clock_in = '00:00:00';
-            payload.requested_clock_out = '00:00:00';
-            payload.reason = `[PAUSA] Hora: ${time}. ${reason}`;
-        }
 
         try {
             await createTimeCorrectionRequest(payload);
             alert("Solicitud enviada correctamente.");
             onClose();
         } catch (error: any) {
-            // Si el error es específicamente "Offline" (lanzado por mockApi tras fallo de red)
             if (error.message === "Offline") {
                 addToQueue('ADD_CORRECTION', payload);
                 alert("Guardado localmente. Se enviará cuando recuperes la conexión.");
                 onClose();
             } else {
-                console.error("Error de validación o servidor:", error);
-                alert(`Error al procesar: ${error.message || 'Datos inválidos'}. Verifica el formato.`);
+                console.error("Error de servidor:", error);
+                alert(`Error al procesar: ${error.message || 'Datos inválidos'}.`);
             }
         } finally {
             setIsSubmitting(false);
@@ -80,10 +68,6 @@ const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({ isOpen, onClo
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="Solicitar Corrección de Horario">
             <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="bg-yellow-50 p-3 rounded-lg border border-yellow-200 text-sm text-yellow-800">
-                    <p>Indica la hora que falta o que es incorrecta.</p>
-                </div>
-
                 <div>
                     <label className="block text-sm font-medium text-gray-700">¿Qué quieres corregir?</label>
                     <div className="mt-1 grid grid-cols-3 gap-2">
