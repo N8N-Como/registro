@@ -18,7 +18,22 @@ const saveLocalData = <T>(key: string, data: T[]) => {
     localStorage.setItem(key, JSON.stringify(data));
 };
 
-// --- MÉTODOS DE CORRECCIÓN MEJORADOS ---
+// Helper universal para asegurar formato ISO completo
+const ensureISO = (val: any, dateStr: string): string => {
+    if (!val || val === '' || val === 'N/A' || val === '00:00' || val === '00:00:00') {
+        return `${dateStr}T00:00:00Z`;
+    }
+    const str = String(val);
+    if (str.includes('T')) return str; // Ya es ISO
+    
+    // Si solo es HH:MM o HH:MM:SS
+    if (str.match(/^\d{2}:\d{2}$/)) return `${dateStr}T${str}:00Z`;
+    if (str.match(/^\d{2}:\d{2}:\d{2}$/)) return `${dateStr}T${str}Z`;
+    
+    return `${dateStr}T00:00:00Z`;
+};
+
+// --- MÉTODOS DE CORRECCIÓN REFORZADOS ---
 
 export const getTimeCorrectionRequests = async () => { 
     try { 
@@ -41,17 +56,19 @@ export const getTimeCorrectionRequests = async () => {
 };
 
 export const createTimeCorrectionRequest = async (d: any) => { 
-    // Saneamiento crítico: Asegurar que los campos requeridos por la DB nunca sean nulos/vacíos y que el ID sea UUID
+    // Normalización forzosa antes de tocar la DB
+    const requested_date = d.requested_date || new Date().toISOString().split('T')[0];
+    
     const payload = {
         request_id: d.request_id || crypto.randomUUID(),
         created_at: d.created_at || new Date().toISOString(),
         status: d.status || 'pending',
-        requested_clock_in: (d.requested_clock_in && d.requested_clock_in !== '') ? d.requested_clock_in : '00:00:00',
-        requested_clock_out: (d.requested_clock_out && d.requested_clock_out !== '') ? d.requested_clock_out : '00:00:00',
+        requested_clock_in: ensureISO(d.requested_clock_in, requested_date),
+        requested_clock_out: ensureISO(d.requested_clock_out, requested_date),
         employee_id: d.employee_id,
         original_entry_id: d.original_entry_id || null,
         correction_type: d.correction_type,
-        requested_date: d.requested_date,
+        requested_date: requested_date,
         reason: d.reason || 'Sin motivo especificado'
     };
     
@@ -59,24 +76,20 @@ export const createTimeCorrectionRequest = async (d: any) => {
         const { error, status } = await supabase.from('time_correction_requests').insert([payload]); 
         
         if (error) {
-            // Si el servidor respondió con un error (ej: UUID inválido o falta campo), NO es un error de conexión
             const serverError = new Error(error.message);
             (serverError as any).status = status;
             (serverError as any).code = error.code;
             throw serverError;
         }
         
-        // Limpiar de local si se envió con éxito
         const local = getLocalData<TimeCorrectionRequest>(LOCAL_CORRECTIONS_KEY);
         saveLocalData(LOCAL_CORRECTIONS_KEY, local.filter(req => req.request_id !== payload.request_id));
         
         return payload;
     } catch (e: any) { 
-        // Si el error tiene un status de red (familia 400 o 500) o un código de Postgres, es un error real de datos/servidor
         if (e.status && e.status > 0) throw e;
-        if (e.code && e.code.startsWith('2')) throw e; // Códigos Postgres (Data exceptions)
+        if (e.code && e.code.startsWith('2')) throw e;
 
-        // Si llegamos aquí y no hay status, es probable que la petición ni siquiera saliera (Red caída)
         const local = getLocalData<TimeCorrectionRequest>(LOCAL_CORRECTIONS_KEY);
         if (!local.some(r => r.request_id === payload.request_id)) {
             local.push(payload);
@@ -94,12 +107,12 @@ export const resolveTimeCorrectionRequest = async (id: string, status: 'approved
         if (!request) throw new Error("Solicitud no encontrada.");
 
         if (status === 'approved') {
-            const dateStr = request.requested_date;
-            
+            const isNoTime = (iso: string | undefined | null) => 
+                !iso || iso === '' || iso.endsWith('T00:00:00Z') || iso.endsWith('T00:00Z');
+
             if (request.correction_type === 'create_entry') {
-                const clockInISO = `${dateStr}T${request.requested_clock_in}Z`;
-                const isExitValid = request.requested_clock_out && request.requested_clock_out !== '00:00' && request.requested_clock_out !== '00:00:00';
-                const clockOutISO = isExitValid ? `${dateStr}T${request.requested_clock_out}Z` : null;
+                const clockInISO = request.requested_clock_in;
+                const clockOutISO = isNoTime(request.requested_clock_out) ? null : request.requested_clock_out;
 
                 await supabase.from('time_entries').insert([{
                     employee_id: request.employee_id,
@@ -113,12 +126,12 @@ export const resolveTimeCorrectionRequest = async (id: string, status: 'approved
             } else if (request.correction_type === 'fix_time' && request.original_entry_id) {
                 const updateData: any = { is_manual: true };
                 
-                if (request.requested_clock_in && request.requested_clock_in !== '00:00' && request.requested_clock_in !== '00:00:00') {
-                    updateData.clock_in_time = `${dateStr}T${request.requested_clock_in}Z`;
+                if (!isNoTime(request.requested_clock_in)) {
+                    updateData.clock_in_time = request.requested_clock_in;
                 }
                 
-                if (request.requested_clock_out && request.requested_clock_out !== '00:00' && request.requested_clock_out !== '00:00:00') {
-                    updateData.clock_out_time = `${dateStr}T${request.requested_clock_out}Z`;
+                if (!isNoTime(request.requested_clock_out)) {
+                    updateData.clock_out_time = request.requested_clock_out;
                     updateData.status = 'completed';
                 }
 
@@ -185,7 +198,7 @@ export const updateIncident = async (d: any) => { const { data } = await supabas
 export const deleteIncident = async (id: string) => { await supabase.from('incidents').delete().eq('incident_id', id); };
 export const getTasks = async () => { const { data } = await supabase.from('tasks').select('*'); return data || []; };
 export const addTask = async (d: any) => { const { data } = await supabase.from('tasks').insert([d]).select().single(); return data; };
-export const updateTask = async (d: any) => { const { data } = await supabase.from('tasks').update(d).eq('task_id', d.task_id).select().single(); return data; };
+export const updateTask = async (data: any) => { const { data: updated } = await supabase.from('tasks').update(data).eq('task_id', data.task_id).select().single(); return updated; };
 export const deleteTask = async (id: string) => { await supabase.from('tasks').delete().eq('task_id', id); };
 export const getLostItems = async () => { const { data } = await supabase.from('lost_items').select('*'); return data || []; };
 export const addLostItem = async (d: any) => { const { data } = await supabase.from('lost_items').insert([d]).select().single(); return data; };

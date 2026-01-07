@@ -40,9 +40,11 @@ const NetworkStatus: React.FC = () => {
 
     const handleClearQueue = (e: React.MouseEvent) => {
         e.stopPropagation();
-        if (window.confirm("¿Seguro que quieres borrar los cambios pendientes? Se perderán los datos que no se hayan subido.")) {
+        if (window.confirm("¿Seguro que quieres borrar los cambios pendientes? Se perderán los datos que no se hayan subido. Esto soluciona errores de formato antiguos.")) {
             clearQueue();
+            localStorage.removeItem('local_time_corrections'); // Limpiar también cache de mockApi
             setQueueLength(0);
+            window.location.reload();
         }
     };
 
@@ -69,8 +71,8 @@ const NetworkStatus: React.FC = () => {
                     <div className="flex items-center space-x-2 cursor-pointer" onClick={attemptSync}>
                         <span>⚠ {queueLength} cambios bloqueados. Pulsa para reintentar.</span>
                     </div>
-                    <button onClick={handleClearQueue} className="text-[10px] bg-white/20 hover:bg-white/40 px-2 py-1 rounded uppercase font-bold">
-                        Limpiar cola
+                    <button onClick={handleClearQueue} className="text-[10px] bg-white/20 hover:bg-white/40 px-2 py-1 rounded uppercase font-bold border border-white/30">
+                        Limpiar cola y reset
                     </button>
                 </div>
             )}

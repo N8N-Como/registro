@@ -37,14 +37,9 @@ const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({ isOpen, onClo
 
         setIsSubmitting(true);
         
-        // CRITICAL: Use a real UUID for the database
-        const requestId = crypto.randomUUID();
-        
-        // Normalize time to HH:MM:SS for Postgres compatibility
-        const formattedTime = time.length === 5 ? `${time}:00` : time;
-
+        // El mockApi se encargará de convertir estas horas simples en ISO correctos
         const payload: any = {
-            request_id: requestId,
+            request_id: crypto.randomUUID(),
             employee_id: employeeId,
             original_entry_id: existingEntryId || null,
             correction_type: getCorrectionType(),
@@ -52,21 +47,15 @@ const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({ isOpen, onClo
             reason: `[${errorType.toUpperCase()}] ${reason}`,
             status: 'pending',
             created_at: new Date().toISOString(),
-            requested_clock_in: '00:00:00',
-            requested_clock_out: '00:00:00'
+            requested_clock_in: errorType === 'entry' ? time : '00:00:00',
+            requested_clock_out: errorType === 'exit' ? time : '00:00:00'
         };
 
-        if (errorType === 'entry') {
-            payload.requested_clock_in = formattedTime;
-        } else if (errorType === 'exit') {
-            payload.requested_clock_out = formattedTime;
-            // Si es corrección de salida, marcamos la entrada como 00:00:00 para cumplir el NOT NULL
-            // aunque el administrador usará la del registro original al aprobar.
-            payload.requested_clock_in = '00:00:00'; 
-        } else if (errorType === 'break') {
+        if (errorType === 'break') {
             payload.correction_type = 'fix_time'; 
-            payload.requested_clock_in = '00:00:00'; 
-            payload.reason = `[PAUSA] Hora: ${formattedTime}. ${reason}`;
+            payload.requested_clock_in = '00:00:00';
+            payload.requested_clock_out = '00:00:00';
+            payload.reason = `[PAUSA] Hora: ${time}. ${reason}`;
         }
 
         try {
@@ -80,7 +69,6 @@ const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({ isOpen, onClo
                 alert("Guardado localmente. Se enviará cuando recuperes la conexión.");
                 onClose();
             } else {
-                // Si llegamos aquí es un error de DATOS o del Servidor (400, 500...)
                 console.error("Error de validación o servidor:", error);
                 alert(`Error al procesar: ${error.message || 'Datos inválidos'}. Verifica el formato.`);
             }

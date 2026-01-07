@@ -45,6 +45,8 @@ CREATE TABLE IF NOT EXISTS work_shifts (
 );
 
 -- 4. TABLA DE SOLICITUDES DE CORRECCIÓN (CRÍTICA PARA ERRORES DE FICHAJE)
+-- Nota: requested_clock_in/out se guardan como TEXT pero en formato ISO (YYYY-MM-DDTHH:MM:SSZ)
+-- para evitar ambigüedades con zonas horarias.
 CREATE TABLE IF NOT EXISTS time_correction_requests (
   request_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   employee_id uuid REFERENCES employees(employee_id),
