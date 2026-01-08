@@ -17,20 +17,7 @@ export const getMaintenanceMode = async (): Promise<boolean> => {
 };
 
 export const setMaintenanceMode = async (enabled: boolean) => {
-    await supabase.from('app_settings').upsert({ key: 'maintenance_mode', value: enabled, updated_at: new Date().toISOString() });
-};
-
-// --- MÉTODOS DE DIAGNÓSTICO ---
-
-export const checkDocumentTablesStatus = async (): Promise<{ company_documents: boolean; document_signatures: boolean }> => {
-    try {
-        const { error: error1 } = await supabase.from('company_documents').select('document_id').limit(1);
-        const { error: error2 } = await supabase.from('document_signatures').select('id').limit(1);
-        return { 
-            company_documents: !error1 || !error1.message.toLowerCase().includes('not find'), 
-            document_signatures: !error2 || !error2.message.toLowerCase().includes('not find')
-        };
-    } catch { return { company_documents: false, document_signatures: false }; }
+    await supabase.from('app_settings').upsert({ key: 'maintenance_mode', value: enabled });
 };
 
 // --- MÉTODOS DE DOCUMENTOS ---
@@ -54,20 +41,27 @@ export const createDocument = async (d: any, ids: string[]) => {
     return createdDoc; 
 };
 
+export const checkDocumentTablesStatus = async (): Promise<{ company_documents: boolean; document_signatures: boolean }> => {
+    try {
+        const { error: error1 } = await supabase.from('company_documents').select('document_id').limit(1);
+        const { error: error2 } = await supabase.from('document_signatures').select('id').limit(1);
+        return { 
+            company_documents: !error1 || !error1.message.toLowerCase().includes('not find'), 
+            document_signatures: !error2 || !error2.message.toLowerCase().includes('not find')
+        };
+    } catch { return { company_documents: false, document_signatures: false }; }
+};
+
 export const getEmployeeDocuments = async (id: string) => {
     const { data } = await supabase.from('document_signatures').select('*, document:company_documents(*)').eq('employee_id', id);
     return data || [];
 };
 
-export const getDocumentSignatures = async (id: string) => {
-    const { data } = await supabase.from('document_signatures').select('*').eq('document_id', id);
-    return data || [];
-};
-
 export const signDocument = async (id: string, s: string) => { await supabase.from('document_signatures').update({status: 'signed', signature_url: s, signed_at: new Date().toISOString()}).eq('id', id); };
 export const markDocumentAsViewed = async (id: string) => { await supabase.from('document_signatures').update({status: 'viewed', viewed_at: new Date().toISOString()}).eq('id', id); };
+export const getDocumentSignatures = async (id: string) => { const { data } = await supabase.from('document_signatures').select('*').eq('document_id', id); return data || []; };
 
-// --- MÉTODOS EXISTENTES (RESTO) ---
+// --- MÉTODOS EXISTENTES (COMPATIBILIDAD) ---
 export const getRoles = async (): Promise<Role[]> => { const { data } = await supabase.from('roles').select('*'); return data || []; };
 export const getEmployees = async (): Promise<Employee[]> => { const { data } = await supabase.from('employees').select('*'); return data || []; };
 export const getLocations = async (): Promise<Location[]> => { const { data } = await supabase.from('locations').select('*'); return data || []; };

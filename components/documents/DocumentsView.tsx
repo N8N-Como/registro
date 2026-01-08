@@ -77,7 +77,7 @@ const DocumentsView: React.FC = () => {
             for (let i = 0; i < total; i++) {
                 const mapping = mappings[i];
                 
-                // Extraer solo la página indicada para máxima privacidad
+                // --- SEGURIDAD CRÍTICA: RECORTE FÍSICO ---
                 const newPdf = await PDFDocument.create();
                 const [copiedPage] = await newPdf.copyPages(pdfDoc, [mapping.page_number - 1]);
                 newPdf.addPage(copiedPage);
@@ -100,7 +100,7 @@ const DocumentsView: React.FC = () => {
                 }
             }
             
-            alert("Nóminas procesadas con éxito. Privacidad garantizada: Cada archivo contiene solo su página.");
+            alert("Nóminas procesadas con éxito. Ahora cada empleado solo verá su página.");
             init();
         } catch (error: any) {
             console.error("Critical error splitting payroll:", error);
@@ -109,7 +109,7 @@ const DocumentsView: React.FC = () => {
     };
 
     const handleDeleteDoc = async (id: string, title: string) => {
-        if (!window.confirm(`¿Estás seguro de que quieres eliminar el documento "${title}"? Se borrarán también todos los registros de firma asociados.`)) return;
+        if (!window.confirm(`¿Estás seguro de que quieres eliminar "${title}"? Se borrarán todas las firmas de los empleados.`)) return;
         try {
             await deleteDocument(id);
             alert("Documento eliminado.");
@@ -120,11 +120,11 @@ const DocumentsView: React.FC = () => {
     };
 
     const handlePushPRL = async () => {
-        if (!auth?.employee || !window.confirm("¿Lanzar campaña de PRL? Los cambios se verán en producción inmediatamente.")) return;
+        if (!auth?.employee || !window.confirm("¿Lanzar campaña de PRL?")) return;
         setIsPushing(true);
         try {
             await pushPRLCampaign(auth.employee.employee_id);
-            alert("Campaña PRL activada en toda la red.");
+            alert("Campaña PRL activada.");
             init();
         } catch (e) { alert("Error al activar campaña."); } finally { setIsPushing(false); }
     };

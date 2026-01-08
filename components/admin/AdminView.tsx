@@ -77,7 +77,7 @@ const AdminView: React.FC = () => {
   return (
     <div className="space-y-6">
         {/* PANEL DE EMERGENCIA */}
-        <Card className={`border-2 transition-colors ${isEmergencyMode ? 'bg-red-50 border-red-500' : 'bg-white border-gray-200'}`}>
+        <Card className={`border-2 transition-colors ${isEmergencyMode ? 'bg-red-50 border-red-500 shadow-xl' : 'bg-white border-gray-200'}`}>
             <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
                 <div className="flex items-center gap-3 text-center sm:text-left">
                     <div className={`p-3 rounded-full ${isEmergencyMode ? 'bg-red-100' : 'bg-gray-100'}`}>
@@ -129,11 +129,11 @@ const AdminView: React.FC = () => {
                     <tbody>
                     {employees.map(emp => (
                         <tr key={emp.employee_id} className="border-b hover:bg-gray-50">
-                        <td className="p-3">{emp.first_name} {emp.last_name}</td>
+                        <td className="p-3 font-bold text-gray-800">{emp.first_name} {emp.last_name}</td>
                         <td className="p-3">{roles.find(r => r.role_id === emp.role_id)?.name}</td>
                         <td className="p-3 capitalize">{emp.status}</td>
                         <td className="p-3 flex space-x-2">
-                            <button onClick={() => deleteEmployee(emp.employee_id).then(fetchData)} className="text-red-500 hover:text-red-700"><TrashIcon className="w-5 h-5"/></button>
+                            <button onClick={() => deleteEmployee(emp.employee_id).then(fetchData)} className="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"><TrashIcon className="w-5 h-5"/></button>
                         </td>
                         </tr>
                     ))}

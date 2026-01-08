@@ -28,8 +28,6 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<Employee | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeAnnouncement, setActiveAnnouncement] = useState<Announcement | null>(null);
-  const [showAnnouncement, setShowAnnouncement] = useState(false);
   const [isOnboardingVisible, setIsOnboardingVisible] = useState(false);
   const [isMaintenance, setIsMaintenance] = useState(false);
 
