@@ -37,7 +37,7 @@ const DocumentsView: React.FC = () => {
         setIsAdminMode(hasAdminPerms);
         
         try {
-            // Cargar SIEMPRE mis documentos personales, seas admin o no
+            // Cargar SIEMPRE mis documentos personales (para que el Admin pueda firmar los suyos)
             const myDocs = await getEmployeeDocuments(auth.employee.employee_id);
             setMyDocuments(myDocs.sort((a,b) => new Date(b.document.created_at).getTime() - new Date(a.document.created_at).getTime()));
 
@@ -73,20 +73,14 @@ const DocumentsView: React.FC = () => {
         const total = mappings.length;
 
         try {
-            // Cargar el PDF original una sola vez para procesar los recortes
             const existingPdfBytes = await fetch(originalPdfBase64).then(res => res.arrayBuffer());
             const pdfDoc = await PDFDocument.load(existingPdfBytes);
 
             for (let i = 0; i < total; i++) {
                 const mapping = mappings[i];
-                
-                // --- SEGURIDAD CRÍTICA: RECORTE FÍSICO REAL ---
-                // Creamos un documento nuevo que solo contendrá una página
                 const newPdf = await PDFDocument.create();
                 const [copiedPage] = await newPdf.copyPages(pdfDoc, [mapping.page_number - 1]);
                 newPdf.addPage(copiedPage);
-                
-                // Generamos el base64 del PDF que ya solo tiene 1 página
                 const singlePageBase64 = await newPdf.saveAsBase64({ dataUri: true });
 
                 const docData = {
@@ -106,7 +100,7 @@ const DocumentsView: React.FC = () => {
                 }
             }
             
-            alert("Nóminas procesadas con éxito. Privacidad total garantizada: cada empleado solo recibirá físicamente su página.");
+            alert("Nóminas procesadas con éxito.");
             init();
         } catch (error: any) {
             console.error("Critical error splitting payroll:", error);
@@ -125,36 +119,40 @@ const DocumentsView: React.FC = () => {
         }
     };
 
-    const handlePushPRL = async () => {
-        if (!auth?.employee || !window.confirm("¿Lanzar campaña de PRL?")) return;
-        setIsPushing(true);
-        try {
-            await pushPRLCampaign(auth.employee.employee_id);
-            alert("Campaña PRL activada.");
-            init();
-        } catch (e) { alert("Error al activar campaña."); } finally { setIsPushing(false); }
-    };
-
-    const handleRemindEmployee = async (employeeId: string) => {
+    const handleCreateDocument = async (formData: any) => {
         if (!auth?.employee) return;
         try {
-            await sendSignatureReminder(employeeId, auth.employee.employee_id);
-            alert("Recordatorio enviado.");
-        } catch (e) { alert("Error al enviar."); }
-    };
-
-    const handleCreateDocument = async (data: any) => {
-        if (!auth?.employee) return;
-        try {
-            await createDocument({ ...data, created_by: auth.employee.employee_id }, data.target_employee_ids);
+            // FIX CRÍTICO: Extraemos target_employee_ids para que no se intente guardar en la tabla company_documents
+            const { target_employee_ids, ...docData } = formData;
+            
+            await createDocument(
+                { ...docData, created_by: auth.employee.employee_id }, 
+                target_employee_ids
+            );
+            
+            alert("Documento enviado correctamente.");
             init();
-        } catch (e: any) { alert("Error: " + e.message); }
+        } catch (e: any) { 
+            alert("Error al crear documento: " + e.message); 
+        }
     };
 
     const handleSignDocument = async (sigId: string, url?: string) => {
         if (url) await signDocument(sigId, url);
         else await markDocumentAsViewed(sigId);
         init();
+    };
+
+    // Added missing handleRemindEmployee function to fix line 258 error
+    const handleRemindEmployee = async (employeeId: string) => {
+        if (!auth?.employee) return;
+        try {
+            await sendSignatureReminder(employeeId, auth.employee.employee_id);
+            alert("Recordatorio enviado correctamente.");
+        } catch (e) {
+            console.error("Error sending signature reminder:", e);
+            alert("Error al enviar el recordatorio.");
+        }
     };
 
     const trackingData = useMemo(() => {
@@ -183,7 +181,7 @@ const DocumentsView: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {myDocuments.length === 0 ? (
                         <div className="col-span-full py-10 text-center text-gray-400 bg-white rounded-xl border-2 border-dashed">
-                            No tienes documentos personales asignados.
+                            No tienes documentos personales asignados para revisar o firmar.
                         </div>
                     ) : myDocuments.map(item => (
                         <Card key={item.id} className={`border-t-4 transition-all hover:shadow-lg ${item.status === 'pending' ? 'border-orange-500 bg-orange-50/20' : 'border-green-500'}`}>
@@ -204,7 +202,7 @@ const DocumentsView: React.FC = () => {
             {isAdminMode && (
                 <div className="space-y-6 pt-8 border-t-2 border-gray-200">
                     {dbHealth && !dbHealth.company_documents && (
-                        <div className="bg-red-50 border-2 border-red-200 p-4 rounded-xl flex items-start gap-4 animate-in slide-in-from-top-4 duration-500 shadow-sm">
+                        <div className="bg-red-50 border-2 border-red-200 p-4 rounded-xl flex items-start gap-4 shadow-sm">
                             <div className="bg-red-100 p-2 rounded-full"><XMarkIcon className="text-red-600 h-6 w-6"/></div>
                             <div className="flex-1">
                                 <h3 className="text-red-800 font-black uppercase text-sm">Error de Configuración Detectado</h3>
