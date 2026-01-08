@@ -115,7 +115,7 @@ const DocumentsView: React.FC = () => {
             alert("Documento eliminado.");
             init();
         } catch (e) {
-            alert("Error al eliminar el documento.");
+            alert("Error al eliminar the document.");
         }
     };
 
@@ -158,13 +158,17 @@ const DocumentsView: React.FC = () => {
     const trackingData = useMemo(() => {
         if (!isAdminMode) return [];
         return employees.map(emp => {
-            const empSigs = Object.values(signaturesMap).flat().filter(s => s.employee_id === emp.employee_id);
-            const pending = empSigs.filter(s => s.status === 'pending');
+            // Added explicit type for s and cast Object.values results to flat to fix Property 'employee_id' does not exist on type 'unknown'
+            const allSignatures = Object.values(signaturesMap).flat() as DocumentSignature[];
+            const empSigs = allSignatures.filter((s: DocumentSignature) => s.employee_id === emp.employee_id);
+            // Added explicit type for s to fix Property 'status' does not exist on type 'unknown'
+            const pending = empSigs.filter((s: DocumentSignature) => s.status === 'pending');
             return {
                 ...emp,
                 total: empSigs.length,
                 pending: pending.length,
-                pendingList: pending.map(p => adminDocuments.find(d => d.document_id === p.document_id)?.title).filter(Boolean)
+                // Added explicit type for p to fix Property 'document_id' does not exist on type 'unknown'
+                pendingList: pending.map((p: DocumentSignature) => adminDocuments.find(d => d.document_id === p.document_id)?.title).filter(Boolean)
             };
         }).filter(e => e.total > 0);
     }, [employees, signaturesMap, adminDocuments, isAdminMode]);

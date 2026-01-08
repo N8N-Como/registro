@@ -43,7 +43,8 @@ const AdminView: React.FC = () => {
       setRoles(rols);
       setRooms(rms);
       setShiftConfigs(shifts);
-      setCorrections(corrs.filter(c => c.status === 'pending'));
+      // Filtramos las pendientes para resaltar, pero las mostramos todas en la tabla de gestión
+      setCorrections(corrs);
       setIsEmergencyMode(maint);
     } catch (error) {
       console.error(error);
@@ -71,6 +72,20 @@ const AdminView: React.FC = () => {
           setIsUpdatingEmergency(false);
       }
   };
+
+  const handleResolveCorrection = async (requestId: string, status: 'approved' | 'rejected') => {
+      if (!auth?.employee) return;
+      if (!window.confirm(`¿Estás seguro de ${status === 'approved' ? 'APROBAR' : 'RECHAZAR'} este cambio de horario?`)) return;
+      
+      try {
+          await resolveTimeCorrectionRequest(requestId, status, auth.employee.employee_id);
+          fetchData();
+      } catch (e) {
+          alert("Error al resolver la solicitud.");
+      }
+  };
+
+  const pendingCount = corrections.filter(c => c.status === 'pending').length;
 
   if (isLoading) return <Spinner />;
 
@@ -108,10 +123,11 @@ const AdminView: React.FC = () => {
         <div className="flex flex-col md:flex-row justify-between items-end md:items-center gap-4 mb-2">
             <div className="border-b border-gray-200 w-full md:w-auto">
                 <nav className="-mb-px flex space-x-1 sm:space-x-2 overflow-x-auto" aria-label="Tabs">
-                    <button onClick={() => setActiveTab('employees')} className={`px-3 py-2 font-semibold rounded-t-lg ${activeTab === 'employees' ? 'bg-white border-b-2 border-primary' : 'bg-gray-50 text-gray-600'}`}>Empleados</button>
-                    <button onClick={() => setActiveTab('corrections')} className={`px-3 py-2 font-semibold rounded-t-lg flex items-center ${activeTab === 'corrections' ? 'bg-white border-b-2 border-primary' : 'bg-gray-50 text-gray-600'}`}>
-                        <ReportIcon className="w-5 h-5 mr-1 text-red-500" /> Fichajes
-                        {corrections.length > 0 && <span className="ml-2 bg-red-600 text-white text-[10px] rounded-full px-1.5">{corrections.length}</span>}
+                    <button onClick={() => setActiveTab('employees')} className={`px-3 py-2 font-semibold rounded-t-lg ${activeTab === 'employees' ? 'bg-white border-b-2 border-primary text-primary' : 'bg-gray-50 text-gray-600'}`}>Empleados</button>
+                    <button onClick={() => setActiveTab('corrections')} className={`px-3 py-2 font-semibold rounded-t-lg flex items-center transition-all ${activeTab === 'corrections' ? 'bg-white border-b-2 border-primary text-primary' : 'bg-gray-50 text-gray-600'}`}>
+                        <ReportIcon className={`w-5 h-5 mr-1 ${pendingCount > 0 ? 'text-red-600 animate-pulse' : 'text-gray-400'}`} /> 
+                        Fichajes
+                        {pendingCount > 0 && <span className="ml-2 bg-red-600 text-white text-[10px] font-black rounded-full px-2 py-0.5 shadow-sm">{pendingCount}</span>}
                     </button>
                     <button onClick={() => setActiveTab('locations')} className={`px-3 py-2 font-semibold rounded-t-lg ${activeTab === 'locations' ? 'bg-white border-b-2 border-primary' : 'bg-gray-50 text-gray-600'}`}>Ubicaciones</button>
                     <button onClick={() => setActiveTab('rooms')} className={`px-3 py-2 font-semibold rounded-t-lg ${activeTab === 'rooms' ? 'bg-white border-b-2 border-primary' : 'bg-gray-50 text-gray-600'}`}>Zonas</button>
@@ -122,16 +138,23 @@ const AdminView: React.FC = () => {
 
         {activeTab === 'employees' && (
              <Card>
-                <Button onClick={() => setIsEmployeeModalOpen(true)} className="mb-4">Añadir Empleado</Button>
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-bold text-gray-700 uppercase text-xs">Listado de Personal</h3>
+                    <Button size="sm" onClick={() => setIsEmployeeModalOpen(true)}>Añadir Empleado</Button>
+                </div>
                 <div className="overflow-x-auto">
                 <table className="w-full text-left">
-                    <thead className="bg-gray-50"><tr className="border-b"><th className="p-3">Nombre</th><th className="p-3">Rol</th><th className="p-3">Estado</th><th className="p-3">Acciones</th></tr></thead>
+                    <thead className="bg-gray-50"><tr className="border-b text-[10px] uppercase font-black text-gray-400"><th className="p-3">Nombre</th><th className="p-3">Rol</th><th className="p-3">Estado</th><th className="p-3">Acciones</th></tr></thead>
                     <tbody>
                     {employees.map(emp => (
-                        <tr key={emp.employee_id} className="border-b hover:bg-gray-50">
+                        <tr key={emp.employee_id} className="border-b hover:bg-gray-50 transition-colors">
                         <td className="p-3 font-bold text-gray-800">{emp.first_name} {emp.last_name}</td>
-                        <td className="p-3">{roles.find(r => r.role_id === emp.role_id)?.name}</td>
-                        <td className="p-3 capitalize">{emp.status}</td>
+                        <td className="p-3 text-xs">{roles.find(r => r.role_id === emp.role_id)?.name}</td>
+                        <td className="p-3 capitalize text-xs">
+                            <span className={`px-2 py-0.5 rounded-full font-bold ${emp.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                                {emp.status}
+                            </span>
+                        </td>
                         <td className="p-3 flex space-x-2">
                             <button onClick={() => deleteEmployee(emp.employee_id).then(fetchData)} className="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"><TrashIcon className="w-5 h-5"/></button>
                         </td>
@@ -139,6 +162,74 @@ const AdminView: React.FC = () => {
                     ))}
                     </tbody>
                 </table>
+                </div>
+            </Card>
+        )}
+
+        {activeTab === 'corrections' && (
+            <Card title="Gestión de Fichajes y Correcciones">
+                <div className="bg-red-50 border-l-4 border-red-400 p-3 mb-4 text-xs text-red-800 font-medium">
+                    Resaltadas en rojo las peticiones pendientes que requieren tu aprobación para actualizar los informes oficiales.
+                </div>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                        <thead className="bg-gray-50"><tr className="border-b text-[10px] uppercase font-black text-gray-400"><th className="p-3">Empleado</th><th className="p-3">Fecha</th><th className="p-3">Solicitud</th><th className="p-3">Motivo</th><th className="p-3 text-right">Acciones</th></tr></thead>
+                        <tbody>
+                        {corrections.length === 0 ? (
+                            <tr><td colSpan={5} className="p-8 text-center text-gray-400 italic">No hay registros de corrección para mostrar.</td></tr>
+                        ) : (
+                            corrections.sort((a,b) => a.status === 'pending' ? -1 : 1).map(corr => {
+                                const emp = employees.find(e => e.employee_id === corr.employee_id);
+                                const isPending = corr.status === 'pending';
+                                
+                                // Formateo de la hora solicitada
+                                const timeVal = corr.requested_clock_in || corr.requested_clock_out;
+                                const displayTime = timeVal?.includes('T') ? timeVal.split('T')[1].substring(0, 5) : timeVal;
+                                const label = corr.requested_clock_in ? 'ENTRADA' : 'SALIDA';
+
+                                return (
+                                    <tr key={corr.request_id} className={`border-b transition-colors ${isPending ? 'bg-red-50 hover:bg-red-100' : 'bg-white opacity-60'}`}>
+                                        <td className="p-3 font-bold text-gray-800">{emp?.first_name} {emp?.last_name}</td>
+                                        <td className="p-3 text-xs font-medium">{new Date(corr.requested_date).toLocaleDateString('es-ES')}</td>
+                                        <td className="p-3">
+                                            <div className="flex flex-col">
+                                                <span className={`text-[9px] font-black px-2 py-0.5 rounded w-fit ${isPending ? 'bg-red-200 text-red-800' : 'bg-gray-200 text-gray-700'}`}>
+                                                    MODIFICAR {label}
+                                                </span>
+                                                <span className="text-sm font-black mt-1">{displayTime}</span>
+                                            </div>
+                                        </td>
+                                        <td className="p-3 text-xs text-gray-600 max-w-xs">{corr.reason}</td>
+                                        <td className="p-3 text-right">
+                                            {isPending ? (
+                                                <div className="flex justify-end gap-2">
+                                                    <button 
+                                                        onClick={() => handleResolveCorrection(corr.request_id, 'approved')}
+                                                        className="p-2 bg-green-600 text-white rounded-lg hover:bg-green-700 shadow-md transform active:scale-95 transition-all"
+                                                        title="Aprobar cambio"
+                                                    >
+                                                        <CheckIcon className="w-5 h-5" />
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => handleResolveCorrection(corr.request_id, 'rejected')}
+                                                        className="p-2 bg-red-600 text-white rounded-lg hover:bg-red-700 shadow-md transform active:scale-95 transition-all"
+                                                        title="Rechazar cambio"
+                                                    >
+                                                        <XMarkIcon className="w-5 h-5" />
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <span className={`text-[10px] font-black uppercase px-2 py-1 rounded ${corr.status === 'approved' ? 'text-green-700 bg-green-100' : 'text-red-700 bg-red-100'}`}>
+                                                    {corr.status === 'approved' ? '✓ Aprobado' : '✕ Rechazado'}
+                                                </span>
+                                            )}
+                                        </td>
+                                    </tr>
+                                );
+                            })
+                        )}
+                        </tbody>
+                    </table>
                 </div>
             </Card>
         )}

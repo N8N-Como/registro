@@ -75,15 +75,15 @@ CREATE TABLE IF NOT EXISTS public.work_shifts (
   notes text
 );
 
--- 7. TABLA DE SOLICITUDES DE CORRECCIÓN
+-- 7. TABLA DE SOLICITUDES DE CORRECCIÓN (Soporta timestamptz para evitar errores de sintaxis)
 CREATE TABLE IF NOT EXISTS public.time_correction_requests (
   request_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   employee_id uuid REFERENCES public.employees(employee_id),
   original_entry_id uuid REFERENCES public.time_entries(entry_id),
   correction_type text NOT NULL,
   requested_date date NOT NULL,
-  requested_clock_in text NOT NULL,
-  requested_clock_out text,
+  requested_clock_in timestamptz,
+  requested_clock_out timestamptz,
   reason text NOT NULL,
   status text DEFAULT 'pending',
   created_at timestamptz DEFAULT now(),

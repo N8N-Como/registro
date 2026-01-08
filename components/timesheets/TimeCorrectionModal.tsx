@@ -40,7 +40,11 @@ const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({
         }
 
         setIsSubmitting(true);
+        
+        // FIX CRÍTICO: Supabase espera un timestamptz completo, no solo la hora.
+        // Combinamos la fecha elegida con la hora elegida.
         const formattedTime = time.length === 5 ? `${time}:00` : time;
+        const fullTimestamp = `${date}T${formattedTime}`;
 
         const payload: any = {
             request_id: crypto.randomUUID(),
@@ -51,8 +55,9 @@ const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({
             reason: `[${errorType.toUpperCase()}] ${reason}`,
             status: 'pending',
             created_at: new Date().toISOString(),
-            requested_clock_in: errorType === 'entry' ? formattedTime : '00:00:00',
-            requested_clock_out: errorType === 'exit' ? formattedTime : '00:00:00'
+            // Enviamos el timestamp completo para evitar el error "invalid input syntax for type timestamp"
+            requested_clock_in: errorType === 'entry' ? fullTimestamp : null,
+            requested_clock_out: errorType === 'exit' ? fullTimestamp : null
         };
 
         try {
@@ -65,7 +70,8 @@ const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({
                 alert("Guardado localmente. Se enviará cuando recuperes la conexión.");
                 onClose();
             } else {
-                alert(`Error al procesar: ${error.message || 'Datos inválidos'}.`);
+                console.error("Error submitting correction:", error);
+                alert(`Error al procesar: ${error.message || 'Datos inválidos'}. Asegúrate de que el servidor está respondiendo.`);
             }
         } finally {
             setIsSubmitting(false);
