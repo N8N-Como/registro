@@ -25,6 +25,7 @@ const DocumentsView: React.FC = () => {
     const [myDocuments, setMyDocuments] = useState<(DocumentSignature & { document: CompanyDocument })[]>([]);
     const [employees, setEmployees] = useState<Employee[]>([]);
     const [signaturesMap, setSignaturesMap] = useState<Record<string, DocumentSignature[]>>({});
+    const [selectedTrackDoc, setSelectedTrackDoc] = useState<string | null>(null);
 
     const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
     const [isPayrollModalOpen, setIsPayrollModalOpen] = useState(false);
@@ -43,10 +44,12 @@ const DocumentsView: React.FC = () => {
                 
                 if (health.company_documents) {
                     const [docs, emps] = await Promise.all([getDocuments(), getEmployees()]);
-                    setAdminDocuments(docs.sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+                    const sortedDocs = docs.sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+                    setAdminDocuments(sortedDocs);
                     setEmployees(emps);
+                    
                     const sigs: Record<string, DocumentSignature[]> = {};
-                    for (const doc of docs) {
+                    for (const doc of sortedDocs) {
                         sigs[doc.document_id] = await getDocumentSignatures(doc.document_id);
                     }
                     setSignaturesMap(sigs);
@@ -76,8 +79,6 @@ const DocumentsView: React.FC = () => {
 
             for (let i = 0; i < total; i++) {
                 const mapping = mappings[i];
-                
-                // --- SEGURIDAD CRÍTICA: RECORTE FÍSICO ---
                 const newPdf = await PDFDocument.create();
                 const [copiedPage] = await newPdf.copyPages(pdfDoc, [mapping.page_number - 1]);
                 newPdf.addPage(copiedPage);
@@ -100,7 +101,7 @@ const DocumentsView: React.FC = () => {
                 }
             }
             
-            alert("Nóminas procesadas con éxito. Ahora cada empleado solo verá su página.");
+            alert("Nóminas procesadas con éxito. Privacidad total garantizada.");
             init();
         } catch (error: any) {
             console.error("Critical error splitting payroll:", error);
@@ -109,13 +110,12 @@ const DocumentsView: React.FC = () => {
     };
 
     const handleDeleteDoc = async (id: string, title: string) => {
-        if (!window.confirm(`¿Estás seguro de que quieres eliminar "${title}"? Se borrarán todas las firmas de los empleados.`)) return;
+        if (!window.confirm(`¿Estás seguro de que quieres eliminar "${title}"? Se borrarán todos los registros de descarga/firma.`)) return;
         try {
             await deleteDocument(id);
-            alert("Documento eliminado.");
             init();
         } catch (e) {
-            alert("Error al eliminar el documento.");
+            alert("Error al eliminar.");
         }
     };
 
@@ -124,7 +124,6 @@ const DocumentsView: React.FC = () => {
         setIsPushing(true);
         try {
             await pushPRLCampaign(auth.employee.employee_id);
-            alert("Campaña PRL activada.");
             init();
         } catch (e) { alert("Error al activar campaña."); } finally { setIsPushing(false); }
     };
@@ -151,19 +150,21 @@ const DocumentsView: React.FC = () => {
         init();
     };
 
-    const trackingData = useMemo(() => {
-        if (!isAdminMode) return [];
-        return employees.map(emp => {
-            const empSigs = Object.values(signaturesMap).flat().filter(s => s.employee_id === emp.employee_id);
-            const pending = empSigs.filter(s => s.status === 'pending');
-            return {
-                ...emp,
-                total: empSigs.length,
-                pending: pending.length,
-                pendingList: pending.map(p => adminDocuments.find(d => d.document_id === p.document_id)?.title).filter(Boolean)
-            };
-        }).filter(e => e.total > 0);
-    }, [employees, signaturesMap, adminDocuments, isAdminMode]);
+    const getStatusText = (status: string) => {
+        switch(status) {
+            case 'signed': return 'FIRMADO';
+            case 'viewed': return 'VISTO';
+            default: return 'PENDIENTE';
+        }
+    };
+
+    const getStatusColor = (status: string) => {
+        switch(status) {
+            case 'signed': return 'text-green-600 bg-green-50';
+            case 'viewed': return 'text-blue-600 bg-blue-50';
+            default: return 'text-red-600 bg-red-50';
+        }
+    };
 
     if (isLoading) return <Spinner />;
 
@@ -188,17 +189,14 @@ const DocumentsView: React.FC = () => {
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <div>
                         <h2 className="text-xl font-bold flex items-center gap-2 text-primary">
-                            <DocumentIcon /> Gestión Documental
+                            <DocumentIcon /> Gestión y Auditoría Documental
                         </h2>
                         <div className="flex items-center text-[10px] text-green-600 font-bold bg-green-50 px-2 py-0.5 rounded mt-1 border border-green-100">
                              <span className="w-1.5 h-1.5 bg-green-500 rounded-full mr-1.5 animate-pulse"></span>
-                             ESTADO: {dbHealth?.company_documents ? 'OPERATIVO' : 'REQUERIR SQL'}
+                             MÓDULO DE PRIVACIDAD ACTIVO
                         </div>
                     </div>
                     <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-                        <Button variant="secondary" onClick={handlePushPRL} isLoading={isPushing} className="bg-orange-500 hover:bg-orange-600 border-orange-600" disabled={!dbHealth?.company_documents}>
-                            <MegaphoneIcon className="w-4 h-4 mr-2" /> 🚀 Campaña PRL
-                        </Button>
                         <Button variant="secondary" onClick={() => setIsPayrollModalOpen(true)} disabled={!dbHealth?.company_documents}>
                             <SparklesIcon className="w-4 h-4 mr-2" /> IA Splitter Nóminas
                         </Button>
@@ -207,8 +205,8 @@ const DocumentsView: React.FC = () => {
                 </div>
 
                 <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg w-fit">
-                    <button onClick={() => setActiveTab('docs')} className={`px-4 py-2 text-sm font-bold rounded-md transition-all ${activeTab === 'docs' ? 'bg-white text-primary shadow-sm' : 'text-gray-500'}`}>Docs</button>
-                    <button onClick={() => setActiveTab('tracking')} className={`px-4 py-2 text-sm font-bold rounded-md transition-all ${activeTab === 'tracking' ? 'bg-white text-primary shadow-sm' : 'text-gray-500'}`}>Seguimiento</button>
+                    <button onClick={() => setActiveTab('docs')} className={`px-4 py-2 text-sm font-bold rounded-md transition-all ${activeTab === 'docs' ? 'bg-white text-primary shadow-sm' : 'text-gray-500'}`}>Archivos</button>
+                    <button onClick={() => setActiveTab('tracking')} className={`px-4 py-2 text-sm font-bold rounded-md transition-all ${activeTab === 'tracking' ? 'bg-white text-primary shadow-sm' : 'text-gray-500'}`}>Auditoría (Descargas)</button>
                 </div>
 
                 {activeTab === 'docs' ? (
@@ -220,24 +218,25 @@ const DocumentsView: React.FC = () => {
                             </div>
                         ) : adminDocuments.map(doc => {
                             const sigs = signaturesMap[doc.document_id] || [];
-                            const signed = sigs.filter(s => s.status !== 'pending').length;
+                            const signedCount = sigs.filter(s => s.status === 'signed').length;
+                            const viewedCount = sigs.filter(s => s.status === 'viewed').length;
+                            
                             return (
                                 <Card key={doc.document_id} className="p-4 border-l-4 border-primary hover:shadow-md transition-shadow">
                                     <div className="flex justify-between items-center">
                                         <div className="flex-1">
                                             <h3 className="font-bold text-gray-800">{doc.title}</h3>
                                             <p className="text-xs text-gray-500">{doc.description}</p>
-                                            <p className="text-[10px] text-gray-400 mt-1">Enviado: {new Date(doc.created_at).toLocaleDateString()}</p>
+                                            <p className="text-[10px] text-gray-400 mt-1">ID: {doc.document_id} | {new Date(doc.created_at).toLocaleDateString()}</p>
                                         </div>
                                         <div className="flex items-center gap-6">
-                                            <div className="text-right">
-                                                <p className="text-xs font-bold text-gray-400 uppercase">Firma / Lectura</p>
-                                                <p className="font-black text-primary">{signed} / {sigs.length}</p>
-                                            </div>
+                                            <button onClick={() => { setActiveTab('tracking'); setSelectedTrackDoc(doc.document_id); }} className="text-right hover:opacity-75 transition-opacity">
+                                                <p className="text-[10px] font-black text-gray-400 uppercase">Estado Global</p>
+                                                <p className="font-black text-primary">Firmas: {signedCount} | Vistos: {viewedCount}</p>
+                                            </button>
                                             <button 
                                                 onClick={() => handleDeleteDoc(doc.document_id, doc.title)}
                                                 className="p-2 text-gray-400 hover:text-red-600 transition-colors"
-                                                title="Eliminar documento"
                                             >
                                                 <TrashIcon className="w-5 h-5" />
                                             </button>
@@ -248,23 +247,67 @@ const DocumentsView: React.FC = () => {
                         })}
                     </div>
                 ) : (
-                    <Card title="Estado por Empleado">
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left text-sm">
-                                <thead><tr className="border-b bg-gray-50 text-gray-400 uppercase text-[10px] font-black"><th className="p-4 text-center w-12">#</th><th className="p-4">Empleado</th><th className="p-4">Pendientes</th><th className="p-4 text-right">Acción</th></tr></thead>
-                                <tbody>
-                                    {trackingData.length === 0 ? <tr><td colSpan={4} className="p-10 text-center text-gray-400">Sin datos de seguimiento.</td></tr> : trackingData.map((row, idx) => (
-                                        <tr key={row.employee_id} className="border-b hover:bg-gray-50 transition-colors">
-                                            <td className="p-4 text-center text-gray-300 font-bold">{idx + 1}</td>
-                                            <td className="p-4 font-bold text-gray-800">{row.first_name} {row.last_name}</td>
-                                            <td className="p-4">{row.pending > 0 ? <span className="text-red-600 font-bold bg-red-50 px-2 py-0.5 rounded">{row.pending} pendientes</span> : <span className="text-green-600 font-bold">✓ Al día</span>}</td>
-                                            <td className="p-4 text-right">{row.pending > 0 && <button onClick={() => handleRemindEmployee(row.employee_id)} className="text-xs bg-primary/10 text-primary px-3 py-1 rounded-full font-bold hover:bg-primary/20 transition-colors">Recordar</button>}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </Card>
+                    <div className="space-y-6">
+                        <Card title="Filtrar por Documento">
+                            <select 
+                                value={selectedTrackDoc || ''} 
+                                onChange={(e) => setSelectedTrackDoc(e.target.value)}
+                                className="w-full border p-3 rounded-lg font-bold text-gray-800 bg-white"
+                            >
+                                <option value="">-- Selecciona un documento para auditar --</option>
+                                {adminDocuments.map(d => (
+                                    <option key={d.document_id} value={d.document_id}>{d.title}</option>
+                                ))}
+                            </select>
+                        </Card>
+
+                        {selectedTrackDoc && (
+                            <Card title={`Auditoría: ${adminDocuments.find(d => d.document_id === selectedTrackDoc)?.title}`}>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left text-sm">
+                                        <thead>
+                                            <tr className="border-b bg-gray-50 text-[10px] font-black text-gray-400 uppercase">
+                                                <th className="p-4">Empleado</th>
+                                                <th className="p-4 text-center">Estado</th>
+                                                <th className="p-4">Fecha Acción</th>
+                                                <th className="p-4 text-right">Acción</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {(signaturesMap[selectedTrackDoc] || []).map(sig => {
+                                                const emp = employees.find(e => e.employee_id === sig.employee_id);
+                                                const actionDate = sig.signed_at || sig.viewed_at;
+                                                return (
+                                                    <tr key={sig.id} className="border-b hover:bg-gray-50 transition-colors">
+                                                        <td className="p-4 font-bold text-gray-800">{emp ? `${emp.first_name} ${emp.last_name}` : 'Desconocido'}</td>
+                                                        <td className="p-4 text-center">
+                                                            <span className={`px-3 py-1 rounded-full text-[10px] font-black ${getStatusColor(sig.status)}`}>
+                                                                {getStatusText(sig.status)}
+                                                            </span>
+                                                        </td>
+                                                        <td className="p-4 text-gray-500 text-xs">
+                                                            {actionDate ? new Date(actionDate).toLocaleString() : '---'}
+                                                        </td>
+                                                        <td className="p-4 text-right">
+                                                            {sig.status === 'pending' && (
+                                                                <button onClick={() => handleRemindEmployee(sig.employee_id)} className="text-[10px] font-black bg-primary/10 text-primary px-3 py-1 rounded hover:bg-primary/20">RECORDAR</button>
+                                                            )}
+                                                            {sig.status === 'signed' && (
+                                                                <span className="text-[10px] font-black text-green-600">✓ DOCUMENTO FIRMADO</span>
+                                                            )}
+                                                            {sig.status === 'viewed' && (
+                                                                <span className="text-[10px] font-black text-blue-600">⚠ VISTO (SIN FIRMA)</span>
+                                                            )}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </Card>
+                        )}
+                    </div>
                 )}
 
                 {isUploadModalOpen && <DocumentUploadModal isOpen={isUploadModalOpen} onClose={() => setIsUploadModalOpen(false)} onSave={handleCreateDocument} employees={employees} />}
