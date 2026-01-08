@@ -47,10 +47,11 @@ const DocumentsView: React.FC = () => {
                 
                 if (health.company_documents) {
                     const [docs, emps] = await Promise.all([getDocuments(), getEmployees()]);
-                    setAdminDocuments(docs.sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+                    const sortedDocs = docs.sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+                    setAdminDocuments(sortedDocs);
                     setEmployees(emps);
                     const sigs: Record<string, DocumentSignature[]> = {};
-                    for (const doc of docs) {
+                    for (const doc of sortedDocs) {
                         sigs[doc.document_id] = await getDocumentSignatures(doc.document_id);
                     }
                     setSignaturesMap(sigs);
@@ -72,16 +73,20 @@ const DocumentsView: React.FC = () => {
         const total = mappings.length;
 
         try {
+            // Cargar el PDF original una sola vez para procesar los recortes
             const existingPdfBytes = await fetch(originalPdfBase64).then(res => res.arrayBuffer());
             const pdfDoc = await PDFDocument.load(existingPdfBytes);
 
             for (let i = 0; i < total; i++) {
                 const mapping = mappings[i];
                 
-                // --- SEGURIDAD CRÍTICA: RECORTE FÍSICO ---
+                // --- SEGURIDAD CRÍTICA: RECORTE FÍSICO REAL ---
+                // Creamos un documento nuevo que solo contendrá una página
                 const newPdf = await PDFDocument.create();
                 const [copiedPage] = await newPdf.copyPages(pdfDoc, [mapping.page_number - 1]);
                 newPdf.addPage(copiedPage);
+                
+                // Generamos el base64 del PDF que ya solo tiene 1 página
                 const singlePageBase64 = await newPdf.saveAsBase64({ dataUri: true });
 
                 const docData = {
@@ -101,7 +106,7 @@ const DocumentsView: React.FC = () => {
                 }
             }
             
-            alert("Nóminas procesadas con éxito. Ahora cada empleado solo verá físicamente su página.");
+            alert("Nóminas procesadas con éxito. Privacidad total garantizada: cada empleado solo recibirá físicamente su página.");
             init();
         } catch (error: any) {
             console.error("Critical error splitting payroll:", error);
@@ -170,7 +175,7 @@ const DocumentsView: React.FC = () => {
 
     return (
         <div className="space-y-8">
-            {/* SECCIÓN PERSONAL (Para todos, incluidos Admins) */}
+            {/* SECCIÓN PERSONAL: Visible para todos, incluidos Administradores */}
             <div className="space-y-4">
                 <h2 className="text-xl font-bold flex items-center gap-2 text-primary">
                     <PaperClipIcon /> Mis Documentos Personales
@@ -195,15 +200,25 @@ const DocumentsView: React.FC = () => {
                 </div>
             </div>
 
-            {/* SECCIÓN GESTIÓN (Solo Admins) */}
+            {/* SECCIÓN GESTIÓN: Solo para Administradores */}
             {isAdminMode && (
                 <div className="space-y-6 pt-8 border-t-2 border-gray-200">
+                    {dbHealth && !dbHealth.company_documents && (
+                        <div className="bg-red-50 border-2 border-red-200 p-4 rounded-xl flex items-start gap-4 animate-in slide-in-from-top-4 duration-500 shadow-sm">
+                            <div className="bg-red-100 p-2 rounded-full"><XMarkIcon className="text-red-600 h-6 w-6"/></div>
+                            <div className="flex-1">
+                                <h3 className="text-red-800 font-black uppercase text-sm">Error de Configuración Detectado</h3>
+                                <p className="text-red-700 text-xs mt-1">Supabase no reconoce las tablas de documentos. Ve a Administración {'->'} Actualizar BD (SQL).</p>
+                            </div>
+                        </div>
+                    )}
+
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                         <div>
                             <h2 className="text-xl font-bold flex items-center gap-2 text-gray-700">
-                                <DocumentIcon /> Gestión Documental (Admin)
+                                <DocumentIcon /> Panel de Gestión Documental
                             </h2>
-                            <p className="text-xs text-gray-400">Controla el envío y firma de todo el personal</p>
+                            <p className="text-xs text-gray-400">Control de envío y auditoría de firmas de todo el personal</p>
                         </div>
                         <div className="flex flex-wrap gap-2 w-full sm:w-auto">
                             <Button variant="secondary" onClick={() => setIsPayrollModalOpen(true)} className="bg-indigo-50 border-indigo-200 text-indigo-700">
