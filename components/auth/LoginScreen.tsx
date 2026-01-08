@@ -1,16 +1,19 @@
+
 import React, { useState, useMemo } from 'react';
 import { Employee, Role } from '../../types';
 import Button from '../shared/Button';
 import Card from '../shared/Card';
 import { COMPANY_NAME } from '../../constants';
+import { WrenchIcon } from '../icons';
 
 interface LoginScreenProps {
   employees: Employee[];
   roles: Role[];
   onLogin: (employeeId: string) => void;
+  isMaintenance?: boolean;
 }
 
-const LoginScreen: React.FC<LoginScreenProps> = ({ employees, onLogin }) => {
+const LoginScreen: React.FC<LoginScreenProps> = ({ employees, onLogin, isMaintenance }) => {
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   
@@ -49,6 +52,17 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ employees, onLogin }) => {
         <h1 className="text-4xl font-bold text-primary">{COMPANY_NAME}</h1>
         <p className="text-gray-600 mt-2">Sistema de Gestión de Personal</p>
       </div>
+
+      {isMaintenance && (
+          <div className="mb-6 bg-orange-100 border-2 border-orange-500 p-4 rounded-xl flex items-center gap-3 animate-pulse max-w-sm">
+              <WrenchIcon className="text-orange-600 w-8 h-8" />
+              <div className="text-xs font-bold text-orange-900">
+                  <p className="uppercase">Modo Mantenimiento Activo</p>
+                  <p className="opacity-75">Solo administradores pueden acceder ahora.</p>
+              </div>
+          </div>
+      )}
+
       <Card className="max-w-sm w-full">
         <div className="text-center">
             <h2 className="text-xl font-semibold">Introduce tu PIN</h2>

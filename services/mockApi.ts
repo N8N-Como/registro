@@ -11,7 +11,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 export const getMaintenanceMode = async (): Promise<boolean> => {
     try {
-        const { data } = await supabase.from('app_settings').select('value').eq('key', 'maintenance_mode').single();
+        const { data } = await supabase.from('app_settings').select('value').eq('key', 'maintenance_mode').maybeSingle();
         return data?.value === true;
     } catch { return false; }
 };
@@ -26,7 +26,10 @@ export const checkDocumentTablesStatus = async (): Promise<{ company_documents: 
     try {
         const { error: error1 } = await supabase.from('company_documents').select('document_id').limit(1);
         const { error: error2 } = await supabase.from('document_signatures').select('id').limit(1);
-        return { company_documents: !error1, document_signatures: !error2 };
+        return { 
+            company_documents: !error1 || !error1.message.toLowerCase().includes('not find'), 
+            document_signatures: !error2 || !error2.message.toLowerCase().includes('not find')
+        };
     } catch { return { company_documents: false, document_signatures: false }; }
 };
 
@@ -91,7 +94,7 @@ export const logStockMovement = async (itemId: string, changeAmount: number, rea
 export const getStockLogs = async (itemId?: string): Promise<StockLog[]> => { let q = supabase.from('stock_logs').select('*').order('created_at', { ascending: false }); if (itemId) q = q.eq('item_id', itemId); const { data } = await q; return data || []; };
 export const getShiftLog = async (): Promise<ShiftLogEntry[]> => { const { data } = await supabase.from('shift_log').select('*').order('created_at', { ascending: false }); return data || []; };
 export const addShiftLogEntry = async (d: any) => { const { data } = await supabase.from('shift_log').insert([d]).select().single(); return data; };
-export const updateShiftLogEntry = async (d: any) => { const { data } = await supabase.from('shift_log').update(d).eq('log_id', d.log_id).select().single(); return data; };
+export const updateShiftLogEntry = async (data: any) => { const { data: updated } = await supabase.from('shift_log').update(data).eq('log_id', data.log_id).select().single(); return updated; };
 export const getActiveAnnouncement = async () => { const { data } = await supabase.from('announcements').select('*').eq('is_active', true).maybeSingle(); return data; };
 export const getAnnouncements = async () => { const { data } = await supabase.from('announcements').select('*'); return data || []; };
 export const addAnnouncement = async (d: any) => { const { data } = await supabase.from('announcements').insert([d]).select().single(); return data; };

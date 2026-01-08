@@ -33,30 +33,38 @@ const App: React.FC = () => {
   const [isOnboardingVisible, setIsOnboardingVisible] = useState(false);
   const [isMaintenance, setIsMaintenance] = useState(false);
 
-  useEffect(() => {
-    const fetchInitialData = async () => {
-      try {
-        setError(null);
-        const [rols, emps, maintenance] = await Promise.all([
-            getRoles(),
-            getEmployees(),
-            getMaintenanceMode()
-        ]);
-        
-        setEmployees(emps);
-        setRoles(rols);
-        setIsMaintenance(maintenance);
-        
-        if (rols.length === 0 && emps.length === 0) {
-            setError("Conexión exitosa, pero sin datos. Revisa el SQL Editor.");
-        }
-      } catch (error: any) {
-        setError(`Error de conexión: ${error?.message || 'Fallo desconocido'}`);
-      } finally {
-        setIsLoading(false);
+  const fetchInitialData = async () => {
+    try {
+      const [rols, emps, maintenance] = await Promise.all([
+          getRoles(),
+          getEmployees(),
+          getMaintenanceMode()
+      ]);
+      
+      setEmployees(emps);
+      setRoles(rols);
+      setIsMaintenance(maintenance);
+      
+      if (rols.length === 0 && emps.length === 0) {
+          setError("Conexión exitosa, pero sin datos. Revisa el SQL Editor.");
+      } else {
+          setError(null);
       }
-    };
+    } catch (error: any) {
+      setError(`Error de conexión: ${error?.message || 'Fallo desconocido'}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchInitialData();
+    // Monitorizar modo mantenimiento cada minuto
+    const interval = setInterval(async () => {
+        const m = await getMaintenanceMode();
+        setIsMaintenance(m);
+    }, 60000);
+    return () => clearInterval(interval);
   }, []);
 
   const handleLogin = async (employeeId: string) => {
@@ -126,7 +134,7 @@ const App: React.FC = () => {
   }
 
   if (!currentUser || !userRole) {
-    return <LoginScreen employees={employees} roles={roles} onLogin={handleLogin} />;
+    return <LoginScreen employees={employees} roles={roles} onLogin={handleLogin} isMaintenance={isMaintenance} />;
   }
   
   if (!currentUser.policy_accepted) {

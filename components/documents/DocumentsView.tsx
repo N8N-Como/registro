@@ -71,14 +71,13 @@ const DocumentsView: React.FC = () => {
         const total = mappings.length;
 
         try {
-            // Cargar el PDF original una sola vez para procesar las páginas
             const existingPdfBytes = await fetch(originalPdfBase64).then(res => res.arrayBuffer());
             const pdfDoc = await PDFDocument.load(existingPdfBytes);
 
             for (let i = 0; i < total; i++) {
                 const mapping = mappings[i];
                 
-                // --- SEGURIDAD: RECORTAR EL PDF PARA EL EMPLEADO ---
+                // Extraer solo la página indicada para máxima privacidad
                 const newPdf = await PDFDocument.create();
                 const [copiedPage] = await newPdf.copyPages(pdfDoc, [mapping.page_number - 1]);
                 newPdf.addPage(copiedPage);
@@ -96,14 +95,12 @@ const DocumentsView: React.FC = () => {
                 try {
                     await createDocument(docData, [mapping.employee_id]);
                     onProgress(i + 1, total);
-                    // Pequeña pausa para no saturar la conexión si hay muchos archivos
-                    if (total > 5) await new Promise(r => setTimeout(r, 300));
                 } catch (err: any) {
                     throw new Error(`Fallo al subir la nómina de ${mapping.employee_name}: ${err.message}`);
                 }
             }
             
-            alert("Nóminas procesadas con éxito. Cada empleado ha recibido únicamente su página correspondiente.");
+            alert("Nóminas procesadas con éxito. Privacidad garantizada: Cada archivo contiene solo su página.");
             init();
         } catch (error: any) {
             console.error("Critical error splitting payroll:", error);
@@ -180,9 +177,9 @@ const DocumentsView: React.FC = () => {
                             <h3 className="text-red-800 font-black uppercase text-sm">Error de Configuración Detectado</h3>
                             <p className="text-red-700 text-xs mt-1">Supabase no reconoce las tablas de documentos. Para solucionarlo:</p>
                             <ol className="list-decimal ml-4 mt-2 text-xs text-red-700 font-bold space-y-1">
-                                <li>Ve al panel de <strong>Administración -> Actualizar BD (SQL)</strong>.</li>
+                                <li>Ve al panel de <strong>Administración {'->'} Actualizar BD (SQL)</strong>.</li>
                                 <li>Copia y ejecuta el código en Supabase.</li>
-                                <li><strong>IMPORTANTE:</strong> Ve a Supabase Settings -> API y pulsa el botón <u>'Reload PostgREST Schema'</u>.</li>
+                                <li><strong>IMPORTANTE:</strong> Ve a Supabase Settings {'->'} API y pulsa el botón <u>'Reload PostgREST Schema'</u>.</li>
                             </ol>
                         </div>
                     </div>
