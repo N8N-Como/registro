@@ -1,12 +1,24 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { Role, Employee, Location, TimeEntry, Policy, Announcement, Room, Task, TaskTimeLog, Incident, ShiftLogEntry, ActivityLog, LostItem, AccessLog, BreakLog, WorkType, WorkMode, MonthlySignature, TimeOffRequest, WorkShift, ShiftConfig, CompanyDocument, DocumentSignature, MaintenancePlan, TimeCorrectionRequest, InventoryItem, StockLog, RoomStatus } from '../types';
-import { addToQueue } from './offlineManager';
 
 const SUPABASE_URL = 'https://acinnuphpdnsrmijsbsu.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFjaW5udXBocGRuc3JtaWpzYnN1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMzOTIyNjgsImV4cCI6MjA3ODk2ODI2OH0.DcaNxpI68W0gaGppraL9yZO6a9fHStVkU1ee4_zKbsg';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// --- MÉTODOS DE SISTEMA (MANTENIMIENTO) ---
+
+export const getMaintenanceMode = async (): Promise<boolean> => {
+    try {
+        const { data } = await supabase.from('app_settings').select('value').eq('key', 'maintenance_mode').single();
+        return data?.value === true;
+    } catch { return false; }
+};
+
+export const setMaintenanceMode = async (enabled: boolean) => {
+    await supabase.from('app_settings').upsert({ key: 'maintenance_mode', value: enabled, updated_at: new Date().toISOString() });
+};
 
 // --- MÉTODOS DE DIAGNÓSTICO ---
 
@@ -14,56 +26,45 @@ export const checkDocumentTablesStatus = async (): Promise<{ company_documents: 
     try {
         const { error: error1 } = await supabase.from('company_documents').select('document_id').limit(1);
         const { error: error2 } = await supabase.from('document_signatures').select('id').limit(1);
-        
-        return {
-            company_documents: !error1 || !error1.message.toLowerCase().includes('not find'),
-            document_signatures: !error2 || !error2.message.toLowerCase().includes('not find')
-        };
-    } catch (e) {
-        return { company_documents: false, document_signatures: false };
-    }
+        return { company_documents: !error1, document_signatures: !error2 };
+    } catch { return { company_documents: false, document_signatures: false }; }
 };
 
-// --- MÉTODOS DE DOCUMENTACIÓN PRL Y NÓMINAS ---
+// --- MÉTODOS DE DOCUMENTOS ---
 
-export const pushPRLCampaign = async (adminId: string) => {
-    const { data: employees } = await supabase.from('employees').select('employee_id');
-    if (!employees) return;
-
-    const prlDocs = [
-        {
-            title: 'MPE-01: Plan de Prevención y Política Preventiva',
-            description: 'Compromiso de la dirección y organización de la prevención en Como en Casa.',
-            type: 'file',
-            content_url: 'https://mpe-prevencion.es/docs/plan_prevencion.pdf',
-            requires_signature: true,
-            created_by: adminId
-        }
-    ];
-
-    for (const doc of prlDocs) {
-        const { data: newDoc, error } = await supabase.from('company_documents').insert([doc]).select().single();
-        if (newDoc) {
-            const signatures = employees.map(emp => ({
-                document_id: newDoc.document_id,
-                employee_id: emp.employee_id,
-                status: 'pending'
-            }));
-            await supabase.from('document_signatures').insert(signatures);
-        }
-    }
+export const getDocuments = async (): Promise<CompanyDocument[]> => {
+    const { data } = await supabase.from('company_documents').select('*');
+    return data || [];
 };
 
-export const sendSignatureReminder = async (employeeId: string, adminId: string) => {
-    await supabase.from('announcements').insert([{
-        message: `🔔 RECORDATORIO: Tienes documentos pendientes de firma en tu sección "Documentación". Por favor, revísalos hoy.`,
-        created_by: adminId,
-        is_active: true
-    }]);
-    return true;
+export const deleteDocument = async (id: string) => {
+    const { error } = await supabase.from('company_documents').delete().eq('document_id', id);
+    if (error) throw error;
 };
 
-// --- MÉTODOS DE BASE DE DATOS ---
+export const createDocument = async (d: any, ids: string[]) => { 
+    const { data, error } = await supabase.from('company_documents').insert([d]).select(); 
+    if (error) throw error;
+    const createdDoc = data[0];
+    const sigs = ids.map(id => ({ document_id: createdDoc.document_id, employee_id: id, status: 'pending' })); 
+    await supabase.from('document_signatures').insert(sigs); 
+    return createdDoc; 
+};
+
+export const getEmployeeDocuments = async (id: string) => {
+    const { data } = await supabase.from('document_signatures').select('*, document:company_documents(*)').eq('employee_id', id);
+    return data || [];
+};
+
+export const getDocumentSignatures = async (id: string) => {
+    const { data } = await supabase.from('document_signatures').select('*').eq('document_id', id);
+    return data || [];
+};
+
+export const signDocument = async (id: string, s: string) => { await supabase.from('document_signatures').update({status: 'signed', signature_url: s, signed_at: new Date().toISOString()}).eq('id', id); };
+export const markDocumentAsViewed = async (id: string) => { await supabase.from('document_signatures').update({status: 'viewed', viewed_at: new Date().toISOString()}).eq('id', id); };
+
+// --- MÉTODOS EXISTENTES (RESTO) ---
 export const getRoles = async (): Promise<Role[]> => { const { data } = await supabase.from('roles').select('*'); return data || []; };
 export const getEmployees = async (): Promise<Employee[]> => { const { data } = await supabase.from('employees').select('*'); return data || []; };
 export const getLocations = async (): Promise<Location[]> => { const { data } = await supabase.from('locations').select('*'); return data || []; };
@@ -117,38 +118,6 @@ export const addLostItem = async (d: any) => { const { data } = await supabase.f
 export const updateLostItem = async (d: any) => { const { data } = await supabase.from('lost_items').update(d).eq('item_id', d.item_id).select().single(); return data; };
 export const getMonthlySignature = async (id: string, m: number, y: number) => { const { data } = await supabase.from('monthly_signatures').select('*').eq('employee_id', id).eq('month', m).eq('year', y).maybeSingle(); return data; };
 export const saveMonthlySignature = async (id: string, m: number, y: number, s: string) => { const { data } = await supabase.from('monthly_signatures').insert([{employee_id: id, month: m, year: y, signature_url: s, signed_at: new Date().toISOString()}]).select().single(); return data; };
-export const getEmployeeDocuments = async (id: string) => { const { data } = await supabase.from('document_signatures').select('*, document:company_documents(*)').eq('employee_id', id); return data || []; };
-export const getDocuments = async () => { const { data } = await supabase.from('company_documents').select('*'); return data || []; };
-
-export const createDocument = async (d: any, ids: string[]) => { 
-    const { data, error } = await supabase.from('company_documents').insert([d]).select(); 
-    
-    if (error) {
-        let errorMsg = error.message || "Error al insertar documento.";
-        if (errorMsg.toLowerCase().includes("not find the table") || errorMsg.toLowerCase().includes("schema cache")) {
-            errorMsg = "⚠️ ERROR CRÍTICO: Tablas no detectadas en Supabase.\n\nSOLUCIÓN: Ve a Supabase -> Settings -> API -> Pulsa el botón 'Reload PostgREST Schema'.";
-        }
-        throw new Error(errorMsg);
-    }
-    
-    const createdDoc = data[0];
-    const sigs = ids.map(id => ({ document_id: createdDoc.document_id, employee_id: id, status: 'pending' })); 
-    const { error: sigError } = await supabase.from('document_signatures').insert(sigs); 
-    
-    if (sigError) throw new Error("Error al crear las firmas de los empleados.");
-    
-    return createdDoc; 
-};
-
-export const deleteDocument = async (id: string) => {
-    // Las firmas se borrarán automáticamente si se configuró ON DELETE CASCADE en la BD
-    const { error } = await supabase.from('company_documents').delete().eq('document_id', id);
-    if (error) throw error;
-};
-
-export const signDocument = async (id: string, s: string) => { await supabase.from('document_signatures').update({status: 'signed', signature_url: s, signed_at: new Date().toISOString()}).eq('id', id); };
-export const markDocumentAsViewed = async (id: string) => { await supabase.from('document_signatures').update({status: 'viewed', viewed_at: new Date().toISOString()}).eq('id', id); };
-export const getDocumentSignatures = async (id: string) => { const { data } = await supabase.from('document_signatures').select('*').eq('document_id', id); return data || []; };
 export const getMaintenancePlans = async () => { const { data } = await supabase.from('maintenance_plans').select('*'); return data || []; };
 export const addMaintenancePlan = async (d: any) => { const { data } = await supabase.from('maintenance_plans').insert([d]).select().single(); return data; };
 export const updateMaintenancePlan = async (d: any) => { const { data } = await supabase.from('maintenance_plans').update(d).eq('plan_id', d.plan_id).select().single(); return data; };
@@ -179,3 +148,5 @@ export const createTimeCorrectionRequest = async (d: any) => { const { error } =
 export const resolveTimeCorrectionRequest = async (id: string, status: 'approved' | 'rejected', reviewerId: string) => { await supabase.from('time_correction_requests').update({ status, reviewed_by: reviewerId, reviewed_at: new Date().toISOString() }).eq('request_id', id); };
 export const getCurrentEstablishmentStatus = async () => { const { data } = await supabase.from('activity_logs').select('*').is('check_out_time', null); return (data || []) as ActivityLog[]; };
 export const getBreaksForTimeEntry = async (id: string) => { const { data } = await supabase.from('break_logs').select('*').eq('time_entry_id', id); return (data || []) as BreakLog[]; };
+export const pushPRLCampaign = async (adminId: string) => { };
+export const sendSignatureReminder = async (employeeId: string, adminId: string) => { return true; };

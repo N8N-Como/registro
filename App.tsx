@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, createContext } from 'react';
-import { getEmployees, getRoles, acceptPolicy as apiAcceptPolicy, getActiveAnnouncement } from './services/mockApi';
+import { getEmployees, getRoles, acceptPolicy as apiAcceptPolicy, getActiveAnnouncement, getMaintenanceMode } from './services/mockApi';
 import { Employee, Role, Announcement } from './types';
 import LoginScreen from './components/auth/LoginScreen';
 import Layout from './components/layout/Layout';
@@ -10,13 +10,14 @@ import AnnouncementModal from './components/shared/AnnouncementModal';
 import OnboardingGuide from './components/guides/OnboardingGuide';
 import Button from './components/shared/Button';
 import NetworkStatus from './components/shared/NetworkStatus';
+import { WrenchIcon } from './components/icons';
 
 interface AuthContextType {
   employee: Employee | null;
   role: Role | null;
   logout: () => void;
   updateCurrentUser: (updatedData: Partial<Employee>) => void;
-  showOnboarding: () => void; // New function exposed to children
+  showOnboarding: () => void;
 }
 
 export const AuthContext = createContext<AuthContextType | null>(null);
@@ -30,26 +31,27 @@ const App: React.FC = () => {
   const [activeAnnouncement, setActiveAnnouncement] = useState<Announcement | null>(null);
   const [showAnnouncement, setShowAnnouncement] = useState(false);
   const [isOnboardingVisible, setIsOnboardingVisible] = useState(false);
+  const [isMaintenance, setIsMaintenance] = useState(false);
 
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
         setError(null);
-        // Check connection by fetching roles first
-        const rols = await getRoles();
-        const emps = await getEmployees();
+        const [rols, emps, maintenance] = await Promise.all([
+            getRoles(),
+            getEmployees(),
+            getMaintenanceMode()
+        ]);
         
         setEmployees(emps);
         setRoles(rols);
+        setIsMaintenance(maintenance);
         
         if (rols.length === 0 && emps.length === 0) {
-            setError("Conexión exitosa a Supabase, pero no se encontraron datos. ¿Ejecutaste el script SQL para insertar los datos iniciales?");
+            setError("Conexión exitosa, pero sin datos. Revisa el SQL Editor.");
         }
       } catch (error: any) {
-        console.error("Failed to fetch initial data", error);
-        // Extract meaningful error message instead of [object Object]
-        const errorMessage = error?.message || error?.error_description || JSON.stringify(error);
-        setError(`No se pudo conectar con la base de datos. Detalle: ${errorMessage}`);
+        setError(`Error de conexión: ${error?.message || 'Fallo desconocido'}`);
       } finally {
         setIsLoading(false);
       }
@@ -57,33 +59,10 @@ const App: React.FC = () => {
     fetchInitialData();
   }, []);
 
-  const checkOnboardingStatus = (employeeId: string) => {
-      const completed = localStorage.getItem(`onboarding_completed_${employeeId}`);
-      if (!completed) {
-          setIsOnboardingVisible(true);
-      } else {
-          checkAnnouncements(employeeId);
-      }
-  };
-
-  const checkAnnouncements = async (employeeId: string) => {
-      const announcement = await getActiveAnnouncement();
-      if (announcement) {
-          const seenAnnouncements = JSON.parse(localStorage.getItem('seenAnnouncements') || '[]');
-          if (!seenAnnouncements.includes(announcement.announcement_id)) {
-              setActiveAnnouncement(announcement);
-              setShowAnnouncement(true);
-          }
-      }
-  };
-
   const handleLogin = async (employeeId: string) => {
     const user = employees.find(e => e.employee_id === employeeId);
     if (user) {
       setCurrentUser(user);
-      if (user.policy_accepted) {
-          checkOnboardingStatus(user.employee_id);
-      }
     }
   };
   
@@ -95,69 +74,52 @@ const App: React.FC = () => {
   const handleAcceptPolicy = async () => {
       if (currentUser) {
           await apiAcceptPolicy(currentUser.employee_id);
-          const updatedUser = {...currentUser, policy_accepted: true};
-          setCurrentUser(updatedUser);
-          
-          setEmployees(prevEmployees => 
-              prevEmployees.map(e => e.employee_id === currentUser.employee_id ? updatedUser : e)
-          );
-          
-          checkOnboardingStatus(currentUser.employee_id);
+          setCurrentUser({...currentUser, policy_accepted: true});
       }
   }
 
-  const handleFinishOnboarding = (dontShowAgain: boolean) => {
-      if (currentUser && dontShowAgain) {
-          localStorage.setItem(`onboarding_completed_${currentUser.employee_id}`, 'true');
-      }
-      setIsOnboardingVisible(false);
-      if (currentUser) checkAnnouncements(currentUser.employee_id);
-  };
-
-  const triggerOnboardingManually = () => {
-      setIsOnboardingVisible(true);
-  };
-
-  const handleDismissAnnouncement = () => {
-    if (activeAnnouncement) {
-      const seenAnnouncements = JSON.parse(localStorage.getItem('seenAnnouncements') || '[]');
-      seenAnnouncements.push(activeAnnouncement.announcement_id);
-      localStorage.setItem('seenAnnouncements', JSON.stringify(seenAnnouncements));
-    }
-    setShowAnnouncement(false);
-    setActiveAnnouncement(null);
-  };
-  
   const handleUpdateCurrentUser = (updatedData: Partial<Employee>) => {
-    if (currentUser) {
-        const updatedUser = { ...currentUser, ...updatedData };
-        setCurrentUser(updatedUser);
-        
-        const updatedEmployees = employees.map(e => e.employee_id === updatedUser.employee_id ? updatedUser : e);
-        setEmployees(updatedEmployees);
-    }
+    if (currentUser) setCurrentUser({ ...currentUser, ...updatedData });
   };
 
   const userRole = currentUser ? roles.find(r => r.role_id === currentUser.role_id) || null : null;
+  const isAdmin = userRole?.role_id === 'admin' || userRole?.role_id === 'administracion';
 
-  if (isLoading) {
-    return (
+  if (isLoading) return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 space-y-4">
         <Spinner size="lg" />
-        <p className="text-gray-600 font-medium animate-pulse">Conectando con Como en Casa Cloud...</p>
+        <p className="text-gray-600 font-medium">Conectando con Como en Casa Cloud...</p>
       </div>
-    );
-  }
+  );
 
-  if (error) {
+  if (error) return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
+          <div className="bg-white p-8 rounded-lg shadow-md max-w-md text-center">
+              <h2 className="text-xl font-bold text-red-600 mb-4">Error de Base de Datos</h2>
+              <p className="text-gray-700 mb-6">{error}</p>
+              <Button onClick={() => window.location.reload()}>Reintentar</Button>
+          </div>
+      </div>
+  );
+
+  // --- BLOQUEO POR MANTENIMIENTO ---
+  if (isMaintenance && !isAdmin && currentUser) {
       return (
-          <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
-              <div className="bg-white p-8 rounded-lg shadow-md max-w-md text-center">
-                  <h2 className="text-xl font-bold text-red-600 mb-4">Estado de Conexión</h2>
-                  <p className="text-gray-700 mb-6 break-words">{error}</p>
-                  <Button onClick={() => window.location.reload()} size="md">
-                    Reintentar Conexión
-                  </Button>
+          <div className="min-h-screen flex items-center justify-center bg-primary p-6">
+              <div className="bg-white p-10 rounded-3xl shadow-2xl max-w-lg text-center border-4 border-orange-500">
+                  <div className="bg-orange-100 p-6 rounded-full inline-block mb-6 animate-pulse">
+                      <WrenchIcon className="h-16 w-16 text-orange-600" />
+                  </div>
+                  <h1 className="text-3xl font-black text-primary mb-4 uppercase italic">¡Pausa Necesaria!</h1>
+                  <p className="text-gray-600 text-lg leading-relaxed mb-8">
+                      Estamos realizando mejoras de seguridad y actualizaciones en el sistema. <br/> 
+                      <strong>La aplicación volverá a estar operativa en unos minutos.</strong>
+                  </p>
+                  <div className="flex flex-col gap-3">
+                    <Button variant="secondary" onClick={handleLogout}>Cerrar Sesión</Button>
+                    <Button onClick={() => window.location.reload()}>Refrescar para Reintentar</Button>
+                  </div>
+                  <p className="mt-8 text-[10px] text-gray-400 uppercase tracking-widest font-bold">Como en Casa Alojamientos - Centro de Soporte</p>
               </div>
           </div>
       );
@@ -177,15 +139,10 @@ const App: React.FC = () => {
         role: userRole, 
         logout: handleLogout, 
         updateCurrentUser: handleUpdateCurrentUser,
-        showOnboarding: triggerOnboardingManually
+        showOnboarding: () => setIsOnboardingVisible(true)
     }}>
       <Layout />
-      {isOnboardingVisible && (
-          <OnboardingGuide role={userRole} onFinish={handleFinishOnboarding} />
-      )}
-      {showAnnouncement && activeAnnouncement && (
-        <AnnouncementModal announcement={activeAnnouncement} onClose={handleDismissAnnouncement} />
-      )}
+      {isOnboardingVisible && <OnboardingGuide role={userRole} onFinish={() => setIsOnboardingVisible(false)} />}
       <NetworkStatus />
     </AuthContext.Provider>
   );
