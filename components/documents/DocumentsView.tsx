@@ -1,15 +1,16 @@
 
 import React, { useState, useEffect, useContext, useMemo } from 'react';
 import { AuthContext } from '../../App';
-import { getDocuments, createDocument, getEmployeeDocuments, signDocument, markDocumentAsViewed, getEmployees, getDocumentSignatures, pushPRLCampaign, sendSignatureReminder } from '../../services/mockApi';
+import { getDocuments, createDocument, getEmployeeDocuments, signDocument, markDocumentAsViewed, getEmployees, getDocumentSignatures, pushPRLCampaign, sendSignatureReminder, checkDocumentTablesStatus, deleteDocument } from '../../services/mockApi';
 import { CompanyDocument, Employee, DocumentSignature } from '../../types';
 import Card from '../shared/Card';
 import Button from '../shared/Button';
 import Spinner from '../shared/Spinner';
-import { DocumentIcon, PaperClipIcon, CheckIcon, SparklesIcon, MegaphoneIcon, BellIcon } from '../icons';
+import { DocumentIcon, PaperClipIcon, CheckIcon, SparklesIcon, MegaphoneIcon, BellIcon, LocationIcon, XMarkIcon, TrashIcon } from '../icons';
 import DocumentUploadModal from './DocumentUploadModal';
 import SignDocumentModal from './SignDocumentModal';
 import PayrollSplitterModal from './PayrollSplitterModal';
+import { PDFDocument } from 'pdf-lib';
 
 const DocumentsView: React.FC = () => {
     const auth = useContext(AuthContext);
@@ -18,6 +19,8 @@ const DocumentsView: React.FC = () => {
     const [isPushing, setIsPushing] = useState(false);
     const [activeTab, setActiveTab] = useState<'docs' | 'tracking'>('docs');
     
+    const [dbHealth, setDbHealth] = useState<{ company_documents: boolean; document_signatures: boolean } | null>(null);
+
     const [adminDocuments, setAdminDocuments] = useState<CompanyDocument[]>([]);
     const [myDocuments, setMyDocuments] = useState<(DocumentSignature & { document: CompanyDocument })[]>([]);
     const [employees, setEmployees] = useState<Employee[]>([]);
@@ -30,49 +33,111 @@ const DocumentsView: React.FC = () => {
 
     const init = async () => {
         if (!auth?.employee) return;
-        const hasAdminPerms = auth.role?.permissions.includes('manage_employees') || auth.role?.role_id === 'admin';
+        const hasAdminPerms = auth.role?.permissions.includes('manage_employees') || auth.role?.role_id === 'admin' || auth.role?.role_id === 'administracion';
         setIsAdminMode(hasAdminPerms);
+        
         try {
             if (hasAdminPerms) {
-                const [docs, emps] = await Promise.all([getDocuments(), getEmployees()]);
-                setAdminDocuments(docs.sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
-                setEmployees(emps);
-                const sigs: Record<string, DocumentSignature[]> = {};
-                for (const doc of docs) {
-                    sigs[doc.document_id] = await getDocumentSignatures(doc.document_id);
+                const health = await checkDocumentTablesStatus();
+                setDbHealth(health);
+                
+                if (health.company_documents) {
+                    const [docs, emps] = await Promise.all([getDocuments(), getEmployees()]);
+                    setAdminDocuments(docs.sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+                    setEmployees(emps);
+                    const sigs: Record<string, DocumentSignature[]> = {};
+                    for (const doc of docs) {
+                        sigs[doc.document_id] = await getDocumentSignatures(doc.document_id);
+                    }
+                    setSignaturesMap(sigs);
                 }
-                setSignaturesMap(sigs);
             } else {
                 const myDocs = await getEmployeeDocuments(auth.employee.employee_id);
                 setMyDocuments(myDocs.sort((a,b) => new Date(b.document.created_at).getTime() - new Date(a.document.created_at).getTime()));
             }
-        } catch (e) { console.error(e); } finally { setIsLoading(false); }
+        } catch (e) { 
+            console.error("Error initializing documents view:", e); 
+        } finally { 
+            setIsLoading(false); 
+        }
     };
 
     useEffect(() => { init(); }, [auth?.employee]);
 
+    const handleConfirmPayroll = async (mappings: any[], originalPdfBase64: string, onProgress: (current: number, total: number) => void) => {
+        if (!auth?.employee) return;
+        
+        const monthName = new Date().toLocaleString('es-ES', { month: 'long' });
+        const total = mappings.length;
+
+        try {
+            // Cargar el PDF original una sola vez para procesar las páginas
+            const existingPdfBytes = await fetch(originalPdfBase64).then(res => res.arrayBuffer());
+            const pdfDoc = await PDFDocument.load(existingPdfBytes);
+
+            for (let i = 0; i < total; i++) {
+                const mapping = mappings[i];
+                
+                // --- SEGURIDAD: RECORTAR EL PDF PARA EL EMPLEADO ---
+                const newPdf = await PDFDocument.create();
+                const [copiedPage] = await newPdf.copyPages(pdfDoc, [mapping.page_number - 1]);
+                newPdf.addPage(copiedPage);
+                const singlePageBase64 = await newPdf.saveAsBase64({ dataUri: true });
+
+                const docData = {
+                    title: `Nómina ${monthName} - ${mapping.employee_name}`,
+                    description: `Nómina individual confidencial de ${mapping.employee_name}.`,
+                    type: 'file' as const,
+                    content_url: singlePageBase64, 
+                    requires_signature: true,
+                    created_by: auth.employee.employee_id
+                };
+                
+                try {
+                    await createDocument(docData, [mapping.employee_id]);
+                    onProgress(i + 1, total);
+                    // Pequeña pausa para no saturar la conexión si hay muchos archivos
+                    if (total > 5) await new Promise(r => setTimeout(r, 300));
+                } catch (err: any) {
+                    throw new Error(`Fallo al subir la nómina de ${mapping.employee_name}: ${err.message}`);
+                }
+            }
+            
+            alert("Nóminas procesadas con éxito. Cada empleado ha recibido únicamente su página correspondiente.");
+            init();
+        } catch (error: any) {
+            console.error("Critical error splitting payroll:", error);
+            alert("Error crítico procesando el PDF: " + error.message);
+        }
+    };
+
+    const handleDeleteDoc = async (id: string, title: string) => {
+        if (!window.confirm(`¿Estás seguro de que quieres eliminar el documento "${title}"? Se borrarán también todos los registros de firma asociados.`)) return;
+        try {
+            await deleteDocument(id);
+            alert("Documento eliminado.");
+            init();
+        } catch (e) {
+            alert("Error al eliminar el documento.");
+        }
+    };
+
     const handlePushPRL = async () => {
-        if (!auth?.employee || !window.confirm("¿Lanzar la campaña de PRL (Manual, EPIs, Salud) a toda la plantilla?")) return;
+        if (!auth?.employee || !window.confirm("¿Lanzar campaña de PRL? Los cambios se verán en producción inmediatamente.")) return;
         setIsPushing(true);
         try {
             await pushPRLCampaign(auth.employee.employee_id);
-            alert("Campaña PRL activada. Todos los empleados han recibido los nuevos documentos obligatorios.");
+            alert("Campaña PRL activada en toda la red.");
             init();
-        } catch (e) {
-            alert("Error al lanzar campaña");
-        } finally {
-            setIsPushing(false);
-        }
+        } catch (e) { alert("Error al activar campaña."); } finally { setIsPushing(false); }
     };
 
     const handleRemindEmployee = async (employeeId: string) => {
         if (!auth?.employee) return;
         try {
             await sendSignatureReminder(employeeId, auth.employee.employee_id);
-            alert("Recordatorio enviado correctamente.");
-        } catch (e) {
-            alert("Error al enviar recordatorio.");
-        }
+            alert("Recordatorio enviado.");
+        } catch (e) { alert("Error al enviar."); }
     };
 
     const handleCreateDocument = async (data: any) => {
@@ -80,7 +145,7 @@ const DocumentsView: React.FC = () => {
         try {
             await createDocument({ ...data, created_by: auth.employee.employee_id }, data.target_employee_ids);
             init();
-        } catch (e) { alert("Error al crear documento"); }
+        } catch (e: any) { alert("Error: " + e.message); }
     };
 
     const handleSignDocument = async (sigId: string, url?: string) => {
@@ -89,7 +154,6 @@ const DocumentsView: React.FC = () => {
         init();
     };
 
-    // Lógica para el tracking consolidado
     const trackingData = useMemo(() => {
         if (!isAdminMode) return [];
         return employees.map(emp => {
@@ -109,57 +173,77 @@ const DocumentsView: React.FC = () => {
     if (isAdminMode) {
         return (
             <div className="space-y-6">
+                {dbHealth && !dbHealth.company_documents && (
+                    <div className="bg-red-50 border-2 border-red-200 p-4 rounded-xl flex items-start gap-4 animate-in slide-in-from-top-4 duration-500 shadow-sm">
+                        <div className="bg-red-100 p-2 rounded-full"><XMarkIcon className="text-red-600 h-6 w-6"/></div>
+                        <div className="flex-1">
+                            <h3 className="text-red-800 font-black uppercase text-sm">Error de Configuración Detectado</h3>
+                            <p className="text-red-700 text-xs mt-1">Supabase no reconoce las tablas de documentos. Para solucionarlo:</p>
+                            <ol className="list-decimal ml-4 mt-2 text-xs text-red-700 font-bold space-y-1">
+                                <li>Ve al panel de <strong>Administración -> Actualizar BD (SQL)</strong>.</li>
+                                <li>Copia y ejecuta el código en Supabase.</li>
+                                <li><strong>IMPORTANTE:</strong> Ve a Supabase Settings -> API y pulsa el botón <u>'Reload PostgREST Schema'</u>.</li>
+                            </ol>
+                        </div>
+                    </div>
+                )}
+
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                    <h2 className="text-xl font-bold flex items-center gap-2 text-primary">
-                        <DocumentIcon /> Gestión Documental
-                    </h2>
+                    <div>
+                        <h2 className="text-xl font-bold flex items-center gap-2 text-primary">
+                            <DocumentIcon /> Gestión Documental
+                        </h2>
+                        <div className="flex items-center text-[10px] text-green-600 font-bold bg-green-50 px-2 py-0.5 rounded mt-1 border border-green-100">
+                             <span className="w-1.5 h-1.5 bg-green-500 rounded-full mr-1.5 animate-pulse"></span>
+                             ESTADO: {dbHealth?.company_documents ? 'OPERATIVO' : 'REQUERIR SQL'}
+                        </div>
+                    </div>
                     <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-                        <Button variant="secondary" onClick={handlePushPRL} isLoading={isPushing} className="bg-orange-500 hover:bg-orange-600 border-orange-600">
-                            <MegaphoneIcon className="w-4 h-4 mr-2" /> 🚀 Lanzar Campaña PRL
+                        <Button variant="secondary" onClick={handlePushPRL} isLoading={isPushing} className="bg-orange-500 hover:bg-orange-600 border-orange-600" disabled={!dbHealth?.company_documents}>
+                            <MegaphoneIcon className="w-4 h-4 mr-2" /> 🚀 Campaña PRL
                         </Button>
-                        <Button variant="secondary" onClick={() => setIsPayrollModalOpen(true)}>
-                            <SparklesIcon className="w-4 h-4 mr-2" /> Splitter Nóminas
+                        <Button variant="secondary" onClick={() => setIsPayrollModalOpen(true)} disabled={!dbHealth?.company_documents}>
+                            <SparklesIcon className="w-4 h-4 mr-2" /> IA Splitter Nóminas
                         </Button>
-                        <Button onClick={() => setIsUploadModalOpen(true)}>+ Nuevo</Button>
+                        <Button onClick={() => setIsUploadModalOpen(true)} disabled={!dbHealth?.company_documents}>+ Nuevo</Button>
                     </div>
                 </div>
 
                 <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg w-fit">
-                    <button onClick={() => setActiveTab('docs')} className={`px-4 py-2 text-sm font-bold rounded-md transition-all ${activeTab === 'docs' ? 'bg-white text-primary shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
-                        Documentos
-                    </button>
-                    <button onClick={() => setActiveTab('tracking')} className={`px-4 py-2 text-sm font-bold rounded-md transition-all ${activeTab === 'tracking' ? 'bg-white text-primary shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
-                        Seguimiento de Firmas
-                    </button>
+                    <button onClick={() => setActiveTab('docs')} className={`px-4 py-2 text-sm font-bold rounded-md transition-all ${activeTab === 'docs' ? 'bg-white text-primary shadow-sm' : 'text-gray-500'}`}>Docs</button>
+                    <button onClick={() => setActiveTab('tracking')} className={`px-4 py-2 text-sm font-bold rounded-md transition-all ${activeTab === 'tracking' ? 'bg-white text-primary shadow-sm' : 'text-gray-500'}`}>Seguimiento</button>
                 </div>
 
                 {activeTab === 'docs' ? (
                     <div className="grid grid-cols-1 gap-4">
-                        {adminDocuments.map(doc => {
+                        {adminDocuments.length === 0 ? (
+                            <div className="text-center py-20 bg-white rounded-xl border-2 border-dashed text-gray-400">
+                                <DocumentIcon className="mx-auto h-12 w-12 mb-2 opacity-20"/>
+                                <p>No hay documentos enviados.</p>
+                            </div>
+                        ) : adminDocuments.map(doc => {
                             const sigs = signaturesMap[doc.document_id] || [];
-                            const total = sigs.length;
                             const signed = sigs.filter(s => s.status !== 'pending').length;
-                            const percentage = total > 0 ? Math.round((signed / total) * 100) : 0;
-                            const isPRL = doc.title.includes('PRL') || doc.title.includes('MPE') || doc.title.includes('EPI');
-                            
                             return (
-                                <Card key={doc.document_id} className={`overflow-hidden p-0 border-l-4 ${isPRL ? 'border-orange-500' : 'border-blue-500'}`}>
-                                    <div className="p-4 flex flex-col md:flex-row justify-between border-b bg-gray-50">
-                                        <div>
-                                            <h3 className="font-bold text-gray-800 flex items-center">
-                                                {isPRL && <span className="mr-2 text-xs bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-black uppercase">Obligatorio</span>}
-                                                {doc.title}
-                                            </h3>
+                                <Card key={doc.document_id} className="p-4 border-l-4 border-primary hover:shadow-md transition-shadow">
+                                    <div className="flex justify-between items-center">
+                                        <div className="flex-1">
+                                            <h3 className="font-bold text-gray-800">{doc.title}</h3>
                                             <p className="text-xs text-gray-500">{doc.description}</p>
+                                            <p className="text-[10px] text-gray-400 mt-1">Enviado: {new Date(doc.created_at).toLocaleDateString()}</p>
                                         </div>
-                                        <div className="mt-2 md:mt-0 flex items-center gap-4">
+                                        <div className="flex items-center gap-6">
                                             <div className="text-right">
-                                                <p className="text-xs font-bold text-gray-400 uppercase">Estado Firmas</p>
-                                                <p className="text-sm font-black text-primary">{signed} / {total}</p>
+                                                <p className="text-xs font-bold text-gray-400 uppercase">Firma / Lectura</p>
+                                                <p className="font-black text-primary">{signed} / {sigs.length}</p>
                                             </div>
-                                            <div className="w-24 bg-gray-200 rounded-full h-2">
-                                                <div className="bg-primary h-2 rounded-full transition-all duration-1000" style={{width: `${percentage}%`}}></div>
-                                            </div>
+                                            <button 
+                                                onClick={() => handleDeleteDoc(doc.document_id, doc.title)}
+                                                className="p-2 text-gray-400 hover:text-red-600 transition-colors"
+                                                title="Eliminar documento"
+                                            >
+                                                <TrashIcon className="w-5 h-5" />
+                                            </button>
                                         </div>
                                     </div>
                                 </Card>
@@ -169,43 +253,15 @@ const DocumentsView: React.FC = () => {
                 ) : (
                     <Card title="Estado por Empleado">
                         <div className="overflow-x-auto">
-                            <table className="w-full text-left">
-                                <thead>
-                                    <tr className="border-b bg-gray-50 text-xs uppercase font-black text-gray-400">
-                                        <th className="p-4">Empleado</th>
-                                        <th className="p-4">Progreso</th>
-                                        <th className="p-4">Pendientes</th>
-                                        <th className="p-4 text-right">Acción</th>
-                                    </tr>
-                                </thead>
+                            <table className="w-full text-left text-sm">
+                                <thead><tr className="border-b bg-gray-50 text-gray-400 uppercase text-[10px] font-black"><th className="p-4 text-center w-12">#</th><th className="p-4">Empleado</th><th className="p-4">Pendientes</th><th className="p-4 text-right">Acción</th></tr></thead>
                                 <tbody>
-                                    {trackingData.map(row => (
-                                        <tr key={row.employee_id} className="border-b hover:bg-gray-50">
+                                    {trackingData.length === 0 ? <tr><td colSpan={4} className="p-10 text-center text-gray-400">Sin datos de seguimiento.</td></tr> : trackingData.map((row, idx) => (
+                                        <tr key={row.employee_id} className="border-b hover:bg-gray-50 transition-colors">
+                                            <td className="p-4 text-center text-gray-300 font-bold">{idx + 1}</td>
                                             <td className="p-4 font-bold text-gray-800">{row.first_name} {row.last_name}</td>
-                                            <td className="p-4">
-                                                <div className="flex items-center gap-2">
-                                                    <span className={`text-xs font-black ${row.pending === 0 ? 'text-green-600' : 'text-orange-600'}`}>
-                                                        {Math.round(((row.total - row.pending) / row.total) * 100)}%
-                                                    </span>
-                                                    <div className="flex-1 max-w-[100px] bg-gray-200 h-1.5 rounded-full overflow-hidden">
-                                                        <div className={`h-full ${row.pending === 0 ? 'bg-green-500' : 'bg-orange-500'}`} style={{width: `${((row.total-row.pending)/row.total)*100}%`}}></div>
-                                                    </div>
-                                                </div>
-                                            </td>
-                                            <td className="p-4">
-                                                {row.pending > 0 ? (
-                                                    <div className="text-[10px] text-red-500 font-medium">
-                                                        {row.pendingList.slice(0,2).join(', ')}{row.pendingList.length > 2 ? '...' : ''}
-                                                    </div>
-                                                ) : <span className="text-xs text-green-600 font-bold">✓ Al día</span>}
-                                            </td>
-                                            <td className="p-4 text-right">
-                                                {row.pending > 0 && (
-                                                    <button onClick={() => handleRemindEmployee(row.employee_id)} className="text-xs bg-primary/5 text-primary border border-primary/10 px-3 py-1.5 rounded-full hover:bg-primary/10 font-bold flex items-center ml-auto">
-                                                        <BellIcon className="w-3 h-3 mr-1" /> Recordar
-                                                    </button>
-                                                )}
-                                            </td>
+                                            <td className="p-4">{row.pending > 0 ? <span className="text-red-600 font-bold bg-red-50 px-2 py-0.5 rounded">{row.pending} pendientes</span> : <span className="text-green-600 font-bold">✓ Al día</span>}</td>
+                                            <td className="p-4 text-right">{row.pending > 0 && <button onClick={() => handleRemindEmployee(row.employee_id)} className="text-xs bg-primary/10 text-primary px-3 py-1 rounded-full font-bold hover:bg-primary/20 transition-colors">Recordar</button>}</td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -215,28 +271,29 @@ const DocumentsView: React.FC = () => {
                 )}
 
                 {isUploadModalOpen && <DocumentUploadModal isOpen={isUploadModalOpen} onClose={() => setIsUploadModalOpen(false)} onSave={handleCreateDocument} employees={employees} />}
-                {isPayrollModalOpen && <PayrollSplitterModal isOpen={isPayrollModalOpen} onClose={() => setIsPayrollModalOpen(false)} employees={employees} onConfirm={() => init()} />}
+                {isPayrollModalOpen && <PayrollSplitterModal isOpen={isPayrollModalOpen} onClose={() => setIsPayrollModalOpen(false)} employees={employees} onConfirm={handleConfirmPayroll} />}
             </div>
         );
     }
 
     return (
         <div className="space-y-6">
-            <h2 className="text-xl font-bold flex items-center gap-2 text-primary"><PaperClipIcon /> Mis Documentos y Firmas</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {myDocuments.map(item => (
-                    <Card key={item.id} className={`border-t-4 transition-all hover:shadow-lg ${item.status === 'pending' ? 'border-orange-500 bg-orange-50/30' : 'border-green-500'}`}>
-                        <div className="flex justify-between items-start mb-2">
+            <h2 className="text-xl font-bold flex items-center gap-2 text-primary"><PaperClipIcon /> Mis Documentos</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {myDocuments.length === 0 ? (
+                    <div className="col-span-full py-20 text-center text-gray-400">No tienes documentos asignados.</div>
+                ) : myDocuments.map(item => (
+                    <Card key={item.id} className={`border-t-4 transition-all hover:shadow-lg ${item.status === 'pending' ? 'border-orange-500 bg-orange-50/20' : 'border-green-500'}`}>
+                        <div className="flex justify-between mb-2">
                             <h3 className="font-bold text-gray-800">{item.document.title}</h3>
                             {item.status === 'signed' && <CheckIcon className="w-5 h-5 text-green-600" />}
                         </div>
-                        <p className="text-sm text-gray-500 mb-6 h-12 overflow-hidden leading-relaxed">{item.document.description}</p>
-                        <Button onClick={() => { setSelectedDocToSign({ doc: item.document, sig: item }); setIsSignModalOpen(true); }} variant={item.status === 'pending' ? 'primary' : 'secondary'} className="w-full">
-                            {item.status === 'pending' ? 'Ver y Firmar Ahora' : 'Consultar Documento'}
+                        <p className="text-sm text-gray-500 mb-4 h-12 overflow-hidden">{item.document.description}</p>
+                        <Button onClick={() => { setSelectedDocToSign({ doc: item.document, sig: item }); setIsSignModalOpen(true); }} className="w-full">
+                            {item.status === 'pending' ? 'Ver y Firmar' : 'Consultar'}
                         </Button>
                     </Card>
                 ))}
-                {myDocuments.length === 0 && <p className="col-span-full text-center py-12 text-gray-400 italic bg-white rounded-lg border-2 border-dashed">No tienes documentos pendientes ni firmados.</p>}
             </div>
             {isSignModalOpen && selectedDocToSign && <SignDocumentModal isOpen={isSignModalOpen} onClose={() => setIsSignModalOpen(false)} document={selectedDocToSign.doc} signatureEntry={selectedDocToSign.sig} onSign={handleSignDocument} />}
         </div>

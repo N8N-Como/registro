@@ -10,6 +10,7 @@ import Modal from '../shared/Modal';
 import { formatTime, getDaysInMonth, formatDuration } from '../../utils/helpers';
 import PrintableMonthlyLog from './PrintableMonthlyLog';
 import SignaturePad from '../shared/SignaturePad';
+import TimeCorrectionModal from '../timesheets/TimeCorrectionModal';
 import * as XLSX from 'xlsx';
 
 interface DailyLog {
@@ -21,6 +22,7 @@ interface DailyLog {
         duration: number; 
         isManual: boolean;
         type: string;
+        entryId?: string;
     }[];
     totalDuration: number;
 }
@@ -44,6 +46,15 @@ const MonthlyWorkLogReport: React.FC = () => {
     const [isSigningModalOpen, setIsSigningModalOpen] = useState(false);
     const [isSavingSignature, setIsSavingSignature] = useState(false);
 
+    // Correction Context State
+    const [correctionContext, setCorrectionContext] = useState<{
+        isOpen: boolean,
+        date: string,
+        time: string,
+        type: 'entry' | 'exit',
+        entryId?: string
+    }>({ isOpen: false, date: '', time: '', type: 'entry' });
+
     useEffect(() => {
         const fetchData = async () => {
             try {
@@ -65,9 +76,7 @@ const MonthlyWorkLogReport: React.FC = () => {
             const month = parseInt(selectedMonth, 10);
             const year = parseInt(selectedYear, 10);
 
-            // SEGURIDAD: Determinar qué empleados puede ver este usuario
             const hasFullAccess = auth?.role?.permissions.includes('view_reports') || auth?.role?.role_id === 'admin';
-            
             const targetEmployees = hasFullAccess
                 ? employees 
                 : employees.filter(e => e.employee_id === auth?.employee?.employee_id);
@@ -86,15 +95,10 @@ const MonthlyWorkLogReport: React.FC = () => {
                            entryDate.getMonth() === month - 1;
                 });
 
-                // Si es un administrador y el empleado no tiene datos, saltamos.
-                // Si es el propio empleado, mostramos aunque esté vacío para que vea su estado.
-                if (filteredEntries.length === 0 && hasFullAccess) {
-                    continue; 
-                }
+                if (filteredEntries.length === 0 && hasFullAccess) continue;
 
                 const entryIds = filteredEntries.map(e => e.entry_id);
                 const allBreaks = await getBreaksForTimeEntries(entryIds);
-
                 const daysOfMonth = getDaysInMonth(month, year);
                 let monthlyTotalMs = 0;
                 
@@ -123,7 +127,8 @@ const MonthlyWorkLogReport: React.FC = () => {
                             clockOut: e.clock_out_time ? formatTime(new Date(e.clock_out_time)) : 'En curso',
                             duration: effectiveDuration,
                             isManual: e.is_manual === true,
-                            type: e.work_type || 'ordinaria'
+                            type: e.work_type || 'ordinaria',
+                            entryId: e.entry_id
                         };
                     });
 
@@ -131,29 +136,23 @@ const MonthlyWorkLogReport: React.FC = () => {
 
                     return {
                         day,
-                        date: dateObj.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+                        date: dateObj.toISOString().split('T')[0],
                         entries: formattedEntries,
                         totalDuration: dailyTotalMs,
                     };
                 });
                 
-                allEmployeeReports.push({
-                    employee,
-                    dailyLogs,
-                    monthlyTotal: monthlyTotalMs,
-                    signature
-                });
+                allEmployeeReports.push({ employee, dailyLogs, monthlyTotal: monthlyTotalMs, signature });
             }
-            
             setReportData(allEmployeeReports);
-
-        } catch (error) {
-            console.error("Failed to generate report", error);
-        } finally {
-            setIsGenerating(false);
-        }
+        } catch (error) { console.error(error); } finally { setIsGenerating(false); }
     };
     
+    const handleRequestCorrection = (date: string, time: string, type: 'entry' | 'exit', entryId?: string) => {
+        if (time === 'En curso' && type === 'exit') return;
+        setCorrectionContext({ isOpen: true, date, time, type, entryId });
+    };
+
     const handleSaveSignature = async (signatureUrl: string) => {
         if (!auth?.employee) return;
         setIsSavingSignature(true);
@@ -163,39 +162,9 @@ const MonthlyWorkLogReport: React.FC = () => {
             await saveMonthlySignature(auth.employee.employee_id, month, year, signatureUrl);
             setIsSigningModalOpen(false);
             handleGenerateReport();
-        } catch (error) {
-            console.error("Failed to save signature", error);
-        } finally {
-            setIsSavingSignature(false);
-        }
+        } catch (error) { console.error(error); } finally { setIsSavingSignature(false); }
     };
 
-    const handleExportExcel = () => {
-        if (!reportData || reportData.length === 0) return;
-        const rows: any[] = [];
-        reportData.forEach(rep => {
-            rep.dailyLogs.forEach(dayLog => {
-                dayLog.entries.forEach(entry => {
-                    rows.push({
-                        "Empleado": `${rep.employee.first_name} ${rep.employee.last_name}`,
-                        "Fecha": dayLog.date,
-                        "Entrada": entry.clockIn,
-                        "Salida": entry.clockOut,
-                        "Horas": (entry.duration / (1000 * 60 * 60)).toFixed(2),
-                        "Validación": entry.isManual ? "MANUAL" : "DIGITAL",
-                        "Tipo": entry.type.toUpperCase()
-                    });
-                });
-            });
-        });
-        const ws = XLSX.utils.json_to_sheet(rows);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Registro Oficial");
-        XLSX.writeFile(wb, `Registro_Horario_${selectedMonth}_${selectedYear}.xlsx`);
-    };
-    
-    if (isLoading) return <Spinner />;
-    
     const years = [2025, 2024];
     const months = Array.from({length: 12}, (_, i) => ({
         value: (i + 1).toString(),
@@ -205,8 +174,10 @@ const MonthlyWorkLogReport: React.FC = () => {
     const myReport = reportData?.find(r => r.employee.employee_id === auth?.employee?.employee_id);
     const needsSignature = myReport && !myReport.signature;
 
+    if (isLoading) return <Spinner />;
+
     return (
-        <Card title="Generar Registro Mensual de Jornada">
+        <Card title="Registro Mensual de Jornada">
             <div className="p-4 bg-gray-50 border rounded-md mb-6 flex items-end space-x-4 flex-wrap no-print">
                 <div className="flex-grow min-w-[150px]">
                     <label className="block text-sm font-medium text-gray-700">Mes</label>
@@ -237,24 +208,71 @@ const MonthlyWorkLogReport: React.FC = () => {
 
             {reportData && reportData.length > 0 && (
                 <div className="space-y-4">
-                    <div className="flex justify-end no-print">
-                        <Button variant="success" onClick={handleExportExcel} size="sm">
-                            📥 Exportar Excel
-                        </Button>
-                    </div>
-                    <PrintableMonthlyLog data={reportData} month={parseInt(selectedMonth)} year={parseInt(selectedYear)} />
+                    <p className="text-xs text-blue-600 bg-blue-50 p-2 rounded mb-2 no-print">
+                        💡 <strong>Consejo:</strong> Si ves un error en alguna hora, haz clic sobre ella para solicitar una corrección.
+                    </p>
+                    {reportData.map((data, idx) => (
+                        <div key={idx} className="border p-4 rounded-lg bg-white mb-8">
+                            <h3 className="font-bold text-lg mb-4 border-b pb-2">{data.employee.first_name} {data.employee.last_name}</h3>
+                            <table className="w-full text-xs sm:text-sm">
+                                <thead className="bg-gray-100">
+                                    <tr>
+                                        <th className="p-2 text-left">Fecha</th>
+                                        <th className="p-2 text-left">Entrada / Salida</th>
+                                        <th className="p-2 text-right">Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {data.dailyLogs.map(log => (
+                                        <tr key={log.day} className="border-b hover:bg-gray-50">
+                                            <td className="p-2 font-medium">{log.day}</td>
+                                            <td className="p-2">
+                                                {log.entries.map((e, i) => (
+                                                    <div key={i} className="flex gap-2">
+                                                        <span 
+                                                            onClick={() => handleRequestCorrection(log.date, e.clockIn, 'entry', e.entryId)}
+                                                            className="cursor-pointer hover:bg-yellow-200 hover:text-yellow-900 px-1 rounded transition-colors font-mono"
+                                                            title="Clic para corregir entrada"
+                                                        >
+                                                            {e.clockIn}
+                                                        </span>
+                                                        <span>-</span>
+                                                        <span 
+                                                            onClick={() => handleRequestCorrection(log.date, e.clockOut, 'exit', e.entryId)}
+                                                            className="cursor-pointer hover:bg-yellow-200 hover:text-yellow-900 px-1 rounded transition-colors font-mono"
+                                                            title="Clic para corregir salida"
+                                                        >
+                                                            {e.clockOut}
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            </td>
+                                            <td className="p-2 text-right font-bold">{log.totalDuration > 0 ? formatDuration(log.totalDuration) : '-'}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    ))}
                 </div>
             )}
 
             {isSigningModalOpen && (
                 <Modal isOpen={isSigningModalOpen} onClose={() => setIsSigningModalOpen(false)} title="Firma de Registro Mensual">
-                    {isSavingSignature ? <Spinner/> : (
-                        <SignaturePad 
-                            onSave={handleSaveSignature}
-                            onClear={() => {}} 
-                        />
-                    )}
+                    {isSavingSignature ? <Spinner/> : <SignaturePad onSave={handleSaveSignature} onClear={() => {}} />}
                 </Modal>
+            )}
+
+            {correctionContext.isOpen && auth?.employee && (
+                <TimeCorrectionModal 
+                    isOpen={correctionContext.isOpen}
+                    onClose={() => setCorrectionContext(prev => ({...prev, isOpen: false}))}
+                    employeeId={auth.employee.employee_id}
+                    existingEntryId={correctionContext.entryId}
+                    defaultDate={correctionContext.date}
+                    defaultTime={correctionContext.time}
+                    defaultType={correctionContext.type}
+                />
             )}
         </Card>
     );

@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Modal from '../shared/Modal';
 import Button from '../shared/Button';
 import { createTimeCorrectionRequest } from '../../services/mockApi';
@@ -11,16 +11,26 @@ interface TimeCorrectionModalProps {
     employeeId: string;
     existingEntryId?: string;
     defaultDate?: string;
+    defaultTime?: string;
+    defaultType?: 'entry' | 'exit' | 'break';
 }
 
-const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({ isOpen, onClose, employeeId, existingEntryId, defaultDate }) => {
-    const [errorType, setErrorType] = useState<'entry' | 'exit' | 'break'>('entry');
+const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({ 
+    isOpen, onClose, employeeId, existingEntryId, defaultDate, defaultTime, defaultType 
+}) => {
+    const [errorType, setErrorType] = useState<'entry' | 'exit' | 'break'>(defaultType || 'entry');
     const [date, setDate] = useState(defaultDate || new Date().toISOString().split('T')[0]);
-    
-    // Inputs
-    const [time, setTime] = useState('');
+    const [time, setTime] = useState(defaultTime && defaultTime !== 'En curso' ? defaultTime : '');
     const [reason, setReason] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
+
+    useEffect(() => {
+        if (isOpen) {
+            if (defaultType) setErrorType(defaultType);
+            if (defaultDate) setDate(defaultDate);
+            if (defaultTime && defaultTime !== 'En curso') setTime(defaultTime);
+        }
+    }, [isOpen, defaultType, defaultDate, defaultTime]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -30,15 +40,13 @@ const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({ isOpen, onClo
         }
 
         setIsSubmitting(true);
-        
-        // Formatear hora con segundos para evitar errores de casting en Postgres
         const formattedTime = time.length === 5 ? `${time}:00` : time;
 
         const payload: any = {
             request_id: crypto.randomUUID(),
             employee_id: employeeId,
             original_entry_id: existingEntryId || null,
-            correction_type: 'fix_time', // Forzamos fix_time para usar la lógica de sobrescritura de día
+            correction_type: 'fix_time',
             requested_date: date,
             reason: `[${errorType.toUpperCase()}] ${reason}`,
             status: 'pending',
@@ -57,7 +65,6 @@ const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({ isOpen, onClo
                 alert("Guardado localmente. Se enviará cuando recuperes la conexión.");
                 onClose();
             } else {
-                console.error("Error de servidor:", error);
                 alert(`Error al procesar: ${error.message || 'Datos inválidos'}.`);
             }
         } finally {
@@ -68,65 +75,44 @@ const TimeCorrectionModal: React.FC<TimeCorrectionModalProps> = ({ isOpen, onClo
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="Solicitar Corrección de Horario">
             <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="bg-yellow-50 p-3 rounded text-xs text-yellow-800 border border-yellow-200 mb-2">
+                    Indica la hora que debería aparecer correctamente en el informe.
+                </div>
                 <div>
                     <label className="block text-sm font-medium text-gray-700">¿Qué quieres corregir?</label>
                     <div className="mt-1 grid grid-cols-3 gap-2">
-                        <button
-                            type="button"
-                            onClick={() => setErrorType('entry')}
-                            className={`py-2 px-1 text-xs sm:text-sm font-medium rounded border ${errorType === 'entry' ? 'bg-primary text-white border-primary' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-                        >
-                            Hora Entrada
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setErrorType('exit')}
-                            className={`py-2 px-1 text-xs sm:text-sm font-medium rounded border ${errorType === 'exit' ? 'bg-primary text-white border-primary' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-                        >
-                            Hora Salida
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setErrorType('break')}
-                            className={`py-2 px-1 text-xs sm:text-sm font-medium rounded border ${errorType === 'break' ? 'bg-primary text-white border-primary' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-                        >
-                            Pausa
-                        </button>
+                        {['entry', 'exit', 'break'].map((t) => (
+                            <button
+                                key={t}
+                                type="button"
+                                onClick={() => setErrorType(t as any)}
+                                className={`py-2 px-1 text-xs sm:text-sm font-medium rounded border ${errorType === t ? 'bg-primary text-white border-primary' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                            >
+                                {t === 'entry' ? 'Entrada' : t === 'exit' ? 'Salida' : 'Pausa'}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Fecha</label>
+                        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm" required />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700">Hora Correcta</label>
+                        <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm" required />
                     </div>
                 </div>
 
                 <div>
-                    <label className="block text-sm font-medium text-gray-700">Fecha del Error</label>
-                    <input 
-                        type="date" 
-                        value={date} 
-                        onChange={(e) => setDate(e.target.value)}
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm"
-                        required
-                    />
-                </div>
-
-                <div>
-                    <label className="block text-sm font-medium text-gray-700">
-                        Hora Real de {errorType === 'entry' ? 'Entrada' : errorType === 'exit' ? 'Salida' : 'Pausa'}
-                    </label>
-                    <input 
-                        type="time" 
-                        value={time} 
-                        onChange={(e) => setTime(e.target.value)}
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm"
-                        required
-                    />
-                </div>
-
-                <div>
-                    <label className="block text-sm font-medium text-gray-700">Explicación breve</label>
+                    <label className="block text-sm font-medium text-gray-700">Motivo del cambio</label>
                     <textarea 
                         value={reason} 
                         onChange={(e) => setReason(e.target.value)}
                         className="mt-1 block w-full rounded-md border-gray-300 shadow-sm"
                         rows={2}
-                        placeholder="Ej: Olvidé fichar al entrar..."
+                        placeholder="Ej: Olvidé fichar, error de red, etc."
                         required
                     />
                 </div>
