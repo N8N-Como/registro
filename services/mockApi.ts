@@ -17,7 +17,7 @@ export const getMaintenanceMode = async (): Promise<boolean> => {
 };
 
 export const setMaintenanceMode = async (enabled: boolean) => {
-    await supabase.from('app_settings').upsert({ key: 'maintenance_mode', value: enabled });
+    await supabase.from('app_settings').upsert({ key: 'maintenance_mode', value: enabled, updated_at: new Date().toISOString() });
 };
 
 // --- MÉTODOS DE DOCUMENTOS ---
@@ -57,11 +57,20 @@ export const getEmployeeDocuments = async (id: string) => {
     return data || [];
 };
 
-export const signDocument = async (id: string, s: string) => { await supabase.from('document_signatures').update({status: 'signed', signature_url: s, signed_at: new Date().toISOString()}).eq('id', id); };
-export const markDocumentAsViewed = async (id: string) => { await supabase.from('document_signatures').update({status: 'viewed', viewed_at: new Date().toISOString()}).eq('id', id); };
-export const getDocumentSignatures = async (id: string) => { const { data } = await supabase.from('document_signatures').select('*').eq('document_id', id); return data || []; };
+export const signDocument = async (id: string, s: string) => { 
+    await supabase.from('document_signatures').update({status: 'signed', signature_url: s, signed_at: new Date().toISOString()}).eq('id', id); 
+};
 
-// --- MÉTODOS EXISTENTES (COMPATIBILIDAD) ---
+export const markDocumentAsViewed = async (id: string) => { 
+    await supabase.from('document_signatures').update({status: 'viewed', viewed_at: new Date().toISOString()}).eq('id', id); 
+};
+
+export const getDocumentSignatures = async (id: string) => { 
+    const { data } = await supabase.from('document_signatures').select('*').eq('document_id', id); 
+    return data || []; 
+};
+
+// --- MÉTODOS RESTANTES (MANTENIDOS PARA COMPATIBILIDAD) ---
 export const getRoles = async (): Promise<Role[]> => { const { data } = await supabase.from('roles').select('*'); return data || []; };
 export const getEmployees = async (): Promise<Employee[]> => { const { data } = await supabase.from('employees').select('*'); return data || []; };
 export const getLocations = async (): Promise<Location[]> => { const { data } = await supabase.from('locations').select('*'); return data || []; };
@@ -117,7 +126,7 @@ export const getMonthlySignature = async (id: string, m: number, y: number) => {
 export const saveMonthlySignature = async (id: string, m: number, y: number, s: string) => { const { data } = await supabase.from('monthly_signatures').insert([{employee_id: id, month: m, year: y, signature_url: s, signed_at: new Date().toISOString()}]).select().single(); return data; };
 export const getMaintenancePlans = async () => { const { data } = await supabase.from('maintenance_plans').select('*'); return data || []; };
 export const addMaintenancePlan = async (d: any) => { const { data } = await supabase.from('maintenance_plans').insert([d]).select().single(); return data; };
-export const updateMaintenancePlan = async (d: any) => { const { data } = await supabase.from('maintenance_plans').update(d).eq('plan_id', d.plan_id).select().single(); return data; };
+export const updateMaintenancePlan = async (d: any) => { const { data = [] } = await supabase.from('maintenance_plans').update(d).eq('plan_id', d.plan_id).select(); return data[0]; };
 export const deleteMaintenancePlan = async (id: string) => { await supabase.from('maintenance_plans').delete().eq('plan_id', id); };
 export const getBreaksForTimeEntries = async (ids: string[]) => { const { data } = await supabase.from('break_logs').select('*').in('time_entry_id', ids); return data || []; };
 export const startBreak = async (t: string, b: string) => { const { data } = await supabase.from('break_logs').insert([{time_entry_id: t, break_type: b, start_time: new Date().toISOString()}]).select().single(); return data; };
