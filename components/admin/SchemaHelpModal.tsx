@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS public.time_correction_requests (
                 <div className="bg-red-50 border-l-4 border-red-500 p-4 text-sm text-red-700 font-bold">
                     <p className="uppercase tracking-tight">⚠️ PASO OBLIGATORIO POST-SQL:</p>
                     <p className="mt-1">Después de ejecutar este código en Supabase, DEBES ir a:</p>
-                    <p className="mt-2 p-2 bg-white border border-red-100 rounded text-center">Settings -> API -> Reload PostgREST Schema</p>
+                    <p className="mt-2 p-2 bg-white border border-red-100 rounded text-center">Settings {'->'} API {'->'} Reload PostgREST Schema</p>
                 </div>
                 
                 <div className="relative">

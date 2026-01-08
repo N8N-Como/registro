@@ -110,12 +110,13 @@ const DocumentsView: React.FC = () => {
     };
 
     const handleDeleteDoc = async (id: string, title: string) => {
-        if (!window.confirm(`¿Estás seguro de que quieres eliminar "${title}"? Se borrarán todos los registros de descarga/firma.`)) return;
+        if (!window.confirm(`¿Estás seguro de que quieres eliminar "${title}"? Se borrarán todos los registros de descarga/firma de todos los empleados.`)) return;
         try {
             await deleteDocument(id);
+            alert("Documento eliminado correctamente.");
             init();
         } catch (e) {
-            alert("Error al eliminar.");
+            alert("Error al eliminar el documento.");
         }
     };
 
@@ -237,6 +238,7 @@ const DocumentsView: React.FC = () => {
                                             <button 
                                                 onClick={() => handleDeleteDoc(doc.document_id, doc.title)}
                                                 className="p-2 text-gray-400 hover:text-red-600 transition-colors"
+                                                title="Eliminar permanentemente"
                                             >
                                                 <TrashIcon className="w-5 h-5" />
                                             </button>
@@ -248,56 +250,55 @@ const DocumentsView: React.FC = () => {
                     </div>
                 ) : (
                     <div className="space-y-6">
-                        <Card title="Filtrar por Documento">
-                            <select 
-                                value={selectedTrackDoc || ''} 
-                                onChange={(e) => setSelectedTrackDoc(e.target.value)}
-                                className="w-full border p-3 rounded-lg font-bold text-gray-800 bg-white"
-                            >
-                                <option value="">-- Selecciona un documento para auditar --</option>
-                                {adminDocuments.map(d => (
-                                    <option key={d.document_id} value={d.document_id}>{d.title}</option>
-                                ))}
-                            </select>
-                        </Card>
+                        <Card title="Auditoría de Acceso">
+                            <div className="mb-4">
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Selecciona un documento para ver quién lo ha descargado:</label>
+                                <select 
+                                    value={selectedTrackDoc || ''} 
+                                    onChange={(e) => setSelectedTrackDoc(e.target.value)}
+                                    className="w-full border p-3 rounded-lg font-bold text-gray-800 bg-white shadow-sm"
+                                >
+                                    <option value="">-- Listado de documentos enviados --</option>
+                                    {adminDocuments.map(d => (
+                                        <option key={d.document_id} value={d.document_id}>{d.title}</option>
+                                    ))}
+                                </select>
+                            </div>
 
-                        {selectedTrackDoc && (
-                            <Card title={`Auditoría: ${adminDocuments.find(d => d.document_id === selectedTrackDoc)?.title}`}>
+                            {selectedTrackDoc ? (
                                 <div className="overflow-x-auto">
                                     <table className="w-full text-left text-sm">
                                         <thead>
                                             <tr className="border-b bg-gray-50 text-[10px] font-black text-gray-400 uppercase">
                                                 <th className="p-4">Empleado</th>
-                                                <th className="p-4 text-center">Estado</th>
-                                                <th className="p-4">Fecha Acción</th>
+                                                <th className="p-4 text-center">Estado actual</th>
+                                                <th className="p-4">Fecha de acción</th>
                                                 <th className="p-4 text-right">Acción</th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {(signaturesMap[selectedTrackDoc] || []).map(sig => {
+                                            {(signaturesMap[selectedTrackDoc] || []).length === 0 ? (
+                                                <tr><td colSpan={4} className="p-8 text-center text-gray-400">Nadie asignado a este documento.</td></tr>
+                                            ) : (signaturesMap[selectedTrackDoc] || []).map(sig => {
                                                 const emp = employees.find(e => e.employee_id === sig.employee_id);
                                                 const actionDate = sig.signed_at || sig.viewed_at;
                                                 return (
                                                     <tr key={sig.id} className="border-b hover:bg-gray-50 transition-colors">
-                                                        <td className="p-4 font-bold text-gray-800">{emp ? `${emp.first_name} ${emp.last_name}` : 'Desconocido'}</td>
+                                                        <td className="p-4 font-bold text-gray-800">{emp ? `${emp.first_name} ${emp.last_name}` : 'Empleado desconocido'}</td>
                                                         <td className="p-4 text-center">
                                                             <span className={`px-3 py-1 rounded-full text-[10px] font-black ${getStatusColor(sig.status)}`}>
                                                                 {getStatusText(sig.status)}
                                                             </span>
                                                         </td>
-                                                        <td className="p-4 text-gray-500 text-xs">
-                                                            {actionDate ? new Date(actionDate).toLocaleString() : '---'}
+                                                        <td className="p-4 text-gray-500 text-xs font-mono">
+                                                            {actionDate ? new Date(actionDate).toLocaleString('es-ES') : '---'}
                                                         </td>
                                                         <td className="p-4 text-right">
                                                             {sig.status === 'pending' && (
-                                                                <button onClick={() => handleRemindEmployee(sig.employee_id)} className="text-[10px] font-black bg-primary/10 text-primary px-3 py-1 rounded hover:bg-primary/20">RECORDAR</button>
+                                                                <button onClick={() => handleRemindEmployee(sig.employee_id)} className="text-[10px] font-black bg-primary/10 text-primary px-3 py-1 rounded-full hover:bg-primary/20 transition-all shadow-sm">RECORDAR</button>
                                                             )}
-                                                            {sig.status === 'signed' && (
-                                                                <span className="text-[10px] font-black text-green-600">✓ DOCUMENTO FIRMADO</span>
-                                                            )}
-                                                            {sig.status === 'viewed' && (
-                                                                <span className="text-[10px] font-black text-blue-600">⚠ VISTO (SIN FIRMA)</span>
-                                                            )}
+                                                            {sig.status === 'signed' && <span className="text-green-600 font-black text-[10px]">✓ COMPLETADO</span>}
+                                                            {sig.status === 'viewed' && <span className="text-blue-600 font-black text-[10px]">⚠ SOLO VISTO</span>}
                                                         </td>
                                                     </tr>
                                                 );
@@ -305,8 +306,13 @@ const DocumentsView: React.FC = () => {
                                         </tbody>
                                     </table>
                                 </div>
-                            </Card>
-                        )}
+                            ) : (
+                                <div className="text-center py-20 text-gray-400">
+                                    <BellIcon className="mx-auto h-12 w-12 mb-2 opacity-20" />
+                                    <p>Selecciona un documento arriba para ver el registro de actividad.</p>
+                                </div>
+                            )}
+                        </Card>
                     </div>
                 )}
 
@@ -321,7 +327,7 @@ const DocumentsView: React.FC = () => {
             <h2 className="text-xl font-bold flex items-center gap-2 text-primary"><PaperClipIcon /> Mis Documentos</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {myDocuments.length === 0 ? (
-                    <div className="col-span-full py-20 text-center text-gray-400">No tienes documentos asignados.</div>
+                    <div className="col-span-full py-20 text-center text-gray-400">No tienes documentos asignados en este momento.</div>
                 ) : myDocuments.map(item => (
                     <Card key={item.id} className={`border-t-4 transition-all hover:shadow-lg ${item.status === 'pending' ? 'border-orange-500 bg-orange-50/20' : 'border-green-500'}`}>
                         <div className="flex justify-between mb-2">
