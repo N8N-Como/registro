@@ -6,10 +6,10 @@ import Button from '../shared/Button';
 import Spinner from '../shared/Spinner';
 import Card from '../shared/Card';
 import BarChart from './BarChart';
-import { formatDuration } from '../../utils/helpers';
+import { formatDuration, exportToExcel } from '../../utils/helpers';
 import MonthlyWorkLogReport from './MonthlyWorkLogReport';
 import ProductivityReport from './ProductivityReport';
-import { DashboardIcon, CarIcon, BookOpenIcon } from '../icons';
+import { DashboardIcon, CarIcon, BookOpenIcon, DocumentIcon } from '../icons';
 
 interface ReportData {
     kpis: {
@@ -25,8 +25,6 @@ type ReportTab = 'general' | 'monthly_log' | 'productivity';
 
 const ReportsView: React.FC = () => {
     const [activeTab, setActiveTab] = useState<ReportTab>('general');
-    
-    // General Report State
     const [allEmployees, setAllEmployees] = useState<Employee[]>([]);
     const [allLocations, setAllLocations] = useState<Location[]>([]);
     const [startDate, setStartDate] = useState('');
@@ -41,12 +39,10 @@ const ReportsView: React.FC = () => {
                 const [emps, locs] = await Promise.all([getEmployees(), getLocations()]);
                 setAllEmployees(emps);
                 setAllLocations(locs);
-
                 const today = new Date();
                 const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
                 setStartDate(firstDayOfMonth.toISOString().split('T')[0]);
                 setEndDate(today.toISOString().split('T')[0]);
-
             } catch (error) {
                 console.error("Failed to load initial report data", error);
             } finally {
@@ -81,9 +77,7 @@ const ReportsView: React.FC = () => {
                     return entry.status === 'completed' && entry.clock_out_time && entryDate >= start && entryDate <= end;
                 });
 
-                if (relevantEntries.length > 0) {
-                    employeesInReport.add(employee.employee_id);
-                }
+                if (relevantEntries.length > 0) employeesInReport.add(employee.employee_id);
 
                 for (const entry of relevantEntries) {
                     const durationMs = new Date(entry.clock_out_time!).getTime() - new Date(entry.clock_in_time).getTime();
@@ -113,13 +107,8 @@ const ReportsView: React.FC = () => {
                 hours: ms / (1000 * 60 * 60),
             })).sort((a,b) => b.hours - a.hours);
 
-
             setReportData({
-                kpis: {
-                    totalHours: totalHoursMs,
-                    totalEmployees,
-                    avgWorkday,
-                },
+                kpis: { totalHours: totalHoursMs, totalEmployees, avgWorkday },
                 hoursByEmployee: formattedHoursByEmployee,
                 hoursByLocation: formattedHoursByLocation
             });
@@ -130,11 +119,22 @@ const ReportsView: React.FC = () => {
         }
     };
     
-    // Auto-generate report on initial load if tab is general
+    const handleExportExcel = () => {
+        if (!reportData) return;
+        const dataToExport = reportData.hoursByEmployee.map(item => ({
+            "Empleado": item.name,
+            "Horas Totales": item.hours.toFixed(2),
+            "Periodo": `${startDate} a ${endDate}`
+        }));
+        exportToExcel(dataToExport, `Informe_Horas_${startDate}_${endDate}`);
+    };
+
+    const handleExportPDF = () => {
+        window.print();
+    };
+
     useEffect(() => {
-        if (!isLoading && activeTab === 'general') {
-            handleGenerateReport();
-        }
+        if (!isLoading && activeTab === 'general') handleGenerateReport();
     }, [isLoading, activeTab]);
 
     if (isLoading) return <Spinner />;
@@ -148,7 +148,7 @@ const ReportsView: React.FC = () => {
 
     return (
         <div className="space-y-6">
-             <div className="border-b border-gray-200 mb-6">
+             <div className="border-b border-gray-200 mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <nav className="-mb-px flex space-x-2" aria-label="Report Tabs">
                     <button onClick={() => setActiveTab('general')} className={tabClasses('general')}>
                         <DashboardIcon className="w-5 h-5" />
@@ -156,18 +156,29 @@ const ReportsView: React.FC = () => {
                     </button>
                     <button onClick={() => setActiveTab('productivity')} className={tabClasses('productivity')}>
                         <CarIcon className="w-5 h-5" />
-                        <span>Desplazamientos y Eficiencia</span>
+                        <span>Desplazamientos</span>
                     </button>
                     <button onClick={() => setActiveTab('monthly_log')} className={tabClasses('monthly_log')}>
                         <BookOpenIcon className="w-5 h-5" />
-                        <span>Registro Oficial Mensual</span>
+                        <span>Registro Oficial</span>
                     </button>
                 </nav>
+                
+                {reportData && activeTab === 'general' && (
+                    <div className="flex gap-2 no-print">
+                        <Button size="sm" variant="secondary" onClick={handleExportExcel} className="bg-green-50 text-green-700 border-green-200 hover:bg-green-100">
+                            📊 Exportar Excel
+                        </Button>
+                        <Button size="sm" variant="secondary" onClick={handleExportPDF} className="bg-red-50 text-red-700 border-red-200 hover:bg-red-100">
+                            📄 Exportar PDF
+                        </Button>
+                    </div>
+                )}
             </div>
 
             {activeTab === 'general' && (
                 <>
-                    <Card>
+                    <Card className="no-print">
                         <div className="flex flex-col sm:flex-row items-end gap-4 p-4 bg-gray-50 border rounded-md">
                             <div className="flex-grow w-full sm:w-auto">
                                 <label className="block text-sm font-medium text-gray-700">Desde</label>
@@ -183,46 +194,41 @@ const ReportsView: React.FC = () => {
                         </div>
                     </Card>
 
-                    {isGenerating && <div className="text-center p-8"><Spinner /></div>}
-                    
-                    {reportData && (
-                        <>
-                            <Card title="Resumen del Periodo">
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-center">
-                                    <div>
-                                        <h4 className="text-gray-500 uppercase text-sm font-semibold">Total Horas Registradas</h4>
-                                        <p className="text-3xl font-bold text-primary">{formatDuration(reportData.kpis.totalHours)}</p>
+                    <div id="print-area">
+                        {reportData && (
+                            <div className="space-y-6">
+                                <Card title="Resumen del Periodo">
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-center">
+                                        <div>
+                                            <h4 className="text-gray-500 uppercase text-xs font-black">Total Horas Registradas</h4>
+                                            <p className="text-3xl font-bold text-primary">{formatDuration(reportData.kpis.totalHours)}</p>
+                                        </div>
+                                        <div>
+                                            <h4 className="text-gray-500 uppercase text-xs font-black">Empleados Activos</h4>
+                                            <p className="text-3xl font-bold text-primary">{reportData.kpis.totalEmployees}</p>
+                                        </div>
+                                        <div>
+                                            <h4 className="text-gray-500 uppercase text-xs font-black">Promedio Horas / Empleado</h4>
+                                            <p className="text-3xl font-bold text-primary">{formatDuration(reportData.kpis.avgWorkday)}</p>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <h4 className="text-gray-500 uppercase text-sm font-semibold">Empleados con Actividad</h4>
-                                        <p className="text-3xl font-bold text-primary">{reportData.kpis.totalEmployees}</p>
-                                    </div>
-                                    <div>
-                                        <h4 className="text-gray-500 uppercase text-sm font-semibold">Promedio Horas / Empleado</h4>
-                                        <p className="text-3xl font-bold text-primary">{formatDuration(reportData.kpis.avgWorkday)}</p>
-                                    </div>
+                                </Card>
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                    <Card title="Horas Totales por Empleado">
+                                    {reportData.hoursByEmployee.length > 0 ? <BarChart data={reportData.hoursByEmployee} /> : <p className="text-center text-gray-500 py-8 italic">Sin datos registrados</p>}
+                                    </Card>
+                                    <Card title="Ocupación de Establecimientos">
+                                    {reportData.hoursByLocation.length > 0 ? <BarChart data={reportData.hoursByLocation} /> : <p className="text-center text-gray-500 py-8 italic">Sin datos registrados</p>}
+                                    </Card>
                                 </div>
-                            </Card>
-                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                <Card title="Horas Totales por Empleado">
-                                {reportData.hoursByEmployee.length > 0 ? <BarChart data={reportData.hoursByEmployee} /> : <p className="text-center text-gray-500 py-8">Sin datos</p>}
-                                </Card>
-                                <Card title="Ocupación de Establecimientos">
-                                {reportData.hoursByLocation.length > 0 ? <BarChart data={reportData.hoursByLocation} /> : <p className="text-center text-gray-500 py-8">Sin datos</p>}
-                                </Card>
                             </div>
-                        </>
-                    )}
+                        )}
+                    </div>
                 </>
             )}
 
-            {activeTab === 'productivity' && (
-                <ProductivityReport />
-            )}
-
-            {activeTab === 'monthly_log' && (
-                <MonthlyWorkLogReport />
-            )}
+            {activeTab === 'productivity' && <ProductivityReport />}
+            {activeTab === 'monthly_log' && <MonthlyWorkLogReport />}
         </div>
     );
 };

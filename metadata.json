@@ -1,6 +1,7 @@
+
 {
-  "name": "Resgistro horario Como en Casa",
-  "description": "A comprehensive time tracking application for 'Como en Casa' employees, featuring geo-fenced clock-in/out, selfie verification, timesheet management, and administrative tools. This app is designed to replicate the core functionalities of Jibble.",
+  "name": "Como en Casa - Gestión Pro",
+  "description": "Aplicación de gestión integral para Como en Casa: Control horario con firma digital, GPS, gestión de limpieza, mantenimiento e inventario con IA.",
   "requestFramePermissions": [
     "geolocation",
     "camera"

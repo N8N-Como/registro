@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, createContext } from 'react';
-import { getEmployees, getRoles, acceptPolicy as apiAcceptPolicy, getActiveAnnouncement, getMaintenanceMode } from './services/mockApi';
+// Fix: Removed missing getActiveAnnouncement import
+import { getEmployees, getRoles, acceptPolicy as apiAcceptPolicy, getAnnouncements, getMaintenanceMode } from './services/mockApi';
 import { Employee, Role, Announcement } from './types';
 import LoginScreen from './components/auth/LoginScreen';
 import Layout from './components/layout/Layout';

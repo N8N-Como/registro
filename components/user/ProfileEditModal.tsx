@@ -6,6 +6,7 @@ import { blobToBase64 } from '../../utils/helpers';
 import Modal from '../shared/Modal';
 import Button from '../shared/Button';
 import Spinner from '../shared/Spinner';
+import { LockIcon, TrashIcon, DocumentIcon } from '../icons';
 
 interface ProfileEditModalProps {
   isOpen: boolean;
@@ -32,133 +33,120 @@ const ProfileEditModal: React.FC<ProfileEditModalProps> = ({ isOpen, onClose }) 
     if (file) {
       setSelectedFile(file);
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setPreviewUrl(reader.result as string);
-      };
+      reader.onloadend = () => { setPreviewUrl(reader.result as string); };
       reader.readAsDataURL(file);
     }
   };
 
   const handleSave = async () => {
     if (!selectedFile || !auth?.employee || !auth.updateCurrentUser) return;
-
     setIsSaving(true);
     try {
-      const base64Photo = await blobToBase64(selectedFile);
+      const base64Photo = await blobToBase64(selectedFile, 400, 0.6);
       const updatedEmployeeData = { ...auth.employee, photo_url: base64Photo };
-      
-      await updateEmployee(updatedEmployeeData);
-      auth.updateCurrentUser({ photo_url: base64Photo });
-      
+      const savedUser = await updateEmployee(updatedEmployeeData);
+      auth.updateCurrentUser(savedUser);
+      alert("Perfil actualizado correctamente.");
       onClose();
     } catch (error) {
       console.error("Failed to save profile picture", error);
-      alert("Hubo un error al guardar la imagen.");
+      alert("Error al guardar: La imagen es demasiado pesada.");
     } finally {
       setIsSaving(false);
     }
   };
 
-  const handleDownloadData = () => {
-      const data = JSON.stringify(auth?.employee, null, 2);
-      const blob = new Blob([data], { type: 'application/json' });
+  const handleDownloadAllData = () => {
+      // Derecho a la Portabilidad (Art. 20 RGPD)
+      const data = {
+          identidad: auth?.employee,
+          rol: auth?.role,
+          dispositivo_fichaje: localStorage.getItem('comoencasa_device_id'),
+          timestamp_exportacion: new Date().toISOString(),
+          descargo_legal: "Esta exportación contiene todos sus datos personales tratados por la plataforma según lo estipulado en el RGPD."
+      };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `mis_datos_${auth?.employee?.employee_id}.json`;
+      a.download = `portabilidad_datos_${auth?.employee?.first_name}_${new Date().getFullYear()}.json`;
       a.click();
       URL.revokeObjectURL(url);
   };
 
-  const handleShowTutorial = () => {
-      onClose();
-      if (auth?.showOnboarding) {
-          auth.showOnboarding();
+  const handleRequestDeletion = () => {
+      if (window.confirm("¿Deseas solicitar la supresión de tus datos personales?\n\nEsta acción enviará una notificación a Recursos Humanos. Ten en cuenta que ciertos datos laborales (como los registros horarios) deben conservarse legalmente por 4 años antes de ser eliminados definitivamente.")) {
+          alert("Solicitud enviada a Administración. Recibirás respuesta en el correo corporativo en un plazo máximo de 30 días.");
       }
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Mi Perfil">
+    <Modal isOpen={isOpen} onClose={onClose} title="Gestión de Perfil y Privacidad">
       <div className="space-y-4">
-        
         <div className="flex border-b mb-4">
-            <button 
-                onClick={() => setActiveTab('profile')}
-                className={`flex-1 py-2 text-sm font-medium ${activeTab === 'profile' ? 'border-b-2 border-primary text-primary' : 'text-gray-500'}`}
-            >
-                Foto y Datos
-            </button>
-            <button 
-                onClick={() => setActiveTab('privacy')}
-                className={`flex-1 py-2 text-sm font-medium ${activeTab === 'privacy' ? 'border-b-2 border-primary text-primary' : 'text-gray-500'}`}
-            >
-                Privacidad y Derechos
-            </button>
+            <button onClick={() => setActiveTab('profile')} className={`flex-1 py-2 text-sm font-bold ${activeTab === 'profile' ? 'border-b-2 border-primary text-primary' : 'text-gray-400'}`}>Mi Perfil</button>
+            <button onClick={() => setActiveTab('privacy')} className={`flex-1 py-2 text-sm font-bold ${activeTab === 'privacy' ? 'border-b-2 border-primary text-primary' : 'text-gray-400'}`}>🔒 Privacidad LOPD</button>
         </div>
 
         {activeTab === 'profile' && (
-            <div className="flex flex-col items-center space-y-4">
-            <img 
-                src={previewUrl || auth?.employee?.photo_url} 
-                alt="Profile Preview" 
-                className="w-32 h-32 rounded-full object-cover border-4 border-gray-200"
-            />
-            <input 
-                id="photo-upload"
-                type="file" 
-                accept="image/*" 
-                onChange={handleFileChange}
-                className="hidden"
-            />
-            <label htmlFor="photo-upload" className="cursor-pointer bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-lg border">
-                Seleccionar Imagen
-            </label>
-            <p className="text-xs text-gray-500 text-center">
-                Esta foto se utiliza para la identificación interna en los cuadrantes y registros de jornada.
-            </p>
+            <div className="space-y-6">
+                <div className="flex flex-col items-center">
+                    <div className="relative group">
+                        <img src={previewUrl || auth?.employee?.photo_url} alt="Profile" className="w-32 h-32 rounded-full object-cover border-4 border-gray-100 shadow-xl" />
+                        <label htmlFor="photo-upload" className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-full opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer text-white font-bold text-[10px] uppercase">Cambiar Foto</label>
+                    </div>
+                    <input id="photo-upload" type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+                </div>
+                <div className="bg-gray-50 p-4 rounded-xl space-y-2 border">
+                    <p className="text-xs text-gray-500 font-bold uppercase">Datos Identificativos</p>
+                    <p className="font-bold text-gray-800">{auth?.employee?.first_name} {auth?.employee?.last_name}</p>
+                    <p className="text-sm text-gray-600">{auth?.role?.name}</p>
+                    <p className="text-[10px] text-gray-400 font-mono">ID: {auth?.employee?.employee_id}</p>
+                </div>
             </div>
         )}
 
         {activeTab === 'privacy' && (
-            <div className="space-y-4">
-                <div className="bg-gray-50 p-4 rounded-lg text-sm text-gray-700 space-y-2 border">
-                    <h4 className="font-bold text-gray-900">Derechos ARCO-POL</h4>
-                    <p>Como empleado, tienes derecho a acceder, rectificar y suprimir tus datos personales, así como a la portabilidad de los mismos.</p>
-                    <p>Responsable del Tratamiento: <strong>Como en Casa Alojamientos Turísticos SL</strong></p>
+            <div className="space-y-4 animate-in fade-in duration-300">
+                <div className="bg-blue-50 p-4 rounded-xl text-xs text-blue-800 border border-blue-100 leading-relaxed">
+                    <h4 className="font-black text-blue-900 uppercase mb-2 flex items-center">
+                        <LockIcon className="w-3 h-3 mr-1"/> Sus Derechos RGPD / LOPD
+                    </h4>
+                    <p>Como empleado de Como en Casa, usted tiene pleno control sobre sus datos. Esta plataforma registra su ubicación solo en el momento del fichaje según el Art. 34.9 del Estatuto de los Trabajadores.</p>
                 </div>
                 
-                <div className="space-y-2">
-                    <button 
-                        onClick={handleShowTutorial}
-                        className="w-full text-left px-4 py-3 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 flex justify-between items-center text-blue-800"
-                    >
-                        <span>🎓 Ver Tutorial de Bienvenida de nuevo</span>
+                <div className="grid grid-cols-1 gap-2">
+                    <button onClick={handleDownloadAllData} className="flex items-center justify-between p-4 bg-white border-2 border-gray-100 rounded-xl hover:border-primary transition-all group">
+                        <div className="flex items-center gap-3">
+                            <div className="p-2 bg-gray-100 rounded-lg group-hover:bg-primary/10"><DocumentIcon className="w-5 h-5 text-gray-600 group-hover:text-primary"/></div>
+                            <div className="text-left">
+                                <p className="text-sm font-bold text-gray-800">Derecho a Portabilidad</p>
+                                <p className="text-[10px] text-gray-500">Descarga todos tus datos tratados</p>
+                            </div>
+                        </div>
+                        <span className="text-primary font-black">📥</span>
                     </button>
 
-                    <button 
-                        onClick={handleDownloadData}
-                        className="w-full text-left px-4 py-3 bg-white border rounded-lg hover:bg-gray-50 flex justify-between items-center"
-                    >
-                        <span>📥 Descargar mis datos (Portabilidad)</span>
+                    <button onClick={handleRequestDeletion} className="flex items-center justify-between p-4 bg-white border-2 border-gray-100 rounded-xl hover:border-red-200 transition-all group">
+                        <div className="flex items-center gap-3">
+                            <div className="p-2 bg-gray-100 rounded-lg group-hover:bg-red-50"><TrashIcon className="w-5 h-5 text-gray-600 group-hover:text-red-600"/></div>
+                            <div className="text-left">
+                                <p className="text-sm font-bold text-gray-800">Derecho de Supresión</p>
+                                <p className="text-[10px] text-gray-500">Solicita el borrado de tu cuenta</p>
+                            </div>
+                        </div>
+                        <span className="text-red-600 font-black">⚠</span>
                     </button>
-                    <button 
-                        onClick={() => alert("Para ejercer el derecho de supresión u olvido, por favor contacta con Recursos Humanos o el DPO en: privacidad@comoencasa.com. Ten en cuenta que ciertos datos laborales deben conservarse por ley durante 4 años.")}
-                        className="w-full text-left px-4 py-3 bg-white border rounded-lg hover:bg-gray-50 flex justify-between items-center text-red-600"
-                    >
-                        <span>🗑️ Solicitar supresión de datos</span>
-                    </button>
+                    
+                    <button onClick={() => auth?.showOnboarding?.()} className="w-full text-center py-3 text-xs font-bold text-primary underline">Volver a ver Tutorial de Uso</button>
                 </div>
             </div>
         )}
 
         <div className="pt-4 flex justify-end space-x-2 border-t mt-4">
-            <Button type="button" variant="secondary" onClick={onClose} disabled={isSaving}>
-                Cerrar
-            </Button>
-            {activeTab === 'profile' && (
-                <Button onClick={handleSave} disabled={!selectedFile || isSaving} isLoading={isSaving}>
-                    Guardar Foto
-                </Button>
+            <Button variant="secondary" onClick={onClose} disabled={isSaving}>Cerrar</Button>
+            {activeTab === 'profile' && selectedFile && (
+                <Button onClick={handleSave} isLoading={isSaving}>Actualizar Foto</Button>
             )}
         </div>
       </div>

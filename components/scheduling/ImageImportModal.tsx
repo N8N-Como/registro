@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Employee, Location, WorkShift, ShiftConfig, ShiftType } from '../../types';
+import { Employee, Location, WorkShift, ShiftConfig } from '../../types';
 import Modal from '../shared/Modal';
 import Button from '../shared/Button';
 import Spinner from '../shared/Spinner';
@@ -45,40 +45,16 @@ const ImageImportModal: React.FC<ImageImportModalProps> = ({
                 const day = item.day;
                 const dateISO = new Date(currentYear, currentMonth, day).toISOString().split('T')[0];
                 const code = item.shift_code.trim().toUpperCase();
-                
-                // MAPEO ESTRICTO PARA HOSTELERÍA (BASADO EN PDF)
-                const workCodes = ['M', 'T', 'P', 'MM', 'R', 'A', 'D', 'TH', 'BH', 'BM', 'AD', 'S', 'D'];
-                const absenceCodes = ['L', 'V', 'V25', 'B'];
-
-                const isWork = workCodes.includes(code) || workCodes.some(wc => code.startsWith(wc));
-                const isOff = absenceCodes.includes(code) || code.startsWith('V');
-
                 const config = shiftConfigs.find(c => c.code.toUpperCase() === code);
                 
-                let type: ShiftType = 'work';
-                let startT = '09:00';
-                let endT = '17:00';
-                let color = '#3b82f6';
-                let configId = config?.config_id;
+                let startT = config?.start_time || '08:00';
+                let endT = config?.end_time || '16:00';
+                let color = config?.color || '#3b82f6';
+                let type: any = 'work';
 
-                if (config) {
-                    // Turno configurado con horario exacto
-                    startT = config.start_time;
-                    endT = config.end_time;
-                    color = config.color;
-                    type = 'work';
-                } else if (isOff) {
-                    // Es libre, vacaciones o baja (0 horas)
-                    type = code === 'B' ? 'sick' : (code.startsWith('V') ? 'vacation' : 'off');
-                    startT = '00:00';
-                    endT = '00:00';
-                    color = type === 'vacation' ? '#10b981' : (type === 'sick' ? '#ef4444' : '#9ca3af');
-                } else {
-                    // Turno de trabajo sin configurar horario (Asumimos 8h para cómputo)
-                    type = 'work';
-                    startT = '08:00';
-                    endT = '16:00';
-                    color = '#6366f1'; 
+                if (['L', 'V', 'B'].includes(code)) {
+                    type = code === 'L' ? 'off' : (code === 'V' ? 'vacation' : 'sick');
+                    startT = '00:00'; endT = '00:00'; color = '#9ca3af';
                 }
 
                 return {
@@ -87,8 +63,8 @@ const ImageImportModal: React.FC<ImageImportModalProps> = ({
                     end_time: new Date(`${dateISO}T${endT}:00`).toISOString(),
                     type,
                     color,
-                    shift_config_id: configId,
-                    notes: code // Guardamos SOLO la letra para evitar interrogantes
+                    shift_config_id: config?.config_id,
+                    notes: code
                 };
             });
 
@@ -107,7 +83,6 @@ const ImageImportModal: React.FC<ImageImportModalProps> = ({
                     {previewUrl ? (
                         <div className="space-y-2">
                              <img src={previewUrl} alt="Preview" className="max-h-64 mx-auto rounded shadow" />
-                             <p className="text-xs text-primary font-bold">Archivo cargado</p>
                         </div>
                     ) : (
                         <label className="cursor-pointer block">
@@ -122,18 +97,15 @@ const ImageImportModal: React.FC<ImageImportModalProps> = ({
                     <Button onClick={handleAnalyze} className="w-full" size="lg">Analizar con IA</Button>
                 )}
 
-                {isAnalyzing && <div className="text-center py-4"><Spinner /><p className="text-xs mt-2 font-bold animate-pulse">Detectando turnos y horas...</p></div>}
+                {isAnalyzing && <div className="text-center py-4"><Spinner /><p className="text-xs mt-2 font-bold animate-pulse">Detectando turnos...</p></div>}
 
                 {parsedShifts.length > 0 && (
                     <div className="space-y-4">
                         <p className="text-sm font-bold text-green-700 bg-green-50 p-2 rounded border border-green-200 text-center">
-                            ✓ {parsedShifts.length} días detectados correctamente.
+                            ✓ {parsedShifts.length} días detectados.
                         </p>
                         <Button onClick={async () => { await onImport(parsedShifts); onClose(); }} variant="success" className="w-full" size="lg">
-                            Confirmar e Importar
-                        </Button>
-                        <Button variant="secondary" onClick={() => { setParsedShifts([]); setFile(null); setPreviewUrl(null); }} className="w-full">
-                            Cancelar
+                            Confirmar Importación
                         </Button>
                     </div>
                 )}

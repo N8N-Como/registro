@@ -7,7 +7,8 @@ import {
     startTask, 
     finishTask,
     addIncident,
-    createTimeCorrectionRequest
+    createTimeCorrectionRequest,
+    updateRoomStatus
 } from './mockApi';
 
 export type OfflineActionType = 
@@ -18,7 +19,8 @@ export type OfflineActionType =
     | 'START_TASK'
     | 'FINISH_TASK'
     | 'ADD_INCIDENT'
-    | 'ADD_CORRECTION';
+    | 'ADD_CORRECTION'
+    | 'UPDATE_ROOM_STATUS';
 
 export interface OfflineAction {
     id: string;
@@ -90,7 +92,7 @@ export const processQueue = async (): Promise<boolean> => {
                     );
                     break;
                 case 'CLOCK_OUT':
-                    await clockOut(action.payload.entryId, action.payload.locationId, action.payload.isManual, action.payload.customTime);
+                    await clockOut(action.payload.entryId, action.payload.locationId, action.payload.isManual, action.payload.customTime, action.payload.deviceData);
                     break;
                 case 'CHECK_IN_LOCATION':
                     await checkInToLocation(
@@ -104,27 +106,37 @@ export const processQueue = async (): Promise<boolean> => {
                 case 'CHECK_OUT_LOCATION':
                     await checkOutOfLocation(action.payload.activityId);
                     break;
+                case 'START_TASK':
+                    await startTask(action.payload.taskId, action.payload.employeeId, action.payload.locationId);
+                    break;
+                case 'FINISH_TASK':
+                    await finishTask(action.payload.logId, action.payload.taskId, action.payload.inventoryUsage, action.payload.employeeId);
+                    break;
+                case 'ADD_INCIDENT':
+                    await addIncident(action.payload);
+                    break;
+                case 'UPDATE_ROOM_STATUS':
+                    await updateRoomStatus(action.payload.roomId, action.payload.status, action.payload.employeeId);
+                    break;
                 case 'ADD_CORRECTION':
-                    // mockApi ya tiene lógica de normalización ISO potente, la invocamos.
                     await createTimeCorrectionRequest(action.payload);
                     break;
             }
-            // Si tiene éxito, eliminamos de la cola
             removeFromQueue(action.id);
         } catch (error: any) {
             console.error(`[OfflineManager] Failed to process action ${action.type}`, error);
             
-            // SI EL ERROR TIENE UN STATUS 400 (Bad Request), significa que el servidor RECHAZÓ los datos.
-            // O si el error indica explícitamente "invalid input syntax" (Error 22P02 de Postgres)
+            // Auto-healing: Si el error es de formato o de negocio (400), eliminamos el item para no atascar la cola
             const isDataError = error.status === 400 || 
                               (error.message && error.message.includes('invalid input syntax')) ||
-                              (error.code && error.code.startsWith('2'));
+                              (error.message && error.message.includes('cerrado'));
 
             if (isDataError) {
-                console.warn(`[OfflineManager] Permanent data error for action ${action.id}. Removing.`);
                 removeFromQueue(action.id);
             } else {
                 allSuccess = false;
+                // Si falla por red real, paramos el bucle y esperamos al siguiente evento online
+                break;
             }
         }
     }

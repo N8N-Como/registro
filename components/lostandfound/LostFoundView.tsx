@@ -1,13 +1,13 @@
 
 import React, { useState, useEffect, useCallback, useContext } from 'react';
-import { getLostItems, getEmployees, getLocations, getRooms, addLostItem, updateLostItem } from '../../services/mockApi';
+import { getLostItems, getEmployees, getLocations, getRooms, addLostItem, updateLostItem, deleteLostItem } from '../../services/mockApi';
 import { LostItem, Employee, Location, Room } from '../../types';
 import { AuthContext } from '../../App';
 import Card from '../shared/Card';
 import Button from '../shared/Button';
 import Spinner from '../shared/Spinner';
 import LostItemFormModal from './LostItemFormModal';
-import { ArchiveBoxIcon } from '../icons';
+import { ArchiveBoxIcon, TrashIcon } from '../icons';
 import { formatDate } from '../../utils/helpers';
 import AIAssistant, { InputMode } from '../shared/AIAssistant';
 import { AIResponse } from '../../services/geminiService';
@@ -22,6 +22,8 @@ const LostFoundView: React.FC = () => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [selectedItem, setSelectedItem] = useState<LostItem | null>(null);
     const [filter, setFilter] = useState<'all' | 'pending' | 'returned'>('pending');
+
+    const isAdmin = auth?.role?.role_id === 'admin' || auth?.role?.role_id === 'administracion';
 
     const fetchData = useCallback(async () => {
         setIsLoading(true);
@@ -43,13 +45,19 @@ const LostFoundView: React.FC = () => {
         }
     }, []);
 
-    useEffect(() => {
-        fetchData();
-    }, [fetchData]);
+    useEffect(() => { fetchData(); }, [fetchData]);
 
     const handleOpenModal = (item: LostItem | null) => {
         setSelectedItem(item);
         setIsModalOpen(true);
+    };
+
+    const handleDelete = async (id: string) => {
+        if (!window.confirm("¿Eliminar registro?")) return;
+        try {
+            await deleteLostItem(id);
+            fetchData();
+        } catch (e) { alert("Error al borrar"); }
     };
 
     const handleSaveItem = async (data: Omit<LostItem, 'item_id' | 'found_date' | 'status'> | LostItem) => {
@@ -58,6 +66,8 @@ const LostFoundView: React.FC = () => {
         } else {
             await addLostItem({
                 ...data,
+                status: 'pending',
+                found_date: new Date().toISOString(),
                 found_by_employee_id: auth?.employee?.employee_id || ''
             });
         }
@@ -72,7 +82,9 @@ const LostFoundView: React.FC = () => {
                     description: response.data.description,
                     found_at_location_id: response.data.location_id,
                     found_at_room_id: response.data.room_id || '',
-                    found_by_employee_id: auth.employee.employee_id
+                    found_by_employee_id: auth.employee.employee_id,
+                    found_date: new Date().toISOString(),
+                    status: 'pending'
                 });
                 fetchData();
             } catch (e) { console.error(e); }
@@ -87,19 +99,7 @@ const LostFoundView: React.FC = () => {
     const getLocationName = (id: string) => locations.find(l => l.location_id === id)?.name || 'N/A';
     const getRoomName = (id?: string) => id ? (rooms.find(r => r.room_id === id)?.name || 'Zona Común') : 'Zona Común';
 
-    const filteredItems = items.filter(item => {
-        if (filter === 'all') return true;
-        return item.status === filter;
-    });
-
-    // Role Logic
-    let allowedInputs: InputMode[] = ['voice'];
-    const role = auth?.role?.role_id || '';
-    if (['admin', 'receptionist', 'gobernanta', 'revenue'].includes(role)) {
-        allowedInputs = ['text', 'voice', 'image'];
-    }
-
-    if (isLoading) return <Spinner />;
+    const filteredItems = items.filter(item => filter === 'all' ? true : item.status === filter);
 
     return (
         <div className="space-y-6">
@@ -113,91 +113,35 @@ const LostFoundView: React.FC = () => {
                 </div>
 
                 <div className="flex space-x-2 mb-4 overflow-x-auto pb-2">
-                    <button 
-                        onClick={() => setFilter('pending')}
-                        className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${filter === 'pending' ? 'bg-primary text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                    >
-                        En Custodia
-                    </button>
-                    <button 
-                        onClick={() => setFilter('returned')}
-                        className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${filter === 'returned' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                    >
-                        Devueltos
-                    </button>
-                     <button 
-                        onClick={() => setFilter('all')}
-                        className={`px-4 py-2 rounded-full text-sm font-semibold transition-colors ${filter === 'all' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                    >
-                        Todos
-                    </button>
+                    <button onClick={() => setFilter('pending')} className={`px-4 py-2 rounded-full text-xs font-black uppercase transition-colors ${filter === 'pending' ? 'bg-primary text-white' : 'bg-gray-100 text-gray-600'}`}>En Custodia</button>
+                    <button onClick={() => setFilter('returned')} className={`px-4 py-2 rounded-full text-xs font-black uppercase transition-colors ${filter === 'returned' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-600'}`}>Devueltos</button>
+                    <button onClick={() => setFilter('all')} className={`px-4 py-2 rounded-full text-xs font-black uppercase transition-colors ${filter === 'all' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600'}`}>Todos</button>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {filteredItems.length > 0 ? (
-                        filteredItems.map(item => (
-                            <div key={item.item_id} className="border rounded-lg overflow-hidden hover:shadow-md transition-shadow bg-white flex flex-col">
-                                <div className="h-48 bg-gray-100 relative">
-                                    {item.photo_url ? (
-                                        <img src={item.photo_url} alt={item.description} className="w-full h-full object-cover" />
-                                    ) : (
-                                        <div className="w-full h-full flex items-center justify-center text-gray-400">
-                                            <span className="text-4xl">📷</span>
-                                        </div>
-                                    )}
-                                    <div className={`absolute top-2 right-2 px-2 py-1 text-xs font-bold rounded shadow ${item.status === 'returned' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                                        {item.status === 'returned' ? 'DEVUELTO' : 'EN CUSTODIA'}
-                                    </div>
-                                </div>
-                                <div className="p-4 flex-1 flex flex-col">
-                                    <div className="flex-1">
-                                        <h3 className="font-bold text-lg text-gray-800 mb-1">{item.description}</h3>
-                                        <p className="text-sm text-gray-500 mb-2">
-                                            {formatDate(new Date(item.found_date))}
-                                        </p>
-                                        <div className="text-sm text-gray-600 space-y-1">
-                                            <p>📍 {getLocationName(item.found_at_location_id)} - {getRoomName(item.found_at_room_id)}</p>
-                                            <p>👤 Encontrado por: {getEmployeeName(item.found_by_employee_id)}</p>
-                                        </div>
-                                        {item.status === 'returned' && (
-                                            <div className="mt-3 pt-3 border-t text-sm bg-green-50 p-2 rounded">
-                                                <p className="font-semibold text-green-800">Entregado a: {item.returned_to}</p>
-                                                <p className="text-xs text-green-600">{item.returned_date ? formatDate(new Date(item.returned_date)) : ''}</p>
-                                            </div>
-                                        )}
-                                    </div>
-                                    <div className="mt-4">
-                                        <Button variant="secondary" size="sm" className="w-full" onClick={() => handleOpenModal(item)}>
-                                            {item.status === 'returned' ? 'Ver Detalles' : 'Gestionar / Devolver'}
-                                        </Button>
-                                    </div>
-                                </div>
+                    {filteredItems.map(item => (
+                        <div key={item.item_id} className="border-2 border-gray-100 rounded-xl overflow-hidden hover:shadow-lg transition-all bg-white flex flex-col group">
+                            <div className="h-48 bg-gray-100 relative">
+                                {item.photo_url ? <img src={item.photo_url} alt={item.description} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-4xl">📦</div>}
+                                <div className={`absolute top-3 right-3 px-2 py-1 text-[9px] font-black rounded shadow-sm ${item.status === 'returned' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>{item.status.toUpperCase()}</div>
+                                {isAdmin && <button onClick={(e) => { e.stopPropagation(); handleDelete(item.item_id); }} className="absolute bottom-3 right-3 p-2 bg-white/90 text-red-600 rounded-full shadow-md opacity-0 group-hover:opacity-100 transition-opacity"><TrashIcon className="w-4 h-4"/></button>}
                             </div>
-                        ))
-                    ) : (
-                        <div className="col-span-full text-center py-10 text-gray-500">
-                            No hay objetos en esta categoría.
+                            <div className="p-4 flex-1 flex flex-col">
+                                <h3 className="font-bold text-gray-800 truncate">{item.description}</h3>
+                                <p className="text-[10px] text-gray-400 font-bold uppercase">{formatDate(new Date(item.found_date))}</p>
+                                <div className="mt-3 text-xs text-gray-500 space-y-1">
+                                    <p>📍 {getLocationName(item.found_at_location_id)}</p>
+                                    <p>👤 Por: {getEmployeeName(item.found_by_employee_id)}</p>
+                                </div>
+                                <Button variant="secondary" size="sm" className="mt-4 w-full rounded-lg" onClick={() => handleOpenModal(item)}>{item.status === 'returned' ? 'Ver Detalles' : 'Gestionar'}</Button>
+                            </div>
                         </div>
-                    )}
+                    ))}
+                    {filteredItems.length === 0 && <div className="col-span-full py-12 text-center text-gray-400 italic">No hay objetos registrados.</div>}
                 </div>
             </Card>
-
-            {isModalOpen && (
-                <LostItemFormModal
-                    isOpen={isModalOpen}
-                    onClose={() => setIsModalOpen(false)}
-                    onSave={handleSaveItem}
-                    item={selectedItem}
-                    locations={locations}
-                    rooms={rooms}
-                />
-            )}
-
-            <AIAssistant 
-                context={{ employees: [], locations, rooms, currentUser: auth?.employee || undefined }} 
-                onAction={handleAIAction}
-                allowedInputs={allowedInputs}
-            />
+            {isModalOpen && <LostItemFormModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSave={handleSaveItem} item={selectedItem} locations={locations} rooms={rooms} />}
+            <AIAssistant context={{ employees: [], locations, rooms, currentUser: auth?.employee || undefined }} onAction={handleAIAction} allowedInputs={['text', 'voice']} />
         </div>
     );
 };

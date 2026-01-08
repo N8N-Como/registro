@@ -1,14 +1,15 @@
 
 import React, { useState, useEffect, useContext, useCallback, useMemo } from 'react';
 import { AuthContext } from '../../App';
-import { getTasks, getRooms, getLocations, startTask, finishTask, getActiveTaskLogForEmployee, getInventoryItems } from '../../services/mockApi';
-import { Task, Room, Location, TaskTimeLog, InventoryItem } from '../../types';
+import { getTasks, getRooms, getLocations, startTask, finishTask, getActiveTaskLogForEmployee, getInventoryItems, updateRoomStatus } from '../../services/mockApi';
+import { Task, Room, Location, TaskTimeLog, InventoryItem, RoomStatus } from '../../types';
 import { useGeolocation } from '../../hooks/useGeolocation';
 import { getDistanceFromLatLonInMeters, formatDate } from '../../utils/helpers';
+import { addToQueue } from '../../services/offlineManager';
 import Card from '../shared/Card';
 import Button from '../shared/Button';
 import Spinner from '../shared/Spinner';
-import { CheckIcon, BoxIcon } from '../icons';
+import { CheckIcon, BoxIcon, BroomIcon } from '../icons';
 
 const CleaningView: React.FC = () => {
     const auth = useContext(AuthContext);
@@ -22,7 +23,6 @@ const CleaningView: React.FC = () => {
     const [activeTaskLog, setActiveTaskLog] = useState<TaskTimeLog | null>(null);
     const [isSubmitting, setIsSubmitting] = useState<string | false>(false);
     
-    // UI State for Amenities usage
     const [usageMap, setUsageMap] = useState<Record<string, number>>({});
     const [showAmenitiesPanel, setShowAmenitiesPanel] = useState(false);
 
@@ -31,187 +31,150 @@ const CleaningView: React.FC = () => {
         setIsLoading(true);
         try {
             const [allTasks, allRooms, allLocations, activeLog, inv] = await Promise.all([
-                getTasks(), 
-                getRooms(), 
-                getLocations(),
-                getActiveTaskLogForEmployee(auth.employee.employee_id),
-                getInventoryItems()
+                getTasks(), getRooms(), getLocations(), getActiveTaskLogForEmployee(auth.employee.employee_id), getInventoryItems()
             ]);
-            
-            const today = new Date();
-            today.setHours(0,0,0,0);
-            const sevenDaysFromNow = new Date(today);
-            sevenDaysFromNow.setDate(today.getDate() + 7);
-
-            const myTasks = allTasks.filter(t => {
-                 const dueDate = new Date(t.due_date);
-                 return (t.assigned_to === auth.employee?.employee_id || t.assigned_to === 'all_cleaners') && 
-                        dueDate >= today && 
-                        dueDate < sevenDaysFromNow;
-            }).sort((a,b) => a.status === 'completed' ? 1 : -1);
-            
+            const myTasks = allTasks.filter(t => (t.assigned_to === auth.employee?.employee_id || t.assigned_to === 'all_cleaners') && t.status !== 'completed');
             setTasks(myTasks);
             setRooms(allRooms);
             setLocations(allLocations);
             setActiveTaskLog(activeLog);
             setAmenities(inv.filter(i => i.category === 'amenities' || i.category === 'cleaning'));
-            setUsageMap({});
         } catch (error) {
-            console.error("Failed to fetch tasks", error);
-        } finally {
-            setIsLoading(false);
-        }
+            console.error(error);
+        } finally { setIsLoading(false); }
     }, [auth?.employee]);
 
-    useEffect(() => {
-        fetchData();
-    }, [fetchData]);
-    
-    useEffect(() => {
-        if (isSubmitting && position && auth?.employee && !activeTaskLog && !showAmenitiesPanel) {
-            const nearbyLocation = locations.find(loc => 
-                getDistanceFromLatLonInMeters(position.coords.latitude, position.coords.longitude, loc.latitude, loc.longitude) <= loc.radius_meters
-            );
+    useEffect(() => { fetchData(); }, [fetchData]);
 
-            if (nearbyLocation) {
-                 startTask(isSubmitting as string, auth.employee.employee_id, nearbyLocation.location_id).then(() => {
-                    fetchData();
-                    setIsSubmitting(false);
-                 });
-            } else {
-                alert("No te encuentras en una ubicación de trabajo válida para iniciar la tarea.");
-                setIsSubmitting(false);
-            }
-        }
-    }, [position, isSubmitting, locations, auth?.employee, fetchData, activeTaskLog, showAmenitiesPanel]);
-
-    const handleStartTask = (taskId: string) => {
+    const handleStartTask = async (taskId: string) => {
         setIsSubmitting(taskId);
         getLocation();
     };
     
+    useEffect(() => {
+        const tryStart = async () => {
+            if (isSubmitting && position && auth?.employee && !activeTaskLog) {
+                const nearby = locations.find(loc => getDistanceFromLatLonInMeters(position.coords.latitude, position.coords.longitude, loc.latitude, loc.longitude) <= 250);
+                if (!nearby) {
+                    alert("Debes estar en el establecimiento para iniciar la tarea.");
+                    setIsSubmitting(false);
+                    return;
+                }
+
+                try {
+                    await startTask(isSubmitting as string, auth.employee.employee_id, nearby.location_id);
+                    fetchData();
+                    setIsSubmitting(false);
+                } catch (e: any) {
+                    if (e.message === "Offline") {
+                        addToQueue('START_TASK', { taskId: isSubmitting, employeeId: auth.employee.employee_id, locationId: nearby.location_id });
+                        alert("Trabajo iniciado (Modo Offline). Los datos se sincronizarán al recuperar la cobertura.");
+                        fetchData();
+                    }
+                    setIsSubmitting(false);
+                }
+            }
+        };
+        tryStart();
+    }, [position, isSubmitting]);
+
+    const handleUpdateRoom = async (roomId: string, status: RoomStatus) => {
+        try {
+            await updateRoomStatus(roomId, status, auth?.employee?.employee_id);
+            fetchData();
+        } catch (e: any) { 
+            if (e.message === "Offline") {
+                addToQueue('UPDATE_ROOM_STATUS', { roomId, status, employeeId: auth?.employee?.employee_id });
+                fetchData();
+            }
+        }
+    };
+
     const handleFinishTask = async () => {
         if (!activeTaskLog || !auth?.employee) return;
         setIsSubmitting(activeTaskLog.task_id);
+        const usage = Object.entries(usageMap).filter(([_, qty]) => (qty as number) > 0).map(([itemId, qty]) => ({ item_id: itemId, amount: qty as number }));
         
-        // Fixed unknown type error by explicitly casting qty to number
-        const inventoryUsage = Object.entries(usageMap)
-            .filter(([_, qty]) => (qty as number) > 0)
-            .map(([itemId, qty]) => ({ item_id: itemId, amount: qty as number }));
-
         try {
-            await finishTask(activeTaskLog.log_id, activeTaskLog.task_id, inventoryUsage, auth.employee.employee_id);
+            await finishTask(activeTaskLog.log_id, activeTaskLog.task_id, usage, auth.employee.employee_id);
             setShowAmenitiesPanel(false);
             fetchData();
-        } catch(error) {
-            console.error("Failed to finish task", error);
-        } finally {
-            setIsSubmitting(false);
-        }
+        } catch(e: any) { 
+            if (e.message === "Offline") {
+                addToQueue('FINISH_TASK', { logId: activeTaskLog.log_id, taskId: activeTaskLog.task_id, inventoryUsage: usage, employeeId: auth.employee.employee_id });
+                alert("Tarea finalizada localmente. Pendiente de sincronización.");
+                setShowAmenitiesPanel(false);
+                fetchData();
+            }
+        } finally { setIsSubmitting(false); }
     }
-
-    const updateUsage = (itemId: string, delta: number) => {
-        setUsageMap(prev => ({
-            ...prev,
-            [itemId]: Math.max(0, (prev[itemId] || 0) + delta)
-        }));
-    };
-
-    const groupedTasks = useMemo(() => {
-        const groups = tasks.reduce((acc, task) => {
-            const dateKey = task.due_date;
-            if (!acc[dateKey]) acc[dateKey] = [];
-            acc[dateKey].push(task);
-            return acc;
-        }, {} as Record<string, Task[]>);
-        return Object.entries(groups).sort(([dateA], [dateB]) => new Date(dateA).getTime() - new Date(dateB).getTime());
-    }, [tasks]);
 
     if (isLoading) return <Spinner />;
 
     return (
         <div className="space-y-6">
-            <Card title="Mis Tareas de Limpieza">
+            <Card title="Mis Tareas de Hoy">
                 {tasks.length > 0 ? (
-                    <div className="space-y-6">
-                        {groupedTasks.map(([dateStr, tasksForDay]) => (
-                            <div key={dateStr}>
-                                <h3 className="text-lg font-semibold text-primary mb-2 border-b pb-1">
-                                    {formatDate(new Date(dateStr))}
-                                </h3>
-                                <div className="space-y-3">
-                                    {tasksForDay.map(task => {
-                                        const isCompleted = task.status === 'completed';
-                                        const isActive = activeTaskLog?.task_id === task.task_id;
-                                        const room = rooms.find(r => r.room_id === task.room_id);
-                                        const locationName = room ? locations.find(l => l.location_id === room.location_id)?.name : 'N/A';
-
-                                        return (
-                                        <div key={task.task_id} className={`p-4 border rounded-xl shadow-sm transition-all ${isActive ? 'bg-blue-50 border-blue-400 ring-2 ring-blue-100' : isCompleted ? 'bg-green-50 border-green-200' : 'bg-white'}`}>
-                                            <div className="flex justify-between items-start">
-                                                <div className={`${isCompleted ? 'opacity-60' : ''}`}>
-                                                    <p className={`font-bold text-lg ${isCompleted ? 'line-through' : 'text-gray-800'}`}>{task.description}</p>
-                                                    <p className="text-sm text-gray-500 font-medium">
-                                                        📍 {locationName} - {room?.name || 'Habitación General'}
-                                                    </p>
-                                                </div>
-                                                <div className="flex-shrink-0">
-                                                    {isCompleted ? (
-                                                         <div className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold flex items-center">
-                                                            <CheckIcon className="w-3 h-3 mr-1"/> Completada
-                                                        </div>
-                                                    ) : isActive ? (
-                                                        <div className="flex flex-col gap-2">
-                                                            <Button size="sm" variant="success" onClick={() => setShowAmenitiesPanel(true)}>
-                                                                <BoxIcon className="w-4 h-4 mr-2" /> Finalizar y Amenities
-                                                            </Button>
-                                                        </div>
-                                                    ) : (
-                                                        <Button size="md" onClick={() => handleStartTask(task.task_id)} disabled={!!activeTaskLog || !!isSubmitting} isLoading={isSubmitting === task.task_id || geoLoading}>
-                                                            ▶ Iniciar
-                                                        </Button>
-                                                    )}
-                                                </div>
-                                            </div>
+                    <div className="space-y-4">
+                        {tasks.map(task => {
+                            const isActive = activeTaskLog?.task_id === task.task_id;
+                            const room = rooms.find(r => r.room_id === task.room_id);
+                            const location = locations.find(l => l.location_id === room?.location_id);
+                            return (
+                                <div key={task.task_id} className={`p-4 border rounded-xl shadow-sm ${isActive ? 'bg-blue-50 border-blue-400 ring-2 ring-blue-100' : 'bg-white'}`}>
+                                    <div className="flex justify-between items-start">
+                                        <div className="flex-1">
+                                            <p className="font-bold text-lg text-gray-800">{task.description}</p>
+                                            <p className="text-xs text-gray-500 font-black uppercase">📍 {location?.name} • {room?.name}</p>
                                             
-                                            {/* Quick Amenities Panel when active */}
-                                            {isActive && showAmenitiesPanel && (
-                                                <div className="mt-6 pt-4 border-t border-blue-200 animate-in slide-in-from-top-4 duration-300">
-                                                    <h4 className="text-sm font-bold text-blue-800 mb-4 flex items-center">
-                                                        <BoxIcon className="w-4 h-4 mr-2" /> Amenities Repuestos
-                                                    </h4>
-                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
-                                                        {amenities.map(item => (
-                                                            <div key={item.item_id} className="flex items-center justify-between bg-white p-3 rounded-lg border border-blue-200 shadow-sm">
-                                                                <span className="text-sm font-medium text-gray-700">{item.name}</span>
-                                                                <div className="flex items-center space-x-3">
-                                                                    <button onClick={() => updateUsage(item.item_id, -1)} className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center font-bold text-xl">-</button>
-                                                                    <span className="font-bold w-4 text-center">{usageMap[item.item_id] || 0}</span>
-                                                                    <button onClick={() => updateUsage(item.item_id, 1)} className="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center font-bold text-xl">+</button>
-                                                                </div>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                    <div className="flex gap-2">
-                                                        <Button variant="secondary" onClick={() => setShowAmenitiesPanel(false)} className="flex-1">Atrás</Button>
-                                                        <Button variant="danger" onClick={handleFinishTask} isLoading={isSubmitting === task.task_id} className="flex-2">
-                                                            Confirmar y Cerrar Tarea
-                                                        </Button>
-                                                    </div>
+                                            {room && (
+                                                <div className="mt-3 flex gap-1">
+                                                    {(['clean', 'dirty', 'in_progress', 'occupied'] as RoomStatus[]).map(st => (
+                                                        <button 
+                                                            key={st} 
+                                                            onClick={() => handleUpdateRoom(room.room_id, st)}
+                                                            className={`text-[9px] px-2 py-1 rounded-full font-black border transition-all ${room.status === st ? 'bg-primary text-white' : 'bg-gray-50 text-gray-400 border-gray-200 hover:bg-gray-100'}`}
+                                                        >
+                                                            {st.replace('_', ' ').toUpperCase()}
+                                                        </button>
+                                                    ))}
                                                 </div>
                                             )}
                                         </div>
-                                    )})}
+                                        <div>
+                                            {isActive ? (
+                                                <Button size="sm" variant="success" onClick={() => setShowAmenitiesPanel(true)}>FINALIZAR</Button>
+                                            ) : (
+                                                <Button size="sm" onClick={() => handleStartTask(task.task_id)} disabled={!!activeTaskLog} isLoading={isSubmitting === task.task_id}>INICIAR</Button>
+                                            )}
+                                        </div>
+                                    </div>
+                                    {isActive && showAmenitiesPanel && (
+                                        <div className="mt-4 pt-4 border-t border-blue-200 animate-in slide-in-from-top-2">
+                                            <p className="text-xs font-black text-blue-800 mb-3 flex items-center uppercase"><BoxIcon className="w-3 h-3 mr-1"/> Consumo de Amenities</p>
+                                            <div className="grid grid-cols-2 gap-2 mb-4">
+                                                {amenities.map(i => (
+                                                    <div key={i.item_id} className="bg-white p-2 border rounded-lg flex justify-between items-center text-xs">
+                                                        <span className="font-bold truncate mr-2">{i.name}</span>
+                                                        <div className="flex items-center gap-2">
+                                                            <button onClick={() => setUsageMap(p => ({...p, [i.item_id]: Math.max(0, (p[i.item_id]||0)-1)}))} className="w-5 h-5 bg-gray-100 rounded">-</button>
+                                                            <span className="font-black w-4 text-center">{usageMap[i.item_id]||0}</span>
+                                                            <button onClick={() => setUsageMap(p => ({...p, [i.item_id]: (p[i.item_id]||0)+1}))} className="w-5 h-5 bg-primary text-white rounded">+</button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <Button variant="secondary" onClick={() => setShowAmenitiesPanel(false)} className="flex-1">CANCELAR</Button>
+                                                <Button variant="danger" onClick={handleFinishTask} className="flex-1">CONFIRMAR CIERRE</Button>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
-                ) : (
-                    <div className="text-center py-10">
-                        <CheckIcon className="w-16 h-16 text-green-500 mx-auto mb-4" />
-                        <p className="text-gray-600 font-medium">¡No tienes tareas pendientes!</p>
-                    </div>
-                )}
+                ) : <div className="py-12 text-center text-gray-400 italic">No tienes tareas hoy.</div>}
             </Card>
         </div>
     );

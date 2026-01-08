@@ -1,11 +1,13 @@
 
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Como en Casa - Time Tracking</title>
+    <meta name="theme-color" content="#004A4E" />
+    
+    <title>Como en Casa - Gestión Pro</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
@@ -30,16 +32,15 @@
       }
     </script>
     <style>
-      input, textarea, select {
-        background-color: #ffffff !important;
-        color: #111827 !important;
-      }
       @media print {
         body * { visibility: hidden; }
         #print-area, #print-area * { visibility: visible; }
         #print-area { position: absolute; left: 0; top: 0; width: 100%; }
         .no-print { display: none !important; }
       }
+      .custom-scrollbar::-webkit-scrollbar { width: 4px; height: 4px; }
+      .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+      .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
     </style>
 <script type="importmap">
 {

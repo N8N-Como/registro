@@ -58,6 +58,7 @@ export interface Room {
     notes?: string;
 }
 
+// Added missing WorkType and WorkMode used in time tracking
 export type WorkType = 'ordinaria' | 'extra' | 'guardia' | 'formacion';
 export type WorkMode = 'presencial' | 'teletrabajo';
 
@@ -71,64 +72,65 @@ export interface TimeEntry {
   clock_out_time?: string;
   clock_out_location_id?: string;
   status: 'running' | 'completed';
-  work_type?: WorkType;
-  work_mode?: WorkMode;
+  work_type?: WorkType; // Updated to use WorkType
+  work_mode?: WorkMode; // Updated to use WorkMode
   verified_by_photo?: string;
   is_manual?: boolean;
   device_id?: string;
   device_info?: string;
 }
 
-export interface TimeCorrectionRequest {
-    request_id: string;
-    employee_id: string;
-    original_entry_id?: string;
-    correction_type: 'create_entry' | 'fix_time';
-    requested_date: string;
-    requested_clock_in: string;
-    requested_clock_out?: string;
-    reason: string;
-    status: 'pending' | 'approved' | 'rejected';
-    created_at: string;
-    reviewed_by?: string;
-    reviewed_at?: string;
-}
+// Added missing ShiftType for work scheduling
+export type ShiftType = 'work' | 'off' | 'vacation' | 'sick' | 'permission';
 
-export interface BreakLog {
-    break_id: string;
-    time_entry_id: string;
+export interface WorkShift {
+    shift_id: string;
+    employee_id: string;
+    location_id?: string;
     start_time: string;
-    end_time?: string;
-    break_type: string;
+    end_time: string;
+    color: string;
+    notes?: string;
+    type: ShiftType; // Updated to use ShiftType
+    shift_config_id?: string;
 }
 
-export interface ActivityLog {
-  activity_id: string;
-  time_entry_id: string;
-  employee_id: string;
-  location_id: string;
-  check_in_time: string;
-  check_out_time?: string;
-  check_in_latitude?: number;
-  check_in_longitude?: number;
+export interface ShiftConfig {
+    config_id: string;
+    code: string;
+    name: string;
+    start_time: string;
+    end_time: string;
+    color: string;
+    location_id?: string;
 }
 
-export interface AccessLog {
+export interface StockPrediction {
+    item_id: string;
+    item_name: string;
+    days_left: number;
+    risk_level: 'low' | 'medium' | 'high';
+    recommendation: string;
+}
+
+export interface InventoryItem {
+    item_id: string;
+    name: string;
+    category: string;
+    quantity: number;
+    unit: string;
+    min_threshold: number;
+    location_id?: string;
+    last_updated: string;
+}
+
+export interface StockLog {
     log_id: string;
+    item_id: string;
+    change_amount: number;
+    reason: string;
     employee_id: string;
-    location_id: string;
-    attempt_time: string;
-    latitude: number;
-    longitude: number;
-    was_allowed: boolean;
-    denial_reason?: string;
-}
-
-export interface Policy {
-    policy_id: string;
-    title: string;
-    content: string;
-    version: number;
+    created_at: string;
 }
 
 export interface Announcement {
@@ -139,16 +141,20 @@ export interface Announcement {
     is_active: boolean;
 }
 
-export type TaskStatus = 'pending' | 'in_progress' | 'completed';
+export interface Policy {
+    policy_id: string;
+    title: string;
+    content: string;
+    version: number;
+}
 
 export interface Task {
     task_id: string;
     description: string;
     room_id: string;
-    location_id?: string;
     assigned_to: string;
     due_date: string;
-    status: TaskStatus;
+    status: 'pending' | 'in_progress' | 'completed';
     created_at: string;
     completed_at?: string;
 }
@@ -171,10 +177,8 @@ export interface Incident {
     created_at: string;
     status: 'open' | 'in_progress' | 'resolved';
     priority: 'low' | 'medium' | 'high';
-    assigned_to?: string;
     photo_url?: string;
     type?: 'corrective' | 'preventive';
-    maintenance_plan_id?: string;
     due_date?: string;
 }
 
@@ -210,54 +214,30 @@ export interface MonthlySignature {
     signed_at: string;
 }
 
+// Added missing TimeOffType for absence management
 export type TimeOffType = 'vacation' | 'sick_leave' | 'personal' | 'compensatory';
-export type TimeOffStatus = 'pending' | 'approved' | 'rejected';
 
 export interface TimeOffRequest {
     request_id: string;
     employee_id: string;
     start_date: string;
     end_date: string;
-    type: TimeOffType;
-    status: TimeOffStatus;
+    type: TimeOffType; // Updated to use TimeOffType
+    status: 'pending' | 'approved' | 'rejected';
     reason?: string;
     created_at: string;
     reviewed_by?: string;
     reviewed_at?: string;
-    rejection_reason?: string;
 }
 
-export type ShiftType = 'work' | 'off' | 'vacation' | 'sick' | 'permission';
-
-export interface ShiftConfig {
-    config_id: string;
-    code: string;
-    name: string;
-    start_time: string;
-    end_time: string;
-    color: string;
-    location_id?: string;
-}
-
-export interface WorkShift {
-    shift_id: string;
-    employee_id: string;
-    location_id?: string;
-    start_time: string;
-    end_time: string;
-    color: string;
-    notes?: string;
-    type: ShiftType;
-    shift_config_id?: string;
-}
-
+// Added missing DocumentType for company documents
 export type DocumentType = 'file' | 'link';
 
 export interface CompanyDocument {
     document_id: string;
     title: string;
     description?: string;
-    type: DocumentType;
+    type: DocumentType; // Updated to use DocumentType
     content_url: string;
     created_at: string;
     created_by: string;
@@ -274,6 +254,7 @@ export interface DocumentSignature {
     viewed_at?: string;
 }
 
+// Added missing Frequency for maintenance plans
 export type Frequency = 'monthly' | 'quarterly' | 'semestral' | 'annual';
 
 export interface MaintenancePlan {
@@ -281,39 +262,52 @@ export interface MaintenancePlan {
     title: string;
     description: string;
     location_id: string;
-    frequency: Frequency;
+    frequency: Frequency; // Updated to use Frequency
     next_due_date: string;
     created_by: string;
     active: boolean;
 }
 
-export type InventoryCategory = 'cleaning' | 'amenities' | 'maintenance' | 'office' | 'linen';
-
-export interface InventoryItem {
-    item_id: string;
-    name: string;
-    category: InventoryCategory;
-    quantity: number;
-    unit: string;
-    min_threshold: number;
-    location_id?: string;
-    last_updated: string;
-}
-
-export interface StockLog {
-    log_id: string;
-    item_id: string;
-    change_amount: number;
-    reason: string;
+export interface TimeCorrectionRequest {
+    request_id: string;
     employee_id: string;
+    original_entry_id?: string;
+    correction_type: 'create_entry' | 'fix_time';
+    requested_date: string;
+    requested_clock_in: string;
+    requested_clock_out?: string;
+    reason: string;
+    status: 'pending' | 'approved' | 'rejected';
     created_at: string;
+    reviewed_by?: string;
+    reviewed_at?: string;
 }
 
-// Added StockPrediction interface to resolve export error
-export interface StockPrediction {
-    item_id: string;
-    item_name: string;
-    days_left: number;
-    risk_level: 'low' | 'medium' | 'high';
-    recommendation: string;
+export interface ActivityLog {
+  activity_id: string;
+  time_entry_id: string;
+  employee_id: string;
+  location_id: string;
+  check_in_time: string;
+  check_out_time?: string;
+  check_in_latitude?: number;
+  check_in_longitude?: number;
+}
+
+// Added missing AccessLog interface for security auditing
+export interface AccessLog {
+    access_id: string;
+    employee_id: string;
+    attempt_time: string;
+    ip_address?: string;
+    device_info?: string;
+    success: boolean;
+}
+
+export interface BreakLog {
+    break_id: string;
+    time_entry_id: string;
+    start_time: string;
+    end_time?: string;
+    break_type: string;
 }

@@ -1,0 +1,22 @@
+
+{
+  "name": "Como en Casa - Gestión Pro",
+  "short_name": "ComoEnCasa",
+  "description": "Sistema Integral de Gestión de Alojamientos Turísticos",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#004A4E",
+  "theme_color": "#004A4E",
+  "icons": [
+    {
+      "src": "https://acinnuphpdnsrmijsbsu.supabase.co/storage/v1/object/public/assets/logo_pwa_192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://acinnuphpdnsrmijsbsu.supabase.co/storage/v1/object/public/assets/logo_pwa_512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

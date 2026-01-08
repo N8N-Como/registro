@@ -123,30 +123,98 @@ export const processNaturalLanguageCommand = async (history: ChatMessage[], cont
     }
 };
 
-// Funciones existentes mantenidas...
+/**
+ * Analiza el stock actual y los logs de consumo para predecir cuándo se agotarán los productos.
+ */
+// Fixed: Included inventory and logs data in the prompt so the AI can actually perform the analysis
 export const analyzeStockTrends = async (inventory: InventoryItem[], logs: any[]): Promise<StockPrediction[]> => {
     try {
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-        const prompt = `Analiza stock y logs de consumo. Devuelve JSON con predicciones.`;
+        const inventoryData = JSON.stringify(inventory);
+        const logsData = JSON.stringify(logs.slice(0, 50)); // Limit logs for context window
+
+        const prompt = `
+        Eres un experto en logística para 'Como en Casa'. Analiza el stock actual y los movimientos recientes de consumo para predecir cuándo se agotarán los productos.
+
+        STOCK ACTUAL:
+        ${inventoryData}
+
+        LOGS DE MOVIMIENTO (Últimos 50):
+        ${logsData}
+
+        INSTRUCCIONES:
+        1. Calcula la velocidad de consumo de cada producto basándote en los logs.
+        2. Estima cuántos días quedan de stock para los productos críticos.
+        3. Devuelve un array JSON con predicciones detalladas.
+
+        RESPUESTA ESPERADA (JSON Array of StockPrediction):
+        [{
+            "item_id": "uuid",
+            "item_name": "Nombre",
+            "days_left": 5,
+            "risk_level": "high" | "medium" | "low",
+            "recommendation": "Comprar 10 unidades antes del viernes"
+        }]
+
+        Retorna SOLO el JSON.
+        `;
+
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
             contents: { parts: [{ text: prompt }] },
             config: { responseMimeType: 'application/json' }
         });
         return JSON.parse(response.text || "[]");
-    } catch (error) { return []; }
+    } catch (error) { 
+        console.error("AI Stock Analysis Error:", error);
+        return []; 
+    }
 };
 
+/**
+ * Analiza una imagen de un cuadrante mensual para extraer los turnos de los empleados.
+ */
+// Fixed: Enhanced prompt to better guide the model on how to map the image to the employee IDs and shift configs
 export const parseScheduleImage = async (imageBase64: string, employees: Employee[], shiftConfigs: ShiftConfig[], month: number, year: number): Promise<any[]> => {
     try {
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         const base64Data = imageBase64.split(',')[1] || imageBase64;
-        const prompt = `Analiza cuadrante mensual. IDs: ${employees.map(e => e.employee_id).join(',')}. Retorna JSON.`;
+        
+        const employeeList = employees.map(e => `${e.first_name} ${e.last_name} (ID: ${e.employee_id})`).join('\n');
+        const configList = shiftConfigs.map(c => `Código: ${c.code}, Horario: ${c.start_time}-${c.end_time}`).join('\n');
+
+        const prompt = `
+        Analiza esta imagen de un cuadrante de turnos para el mes ${month} del año ${year}.
+        
+        LISTA DE EMPLEADOS:
+        ${employeeList}
+
+        CONFIGURACIÓN DE TURNOS CONOCIDOS:
+        ${configList}
+
+        INSTRUCCIONES:
+        1. Identifica a cada empleado en la tabla de la imagen.
+        2. Para cada día del mes, identifica el código de turno (M, T, N, L, V, B, etc.).
+        3. Devuelve un objeto JSON donde las llaves sean los employee_id y los valores sean objetos con el día del mes como llave y el código de turno como valor.
+
+        EJEMPLO DE RESPUESTA:
+        {
+          "emp_id_123": {
+            "1": "M",
+            "2": "M",
+            "3": "L"
+          }
+        }
+
+        Retorna SOLO el JSON compacto.
+        `;
+
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
             contents: { parts: [{ text: prompt }, { inlineData: { mimeType: 'image/png', data: base64Data } }] },
             config: { responseMimeType: 'application/json' }
         });
+        
         const compactData = JSON.parse(response.text || '{}');
         const results: any[] = [];
         Object.entries(compactData).forEach(([empId, days]: [string, any]) => {
@@ -155,5 +223,8 @@ export const parseScheduleImage = async (imageBase64: string, employees: Employe
             });
         });
         return results;
-    } catch (error: any) { throw new Error(error.message); }
+    } catch (error: any) { 
+        console.error("AI Schedule Parsing Error:", error);
+        throw new Error(error.message); 
+    }
 };

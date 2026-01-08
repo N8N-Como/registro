@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { WorkShift, Employee, Location, ShiftConfig, ShiftType } from '../../types';
+import { WorkShift, Employee, Location, ShiftConfig } from '../../types';
 import Modal from '../shared/Modal';
 import Button from '../shared/Button';
 import { getShiftConfigs } from '../../services/mockApi';
@@ -17,8 +17,6 @@ interface ShiftFormModalProps {
     employees: Employee[];
 }
 
-const WORK_CODES = ['M', 'T', 'P', 'MM', 'R', 'A', 'D', 'TH', 'BH', 'BM', 'AD', 'S', 'D'];
-
 const ShiftFormModal: React.FC<ShiftFormModalProps> = ({ 
     isOpen, onClose, onSave, onDelete, shift, employeeId, date, locations, employees 
 }) => {
@@ -28,40 +26,18 @@ const ShiftFormModal: React.FC<ShiftFormModalProps> = ({
     const [mode, setMode] = useState<'work' | 'absence'>('work');
 
     useEffect(() => {
-        const loadConfigs = async () => {
-            try {
-                const configs = await getShiftConfigs();
-                setShiftConfigs(configs);
-            } catch (e) {
-                setShiftConfigs([]);
-            }
-        };
-        loadConfigs();
+        getShiftConfigs().then(setShiftConfigs);
     }, []);
 
     useEffect(() => {
         if (shift) {
             setFormData(shift);
             setSelectedConfigId(shift.shift_config_id || '');
-            
-            // INFERIR MODO PARA EL MODAL
-            const rawNotes = (shift.notes || '').toUpperCase();
-            const match = rawNotes.match(/\((.*?)\)/);
-            const code = match ? match[1] : (rawNotes.length <= 3 ? rawNotes : '');
-            
-            const isActuallyWork = shift.type === 'work' || WORK_CODES.includes(code);
-            setMode(isActuallyWork ? 'work' : 'absence');
-            
+            setMode(shift.type === 'work' ? 'work' : 'absence');
         } else {
             const employee = employees.find(e => e.employee_id === employeeId);
-            let startHour = 9, startMin = 0, endHour = 17, endMin = 0;
-
-            if (employee?.default_start_time) [startHour, startMin] = employee.default_start_time.split(':').map(Number);
-            if (employee?.default_end_time) [endHour, endMin] = employee.default_end_time.split(':').map(Number);
-
-            const start = new Date(date); start.setHours(startHour, startMin, 0, 0);
-            const end = new Date(date); end.setHours(endHour, endMin, 0, 0);
-
+            const start = new Date(date); start.setHours(9, 0, 0, 0);
+            const end = new Date(date); end.setHours(17, 0, 0, 0);
             setFormData({
                 employee_id: employeeId,
                 start_time: start.toISOString(),
@@ -71,25 +47,9 @@ const ShiftFormModal: React.FC<ShiftFormModalProps> = ({
                 type: 'work',
                 notes: ''
             });
-            setSelectedConfigId('');
             setMode('work');
         }
-    }, [shift, employeeId, date, locations, isOpen, employees]);
-
-    const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-        const { name, value } = e.target;
-        setFormData(prev => ({ ...prev, [name]: value }));
-    };
-
-    const handleTimeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const { name, value } = e.target;
-        if (formData.start_time) {
-            const baseDate = new Date(formData.start_time);
-            const [hours, minutes] = value.split(':').map(Number);
-            baseDate.setHours(hours, minutes);
-            setFormData(prev => ({ ...prev, [name === 'startTimeOnly' ? 'start_time' : 'end_time']: baseDate.toISOString() }));
-        }
-    };
+    }, [shift, employeeId, date, locations, isOpen]);
 
     const handleConfigChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const configId = e.target.value;
@@ -108,65 +68,47 @@ const ShiftFormModal: React.FC<ShiftFormModalProps> = ({
                 color: config.color,
                 location_id: config.location_id || prev.location_id,
                 shift_config_id: config.config_id,
-                notes: config.code,
-                type: 'work'
+                notes: config.code
             }));
         }
-    };
-    
-    const handleModeChange = (newMode: 'work' | 'absence') => {
-        setMode(newMode);
-        setFormData(prev => ({ ...prev, type: newMode === 'work' ? 'work' : 'off' }));
-    };
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        onSave(formData as WorkShift);
-    };
-
-    const getTimeString = (isoString?: string) => {
-        if (!isoString) return '';
-        const d = new Date(isoString);
-        return d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
     };
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={shift ? 'Editar Turno' : 'Asignar Turno'}>
-            <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="flex border-b mb-4">
-                    <button type="button" onClick={() => handleModeChange('work')} className={`flex-1 py-2 text-sm font-medium ${mode === 'work' ? 'border-b-2 border-primary text-primary' : 'text-gray-500'}`}>Trabajo / Turno</button>
-                    <button type="button" onClick={() => handleModeChange('absence')} className={`flex-1 py-2 text-sm font-medium ${mode === 'absence' ? 'border-b-2 border-primary text-primary' : 'text-gray-500'}`}>Ausencia / Libre</button>
+            <form onSubmit={(e) => { e.preventDefault(); onSave(formData as WorkShift); }} className="space-y-4">
+                <div className="flex bg-gray-100 p-1 rounded-lg">
+                    <button type="button" onClick={() => setMode('work')} className={`flex-1 py-1.5 text-xs font-bold rounded-md ${mode === 'work' ? 'bg-white shadow-sm text-primary' : 'text-gray-500'}`}>Trabajo</button>
+                    <button type="button" onClick={() => setMode('absence')} className={`flex-1 py-1.5 text-xs font-bold rounded-md ${mode === 'absence' ? 'bg-white shadow-sm text-primary' : 'text-gray-500'}`}>Libre</button>
                 </div>
 
-                {mode === 'work' ? (
-                    <>
-                         <div>
-                            <label className="block text-sm font-medium text-gray-700">Tipo de Turno</label>
-                            <select value={selectedConfigId} onChange={handleConfigChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
-                                <option value="">-- Personalizado --</option>
-                                {shiftConfigs.map(c => <option key={c.config_id} value={c.config_id}>{c.code} - {c.name}</option>)}
-                            </select>
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <input type="time" name="startTimeOnly" value={getTimeString(formData.start_time)} onChange={handleTimeChange} className="block w-full rounded-md border-gray-300" />
-                            <input type="time" name="endTimeOnly" value={getTimeString(formData.end_time)} onChange={handleTimeChange} className="block w-full rounded-md border-gray-300" />
-                        </div>
-                    </>
-                ) : (
-                    <select name="type" value={formData.type} onChange={handleChange} className="block w-full rounded-md border-gray-300">
-                        <option value="off">Libre / Descanso</option>
-                        <option value="vacation">Vacaciones</option>
-                        <option value="sick">Baja Médica</option>
-                    </select>
+                {mode === 'work' && (
+                     <div>
+                        <label className="block text-[10px] font-black text-gray-500 uppercase">Plantilla</label>
+                        <select value={selectedConfigId} onChange={handleConfigChange} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm">
+                            <option value="">-- Personalizado --</option>
+                            {shiftConfigs.map(c => <option key={c.config_id} value={c.config_id}>{c.code} - {c.name}</option>)}
+                        </select>
+                    </div>
                 )}
 
-                <textarea name="notes" value={formData.notes || ''} onChange={handleChange} rows={2} className="mt-1 block w-full rounded-md border-gray-300 shadow-sm" placeholder="Notas o código de turno..." />
+                <div className="grid grid-cols-2 gap-3">
+                    <input type="time" value={new Date(formData.start_time || '').toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} onChange={(e) => {
+                         const [h, m] = e.target.value.split(':').map(Number);
+                         const d = new Date(formData.start_time!); d.setHours(h, m);
+                         setFormData(p => ({...p, start_time: d.toISOString()}));
+                    }} className="block w-full rounded-md border-gray-300 text-sm font-bold" />
+                    <input type="time" value={new Date(formData.end_time || '').toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} onChange={(e) => {
+                         const [h, m] = e.target.value.split(':').map(Number);
+                         const d = new Date(formData.end_time!); d.setHours(h, m);
+                         setFormData(p => ({...p, end_time: d.toISOString()}));
+                    }} className="block w-full rounded-md border-gray-300 text-sm font-bold" />
+                </div>
 
-                <div className="pt-4 flex justify-between">
-                    {shift && <Button type="button" variant="danger" onClick={() => onDelete?.(shift.shift_id)}>Eliminar</Button>}
-                    <div className="flex space-x-2">
-                        <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
-                        <Button type="submit">Guardar</Button>
+                <div className="pt-4 flex justify-between gap-2">
+                    {shift && <Button type="button" variant="danger" size="sm" onClick={() => onDelete?.(shift.shift_id)}>Borrar</Button>}
+                    <div className="flex-1 flex justify-end gap-2">
+                        <Button type="button" variant="secondary" size="sm" onClick={onClose}>Cancelar</Button>
+                        <Button type="submit" size="sm" className="flex-1">Guardar</Button>
                     </div>
                 </div>
             </form>
