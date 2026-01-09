@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useContext, useMemo } from 'react';
 import { AuthContext } from '../../App';
 import { 
-    getEmployees, getLocations, getWorkShifts, createWorkShift, updateWorkShift, deleteWorkShift, getShiftConfigs, createBulkWorkShifts, getTimeOffRequests
+    getEmployees, getLocations, getWorkShifts, createWorkShift, updateWorkShift, deleteWorkShift, getShiftConfigs, getTimeOffRequests
 } from '../../services/mockApi';
 import { Employee, Location, WorkShift, ShiftConfig, TimeOffRequest } from '../../types';
 import Card from '../shared/Card';
@@ -13,8 +13,8 @@ import ImageImportModal from './ImageImportModal';
 import { CalendarIcon, SparklesIcon } from '../icons';
 import { toLocalDateString } from '../../utils/helpers';
 
-// Orden exacto de la imagen proporcionada por el usuario
-const IMAGE_ORDER = [
+// ORDEN MAESTRO SEGÚN LA IMAGEN PROPORCIONADA
+const MASTER_ORDER = [
     'NOELIA VARELA', 'LYDIA NOYA', 'BEGOÑA LORENZO', 'MAUREEN DIMECH', 'MARISA LOPEZ',
     'ANXO BERNARDEZ', 'OSCAR LOPEZ', 'MARIA ISABEL MONTERO', 'STEPHANY DIAZ',
     'YESSICA QUIJANO', 'NISLEY CABRALES', 'DOLORES VARELA', 'DIANA OSPINA',
@@ -55,14 +55,14 @@ const ShiftSchedulerView: React.FC = () => {
                 getEmployees(), getLocations(), getShiftConfigs(), getTimeOffRequests()
             ]);
             
-            // Ordenar empleados según el orden de la imagen o alfabéticamente si no están en la lista
+            // Filtrar y Ordenar Empleados según el orden de la imagen
             let staff = emps.filter(e => e.employee_id !== 'emp_admin');
             staff.sort((a, b) => {
                 const nameA = `${a.first_name} ${a.last_name}`.toUpperCase();
                 const nameB = `${b.first_name} ${b.last_name}`.toUpperCase();
                 
-                const indexA = IMAGE_ORDER.findIndex(name => nameA.includes(name));
-                const indexB = IMAGE_ORDER.findIndex(name => nameB.includes(name));
+                const indexA = MASTER_ORDER.findIndex(m => nameA.includes(m));
+                const indexB = MASTER_ORDER.findIndex(m => nameB.includes(m));
                 
                 if (indexA !== -1 && indexB !== -1) return indexA - indexB;
                 if (indexA !== -1) return -1;
@@ -77,7 +77,6 @@ const ShiftSchedulerView: React.FC = () => {
             setShiftConfigs(configs);
             setAbsences(reqs.filter(r => r.status === 'approved'));
 
-            // Asegurar que pedimos el rango completo del mes
             const startStr = toLocalDateString(viewDays[0]);
             const endStr = toLocalDateString(viewDays[viewDays.length - 1]);
             const monthShifts = await getWorkShifts(startStr, endStr + 'T23:59:59');
@@ -94,14 +93,14 @@ const ShiftSchedulerView: React.FC = () => {
         const absence = absences.find(a => a.employee_id === empId && dateStr >= a.start_date && dateStr <= a.end_date);
         if (absence) return { code: 'LIB', color: '#9ca3af', type: 'absence' };
         
-        const shift = shifts.find(s => s.employee_id === empId && toLocalDateString(new Date(s.start_time)) === dateStr);
+        const shift = shifts.find(s => s.employee_id === empId && s.start_time && toLocalDateString(new Date(s.start_time)) === dateStr);
         if (shift) return { code: shift.notes?.substring(0,3) || 'T', color: shift.color, type: shift.type, original: shift };
         return null;
     };
 
     const calculateMonthlyHours = (employeeId: string) => {
         let totalMs = 0;
-        shifts.filter(s => s.employee_id === employeeId && s.type === 'work').forEach(s => {
+        shifts.filter(s => s.employee_id === employeeId && s.type === 'work' && s.start_time && s.end_time).forEach(s => {
             totalMs += (new Date(s.end_time).getTime() - new Date(s.start_time).getTime());
         });
         return Math.round(totalMs / (1000 * 60 * 60));

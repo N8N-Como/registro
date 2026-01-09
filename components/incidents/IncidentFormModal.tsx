@@ -92,9 +92,10 @@ const IncidentFormModal: React.FC<IncidentFormModalProps> = ({ isOpen, onClose, 
 
         await onSave(formData as Incident, usage);
         onClose();
-    } catch (error) {
+    } catch (error: any) {
         console.error(error);
-        alert("Error al guardar incidencia.");
+        const msg = error?.message || "Error al procesar la incidencia";
+        alert(msg);
     } finally {
         setIsSaving(false);
     }
@@ -179,7 +180,7 @@ const IncidentFormModal: React.FC<IncidentFormModalProps> = ({ isOpen, onClose, 
 
         <div className="pt-4 flex justify-end space-x-2 border-t mt-4">
             <Button type="button" variant="secondary" onClick={onClose} disabled={isSaving}>Cerrar</Button>
-            {!isReadOnly && <Button type="submit" isLoading={isSaving} className="px-10">Guardar Cambivos</Button>}
+            {!isReadOnly && <Button type="submit" isLoading={isSaving} className="px-10">Guardar Cambios</Button>}
         </div>
       </form>
       )}

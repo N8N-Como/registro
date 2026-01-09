@@ -2,11 +2,19 @@
 import * as XLSX from 'xlsx';
 
 /**
- * Retorna la fecha en formato YYYY-MM-DD ignorando la zona horaria UTC
- * para evitar que el día 9 se convierta en día 8 al visualizar.
+ * Retorna la fecha en formato YYYY-MM-DD ignorando la zona horaria.
+ * Si recibe un ISO String, extrae la parte de la fecha directamente.
  */
 export const toLocalDateString = (date: Date | string): string => {
+  if (typeof date === 'string') {
+    // Si ya viene de la DB como "2023-12-09T00:00:00", nos quedamos con "2023-12-09"
+    if (date.includes('T')) return date.split('T')[0];
+    if (date.match(/^\d{4}-\d{2}-\d{2}$/)) return date;
+  }
+  
   const d = new Date(date);
+  if (isNaN(d.getTime())) return '';
+  
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');

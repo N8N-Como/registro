@@ -7,7 +7,7 @@ import Spinner from '../shared/Spinner';
 import { CalendarIcon, CheckIcon } from '../icons';
 import { blobToBase64 } from '../../utils/helpers';
 import { parseScheduleImage } from '../../services/geminiService';
-import { createBulkWorkShifts } from '../../services/mockApi';
+import { createWorkShift } from '../../services/mockApi';
 
 interface ImageImportModalProps {
     isOpen: boolean;
@@ -47,10 +47,9 @@ const ImageImportModal: React.FC<ImageImportModalProps> = ({
             
             const shifts: Omit<WorkShift, 'shift_id'>[] = rawData.map(item => {
                 const day = item.day;
-                // Formato YYYY-MM-DD manual para evitar desfase UTC
                 const datePart = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                 
-                const code = item.shift_code.trim().toUpperCase();
+                const code = item.shift_code?.trim().toUpperCase() || 'L';
                 const config = shiftConfigs.find(c => c.code.toUpperCase() === code);
                 
                 let startT = config?.start_time || '08:00';
@@ -58,7 +57,7 @@ const ImageImportModal: React.FC<ImageImportModalProps> = ({
                 let color = config?.color || '#3b82f6';
                 let type: any = 'work';
 
-                // Mapeo Inteligente para códigos especiales
+                // Mapeo Robusto (Incluye 'D' de Anxo)
                 if (['L', 'LIBRE', 'D', 'DESCANSO'].includes(code)) { 
                     type = 'off'; color = '#9ca3af'; startT = '00:00'; endT = '00:00'; 
                 }
@@ -67,9 +66,6 @@ const ImageImportModal: React.FC<ImageImportModalProps> = ({
                 }
                 else if (['B', 'BM', 'BH'].includes(code)) { 
                     type = 'sick'; color = '#ef4444'; startT = '00:00'; endT = '00:00'; 
-                }
-                else if (['P', 'MM', 'AD', 'R', 'TH'].includes(code) && !config) { 
-                    color = '#f59e0b'; 
                 }
 
                 return {
@@ -94,22 +90,21 @@ const ImageImportModal: React.FC<ImageImportModalProps> = ({
     const handleConfirmImport = async () => {
         if (parsedShifts.length === 0) return;
         setIsSaving(true);
-        setSaveProgress({ current: 0, total: parsedShifts.length });
+        const total = parsedShifts.length;
+        setSaveProgress({ current: 0, total });
 
         try {
-            // Guardar en bloques de 50 para no saturar y dar feedback visual
-            const chunkSize = 50;
-            for (let i = 0; i < parsedShifts.length; i += chunkSize) {
-                const chunk = parsedShifts.slice(i, i + chunkSize);
-                await createBulkWorkShifts(chunk);
-                setSaveProgress(prev => ({ ...prev, current: Math.min(i + chunkSize, parsedShifts.length) }));
+            // CARGA 1 A 1 para máxima fiabilidad
+            for (let i = 0; i < total; i++) {
+                await createWorkShift(parsedShifts[i]);
+                setSaveProgress(prev => ({ ...prev, current: i + 1 }));
             }
             
-            alert(`¡Importación exitosa! Se han guardado ${parsedShifts.length} turnos.`);
+            alert(`¡Éxito! Se han guardado los ${total} turnos correctamente.`);
             await onImport();
             onClose();
         } catch (error) {
-            alert("Error al guardar los turnos. Revisa tu conexión.");
+            alert("Fallo en la conexión. Algunos turnos podrían no haberse guardado.");
         } finally {
             setIsSaving(false);
         }
@@ -118,7 +113,7 @@ const ImageImportModal: React.FC<ImageImportModalProps> = ({
     const getEmpName = (id: string) => employees.find(e => e.employee_id === id)?.first_name || 'Desconocido';
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="IA Import: Analizador de Imagen">
+        <Modal isOpen={isOpen} onClose={onClose} title="IA Import: Analizador">
             <div className="space-y-4">
                 {!parsedShifts.length && !isAnalyzing && (
                     <div className="border-2 border-dashed rounded-lg p-6 text-center border-primary bg-blue-50">
@@ -135,57 +130,49 @@ const ImageImportModal: React.FC<ImageImportModalProps> = ({
                 )}
 
                 {file && !isAnalyzing && !parsedShifts.length && (
-                    <Button onClick={handleAnalyze} className="w-full" size="lg">Detectar Turnos con IA</Button>
+                    <Button onClick={handleAnalyze} className="w-full" size="lg">Escanear Cuadrante</Button>
                 )}
 
                 {isAnalyzing && (
-                    <div className="text-center py-10 bg-white rounded-xl shadow-inner border">
+                    <div className="text-center py-10">
                         <Spinner />
-                        <p className="text-xs mt-4 font-black text-primary animate-pulse uppercase tracking-widest">Escaneando filas y columnas...</p>
-                        <p className="text-[10px] text-gray-400 mt-1 uppercase">Esto puede tardar hasta 30 segundos</p>
+                        <p className="text-xs mt-4 font-black text-primary animate-pulse uppercase">Leyendo nombres y turnos...</p>
                     </div>
                 )}
 
                 {isSaving && (
                     <div className="text-center py-10 bg-white rounded-xl shadow-lg border-2 border-primary">
-                        <p className="font-black text-primary uppercase text-sm mb-4">Guardando Cuadrante Progresivo...</p>
-                        <div className="w-full bg-gray-200 rounded-full h-4 mb-2 max-w-xs mx-auto overflow-hidden border">
+                        <p className="font-black text-primary uppercase text-sm mb-4">Guardando Datos en la Nube...</p>
+                        <div className="w-full bg-gray-200 rounded-full h-4 mb-2 max-w-xs mx-auto overflow-hidden">
                             <div 
-                                className="bg-primary h-full transition-all duration-300" 
+                                className="bg-primary h-full transition-all duration-100" 
                                 style={{ width: `${(saveProgress.current / saveProgress.total) * 100}%` }}
                             ></div>
                         </div>
-                        <p className="text-xs font-bold text-gray-500">{saveProgress.current} de {saveProgress.total} turnos procesados</p>
+                        <p className="text-xs font-bold text-gray-500">{saveProgress.current} de {saveProgress.total} turnos</p>
                     </div>
                 )}
 
                 {parsedShifts.length > 0 && !isSaving && (
                     <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
-                        <div className="bg-green-50 border border-green-200 p-3 rounded-lg flex justify-between items-center">
-                            <span className="text-sm font-bold text-green-800 uppercase tracking-tighter">Turnos Detectados: {parsedShifts.length}</span>
-                            <CheckIcon className="text-green-600"/>
-                        </div>
-                        
                         <div className="max-h-60 overflow-y-auto border rounded-xl bg-gray-50 p-2 text-[9px] uppercase font-bold">
                             <table className="w-full text-left">
                                 <thead className="sticky top-0 bg-gray-100 border-b">
-                                    <tr><th className="p-1">Empleado</th><th className="p-1">Día</th><th className="p-1">Código</th></tr>
+                                    <tr><th className="p-1">Empleado</th><th className="p-1">Día</th><th className="p-1">Turno</th></tr>
                                 </thead>
                                 <tbody>
-                                    {parsedShifts.slice(0, 50).map((s, idx) => (
+                                    {parsedShifts.slice(0, 100).map((s, idx) => (
                                         <tr key={idx} className="border-b last:border-0">
                                             <td className="p-1 truncate">{getEmpName(s.employee_id)}</td>
-                                            <td className="p-1">{s.start_time.split('T')[0].split('-').pop()}</td>
+                                            <td className="p-1">{(s.start_time || '').split('T')[0]?.split('-').pop() || '??'}</td>
                                             <td className="p-1"><span className="px-1.5 py-0.5 rounded text-white" style={{ backgroundColor: s.color }}>{s.notes}</span></td>
                                         </tr>
                                     ))}
-                                    {parsedShifts.length > 50 && <tr><td colSpan={3} className="p-2 text-center text-gray-400 italic">Previsualizando los primeros 50 registros...</td></tr>}
                                 </tbody>
                             </table>
                         </div>
-
-                        <Button onClick={handleConfirmImport} variant="success" className="w-full py-4 text-lg shadow-xl">
-                            Confirmar Carga de {parsedShifts.length} Registros
+                        <Button onClick={handleConfirmImport} variant="success" className="w-full py-4 text-lg">
+                            Confirmar Carga de {parsedShifts.length} Turnos
                         </Button>
                     </div>
                 )}

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useCallback, useContext } from 'react';
-import { getIncidents, getEmployees, getLocations, getRooms, addIncident, updateIncident, deleteIncident } from '../../services/mockApi';
-import { Incident, Employee, Location, Room } from '../../types';
+import { getIncidents, getEmployees, getLocations, getRooms, addIncident, updateIncident, deleteIncident, logStockMovement, updateInventoryItem, getInventoryItems } from '../../services/mockApi';
+import { Incident, Employee, Location, Room, InventoryItem } from '../../types';
 import { AuthContext } from '../../App';
 import Card from '../shared/Card';
 import Button from '../shared/Button';
@@ -29,7 +29,7 @@ const IncidentsView: React.FC = () => {
         setIsLoading(true);
         try {
             const [incs, emps, locs, allRooms] = await Promise.all([getIncidents(), getEmployees(), getLocations(), getRooms()]);
-            setIncidents(incs.sort((a,b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+            setIncidents(incs.sort((a,b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()));
             setEmployees(emps);
             setLocations(locs);
             setRooms(allRooms);
@@ -49,14 +49,37 @@ const IncidentsView: React.FC = () => {
         setIsModalOpen(true);
     };
 
-    const handleSaveIncident = async (data: Omit<Incident, 'incident_id' | 'created_at' | 'reported_by'> | Incident) => {
-        if ('incident_id' in data) {
-            await updateIncident(data);
-        } else if (auth?.employee) {
-            await addIncident({ ...data, reported_by: auth.employee.employee_id });
+    const handleSaveIncident = async (data: Omit<Incident, 'incident_id' | 'created_at' | 'reported_by'> | Incident, usage?: {item_id: string, amount: number}[]) => {
+        try {
+            let savedIncident: Incident;
+            if ('incident_id' in data) {
+                savedIncident = await updateIncident(data);
+            } else if (auth?.employee) {
+                savedIncident = await addIncident({ ...data, reported_by: auth.employee.employee_id, created_at: new Date().toISOString() });
+            } else {
+                throw new Error("Sesión no válida");
+            }
+
+            // Si hay consumo de repuestos (solo cuando se marca como resuelto)
+            if (usage && usage.length > 0 && data.status === 'resolved' && auth?.employee) {
+                const inventory = await getInventoryItems();
+                for (const use of usage) {
+                    const item = inventory.find(i => i.item_id === use.item_id);
+                    if (item) {
+                        const newQty = Math.max(0, item.quantity - use.amount);
+                        await updateInventoryItem({ ...item, quantity: newQty });
+                        await logStockMovement(use.item_id, -use.amount, `Incidencia #${savedIncident.incident_id.substring(0, 8)}`, auth.employee.employee_id);
+                    }
+                }
+            }
+
+            await fetchData();
+            setIsModalOpen(false);
+        } catch (e: any) {
+            console.error(e);
+            const msg = e?.message || (typeof e === 'string' ? e : JSON.stringify(e));
+            alert("Error al guardar la incidencia: " + msg);
         }
-        fetchData();
-        setIsModalOpen(false);
     };
 
     const handleDeleteIncident = async (incident: Incident) => {
@@ -65,7 +88,8 @@ const IncidentsView: React.FC = () => {
                 await deleteIncident(incident.incident_id);
                 fetchData();
             } catch (e: any) {
-                alert(e.message);
+                const msg = e?.message || (typeof e === 'string' ? e : JSON.stringify(e));
+                alert("Error al eliminar: " + msg);
             }
         }
     };
@@ -79,12 +103,12 @@ const IncidentsView: React.FC = () => {
                     room_id: response.data.room_id || '',
                     priority: response.data.priority || 'medium',
                     status: 'open',
-                    reported_by: auth.employee.employee_id
+                    reported_by: auth.employee.employee_id,
+                    created_at: new Date().toISOString()
                 });
                 fetchData();
             } catch (e) {
                 console.error("Failed to create incident from AI", e);
-                alert("Error al crear la incidencia desde la IA");
             }
         }
     };
