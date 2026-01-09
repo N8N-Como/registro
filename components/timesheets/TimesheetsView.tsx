@@ -13,6 +13,7 @@ import Card from '../shared/Card';
 import { BuildingIcon, LocationIcon, CarIcon } from '../icons';
 import ClockInModal from './ClockInModal';
 import ClockOutModal from './ClockOutModal';
+import TimeCorrectionModal from './TimeCorrectionModal';
 
 const TimesheetsView: React.FC = () => {
   const auth = useContext(AuthContext);
@@ -29,6 +30,7 @@ const TimesheetsView: React.FC = () => {
   
   const [isClockInModalOpen, setIsClockInModalOpen] = useState(false);
   const [isClockOutModalOpen, setIsClockOutModalOpen] = useState(false);
+  const [isCorrectionModalOpen, setIsCorrectionModalOpen] = useState(false);
 
   const runningWorkday = useMemo(() => timeEntries.find(t => t.status === 'running'), [timeEntries]);
   const currentActivity = useMemo(() => activityLogs.find(a => !a.check_out_time), [activityLogs]);
@@ -164,6 +166,15 @@ const TimesheetsView: React.FC = () => {
               <Button onClick={() => setIsClockInModalOpen(true)} variant="success" size="lg" className="w-full sm:w-64 h-20 text-xl shadow-2xl rounded-2xl transform hover:scale-105 transition-all">INICIAR JORNADA</Button>
             </div>
           )}
+          
+          <div className="mt-8 pt-4 border-t border-gray-100">
+             <button 
+                onClick={() => setIsCorrectionModalOpen(true)}
+                className="text-xs text-primary hover:text-primary-dark underline font-bold uppercase tracking-tight"
+             >
+                ¿Algún error en tus fichajes anteriores? Solicitar corrección
+             </button>
+          </div>
         </div>
       </Card>
 
@@ -200,6 +211,13 @@ const TimesheetsView: React.FC = () => {
 
       {isClockInModalOpen && <ClockInModal isOpen={isClockInModalOpen} onClose={() => setIsClockInModalOpen(false)} onConfirm={handleClockInConfirm} isLoading={isSubmitting === 'workday-in'} />}
       {isClockOutModalOpen && <ClockOutModal isOpen={isClockOutModalOpen} onClose={() => setIsClockOutModalOpen(false)} onConfirm={handleClockOutConfirm} isLoading={isSubmitting === 'workday-out'} isForgotten={false} />}
+      {isCorrectionModalOpen && auth?.employee && (
+          <TimeCorrectionModal 
+            isOpen={isCorrectionModalOpen} 
+            onClose={() => setIsCorrectionModalOpen(false)} 
+            employeeId={auth.employee.employee_id} 
+          />
+      )}
     </div>
   );
 };

@@ -1,6 +1,18 @@
 
 import * as XLSX from 'xlsx';
 
+/**
+ * Retorna la fecha en formato YYYY-MM-DD ignorando la zona horaria UTC
+ * para evitar que el día 9 se convierta en día 8 al visualizar.
+ */
+export const toLocalDateString = (date: Date | string): string => {
+  const d = new Date(date);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export const formatTime = (date: Date): string => {
   return date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 };
@@ -111,9 +123,6 @@ export const getBrowserInfo = (): string => {
     return `${os} - ${browser}`;
 };
 
-/**
- * Utilidad para exportar datos a Excel (XLSX)
- */
 export const exportToExcel = (data: any[], fileName: string) => {
     const worksheet = XLSX.utils.json_to_sheet(data);
     const workbook = XLSX.utils.book_new();

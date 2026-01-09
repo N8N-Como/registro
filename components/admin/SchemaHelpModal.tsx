@@ -12,49 +12,29 @@ const SchemaHelpModal: React.FC<SchemaHelpModalProps> = ({ isOpen, onClose }) =>
     const [copied, setCopied] = useState(false);
 
     const sqlScript = `
--- 1. TABLA DE DOCUMENTOS (Nóminas, PRL, Contratos)
-CREATE TABLE IF NOT EXISTS public.company_documents (
-  document_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  title text NOT NULL,
-  description text,
-  type text NOT NULL, -- 'file' o 'link'
-  content_url text NOT NULL,
-  requires_signature boolean DEFAULT true,
-  created_at timestamptz DEFAULT now(),
-  created_by uuid REFERENCES public.employees(employee_id)
-);
+-- 1. TURNOS POR DEFECTO (SEMILLA PARA IA)
+INSERT INTO public.shift_configs (code, name, start_time, end_time, color)
+VALUES 
+('V25', 'Vacaciones', '00:00', '00:00', '#10b981'),
+('V', 'Vacaciones', '00:00', '00:00', '#10b981'),
+('L', 'Libre', '00:00', '00:00', '#9ca3af'),
+('D', 'Descanso', '00:00', '00:00', '#9ca3af'),
+('MM', 'Media Mañana', '10:00', '14:00', '#3b82f6'),
+('T', 'Tarde', '15:00', '23:00', '#6366f1'),
+('TH', 'Tarde Hospital', '15:00', '23:00', '#8b5cf6'),
+('P', 'Partida', '10:00', '20:00', '#f59e0b'),
+('BM', 'Baja Médica', '00:00', '00:00', '#ef4444'),
+('BH', 'Baja Hospital', '00:00', '00:00', '#ef4444'),
+('B', 'Baja', '00:00', '00:00', '#ef4444'),
+('AD', 'Asuntos Propios', '09:00', '17:00', '#ec4899'),
+('R', 'Refuerzo', '10:00', '16:00', '#3b82f6'),
+('S', 'Saliente/Especial', '08:00', '16:00', '#14b8a6')
+ON CONFLICT DO NOTHING;
 
--- 2. TABLA DE FIRMAS Y ESTADO DE LECTURA
-CREATE TABLE IF NOT EXISTS public.document_signatures (
-  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  document_id uuid REFERENCES public.company_documents(document_id) ON DELETE CASCADE,
-  employee_id uuid REFERENCES public.employees(employee_id) ON DELETE CASCADE,
-  status text DEFAULT 'pending', -- 'pending', 'signed', 'viewed'
-  signed_at timestamptz,
-  signature_url text,
-  viewed_at timestamptz,
-  UNIQUE(document_id, employee_id)
-);
-
--- 3. HABILITAR ACCESO PÚBLICO (Políticas RLS básicas para Demo)
-ALTER TABLE public.company_documents ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.document_signatures ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Allow all for now" ON public.company_documents FOR ALL USING (true);
-CREATE POLICY "Allow all for now" ON public.document_signatures FOR ALL USING (true);
-
--- 4. ACTUALIZACIÓN DE TABLA EMPLEADOS (DATOS CONTRACTUALES)
-ALTER TABLE employees 
-ADD COLUMN IF NOT EXISTS province text,
-ADD COLUMN IF NOT EXISTS annual_hours_contract numeric DEFAULT 1784,
-ADD COLUMN IF NOT EXISTS default_location_id uuid REFERENCES locations(location_id),
-ADD COLUMN IF NOT EXISTS default_start_time text DEFAULT '09:00',
-ADD COLUMN IF NOT EXISTS default_end_time text DEFAULT '17:00';
-
--- 5. TABLA DE CONFIGURACIÓN DE TURNOS
+-- 2. TABLA DE CONFIGURACIÓN DE TURNOS (Si no existe)
 CREATE TABLE IF NOT EXISTS public.shift_configs (
   config_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  code text,
+  code text UNIQUE,
   name text,
   start_time text,
   end_time text,
@@ -62,7 +42,7 @@ CREATE TABLE IF NOT EXISTS public.shift_configs (
   location_id uuid REFERENCES public.locations(location_id)
 );
 
--- 6. TABLA DE CUADRANTE DE TURNOS
+-- 3. TABLA DE CUADRANTE DE TURNOS
 CREATE TABLE IF NOT EXISTS public.work_shifts (
   shift_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   employee_id uuid REFERENCES public.employees(employee_id),
@@ -75,21 +55,7 @@ CREATE TABLE IF NOT EXISTS public.work_shifts (
   notes text
 );
 
--- 7. TABLA DE SOLICITUDES DE CORRECCIÓN (Soporta timestamptz para evitar errores de sintaxis)
-CREATE TABLE IF NOT EXISTS public.time_correction_requests (
-  request_id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  employee_id uuid REFERENCES public.employees(employee_id),
-  original_entry_id uuid REFERENCES public.time_entries(entry_id),
-  correction_type text NOT NULL,
-  requested_date date NOT NULL,
-  requested_clock_in timestamptz,
-  requested_clock_out timestamptz,
-  reason text NOT NULL,
-  status text DEFAULT 'pending',
-  created_at timestamptz DEFAULT now(),
-  reviewed_by uuid REFERENCES public.employees(employee_id),
-  reviewed_at timestamptz
-);
+-- RECUERDA: Reload PostgREST Schema en Supabase después de ejecutar.
 `.trim();
 
     const handleCopy = () => {
@@ -102,9 +68,8 @@ CREATE TABLE IF NOT EXISTS public.time_correction_requests (
         <Modal isOpen={isOpen} onClose={onClose} title="Actualizar Base de Datos (SQL)">
             <div className="space-y-4">
                 <div className="bg-red-50 border-l-4 border-red-500 p-4 text-sm text-red-700 font-bold">
-                    <p className="uppercase tracking-tight">⚠️ PASO OBLIGATORIO POST-SQL:</p>
-                    <p className="mt-1">Después de ejecutar este código en Supabase, DEBES ir a:</p>
-                    <p className="mt-2 p-2 bg-white border border-red-100 rounded text-center">Settings {'->'} API {'->'} Reload PostgREST Schema</p>
+                    <p className="uppercase tracking-tight">⚠️ SEMILLA DE TURNOS:</p>
+                    <p className="mt-1">Este script inserta los códigos V25, MM, T, L, etc., para que la IA pueda mapear la imagen que subiste.</p>
                 </div>
                 
                 <div className="relative">

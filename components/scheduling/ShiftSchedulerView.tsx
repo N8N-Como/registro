@@ -11,6 +11,16 @@ import Button from '../shared/Button';
 import ShiftFormModal from './ShiftFormModal';
 import ImageImportModal from './ImageImportModal';
 import { CalendarIcon, SparklesIcon } from '../icons';
+import { toLocalDateString } from '../../utils/helpers';
+
+// Orden exacto de la imagen proporcionada por el usuario
+const IMAGE_ORDER = [
+    'NOELIA VARELA', 'LYDIA NOYA', 'BEGOÑA LORENZO', 'MAUREEN DIMECH', 'MARISA LOPEZ',
+    'ANXO BERNARDEZ', 'OSCAR LOPEZ', 'MARIA ISABEL MONTERO', 'STEPHANY DIAZ',
+    'YESSICA QUIJANO', 'NISLEY CABRALES', 'DOLORES VARELA', 'DIANA OSPINA',
+    'ANDRES TASCON', 'ITAGU PANIAGUA', 'DANNER TASCON', 'TERESA',
+    'DOLORES ESCALANTE', 'SILVIA ARACELY', 'LAURA CASTRO', 'YURIMA MAIROA'
+];
 
 const ShiftSchedulerView: React.FC = () => {
     const auth = useContext(AuthContext);
@@ -44,16 +54,33 @@ const ShiftSchedulerView: React.FC = () => {
             const [emps, locs, configs, reqs] = await Promise.all([
                 getEmployees(), getLocations(), getShiftConfigs(), getTimeOffRequests()
             ]);
+            
+            // Ordenar empleados según el orden de la imagen o alfabéticamente si no están en la lista
             let staff = emps.filter(e => e.employee_id !== 'emp_admin');
+            staff.sort((a, b) => {
+                const nameA = `${a.first_name} ${a.last_name}`.toUpperCase();
+                const nameB = `${b.first_name} ${b.last_name}`.toUpperCase();
+                
+                const indexA = IMAGE_ORDER.findIndex(name => nameA.includes(name));
+                const indexB = IMAGE_ORDER.findIndex(name => nameB.includes(name));
+                
+                if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+                if (indexA !== -1) return -1;
+                if (indexB !== -1) return 1;
+                return nameA.localeCompare(nameB);
+            });
+
             if (!canManage && auth?.employee) staff = staff.filter(e => e.employee_id === auth.employee!.employee_id);
-            setEmployees(staff.sort((a,b) => a.first_name.localeCompare(b.first_name)));
+            
+            setEmployees(staff);
             setLocations(locs);
             setShiftConfigs(configs);
             setAbsences(reqs.filter(r => r.status === 'approved'));
 
-            const startStr = viewDays[0].toISOString();
-            const endStr = viewDays[viewDays.length - 1].toISOString().replace(/T.*/, 'T23:59:59');
-            const monthShifts = await getWorkShifts(startStr, endStr);
+            // Asegurar que pedimos el rango completo del mes
+            const startStr = toLocalDateString(viewDays[0]);
+            const endStr = toLocalDateString(viewDays[viewDays.length - 1]);
+            const monthShifts = await getWorkShifts(startStr, endStr + 'T23:59:59');
             setShifts(monthShifts);
         } catch (err) { console.error(err); } 
         finally { setIsLoading(false); }
@@ -62,10 +89,12 @@ const ShiftSchedulerView: React.FC = () => {
     useEffect(() => { fetchData(); }, [currentMonth, auth?.employee]);
 
     const getShiftDisplay = (empId: string, date: Date) => {
-        const dateStr = date.toISOString().split('T')[0];
+        const dateStr = toLocalDateString(date);
+        
         const absence = absences.find(a => a.employee_id === empId && dateStr >= a.start_date && dateStr <= a.end_date);
         if (absence) return { code: 'LIB', color: '#9ca3af', type: 'absence' };
-        const shift = shifts.find(s => s.employee_id === empId && new Date(s.start_time).toISOString().split('T')[0] === dateStr);
+        
+        const shift = shifts.find(s => s.employee_id === empId && toLocalDateString(new Date(s.start_time)) === dateStr);
         if (shift) return { code: shift.notes?.substring(0,3) || 'T', color: shift.color, type: shift.type, original: shift };
         return null;
     };
@@ -85,7 +114,7 @@ const ShiftSchedulerView: React.FC = () => {
             <Card className="flex flex-col lg:flex-row justify-between items-center p-4 gap-4 bg-white border-b-4 border-primary">
                 <div className="flex items-center gap-2">
                     <CalendarIcon className="w-6 h-6 text-primary"/>
-                    <h2 className="text-xl font-bold uppercase">{currentMonth.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}</h2>
+                    <h2 className="text-xl font-black uppercase tracking-tight">{currentMonth.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}</h2>
                 </div>
                 <div className="flex gap-2">
                     <Button variant="secondary" size="sm" onClick={() => { const d = new Date(currentMonth); d.setMonth(d.getMonth() - 1); setCurrentMonth(d); }}>&lt;</Button>
@@ -113,10 +142,10 @@ const ShiftSchedulerView: React.FC = () => {
                         </thead>
                         <tbody>
                             {employees.map(emp => (
-                                <tr key={emp.employee_id} className="border-b border-gray-100 hover:bg-blue-50/30 transition-colors">
+                                <tr key={emp.employee_id} className="border-b border-gray-100 hover:bg-blue-50/30 transition-colors h-12">
                                     <td className="p-2 border-r border-gray-200 font-bold sticky left-0 bg-white z-10 shadow-sm">
-                                        <div className="truncate text-gray-800">{emp.first_name} {emp.last_name.charAt(0)}.</div>
-                                        <span className="text-[8px] text-gray-400 font-black">{calculateMonthlyHours(emp.employee_id)}h registrados</span>
+                                        <div className="truncate text-gray-800 uppercase leading-none">{emp.first_name} {emp.last_name.charAt(0)}.</div>
+                                        <span className="text-[8px] text-gray-400 font-black">{calculateMonthlyHours(emp.employee_id)}h</span>
                                     </td>
                                     {viewDays.map(day => {
                                         const display = getShiftDisplay(emp.employee_id, day);
@@ -129,7 +158,7 @@ const ShiftSchedulerView: React.FC = () => {
                                             }} className="p-0 border-r border-gray-100 h-12 text-center cursor-pointer group relative">
                                                 {display ? (
                                                     <div className="w-full h-full flex flex-col items-center justify-center text-white font-black shadow-sm" style={{ backgroundColor: display.color }}>
-                                                        <span className="text-[11px]">{display.code}</span>
+                                                        <span className="text-[10px]">{display.code}</span>
                                                     </div>
                                                 ) : (
                                                     <span className="opacity-0 group-hover:opacity-100 text-primary font-black text-xl">+</span>
@@ -157,7 +186,7 @@ const ShiftSchedulerView: React.FC = () => {
                     locations={locations} employees={employees}
                 />
             )}
-            {isImportModalOpen && <ImageImportModal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} onImport={async (s) => { await createBulkWorkShifts(s); fetchData(); }} employees={employees} locations={locations} shiftConfigs={shiftConfigs} currentMonth={currentMonth.getMonth()} currentYear={currentMonth.getFullYear()} />}
+            {isImportModalOpen && <ImageImportModal isOpen={isImportModalOpen} onClose={() => setIsImportModalOpen(false)} onImport={fetchData} employees={employees} locations={locations} shiftConfigs={shiftConfigs} currentMonth={currentMonth.getMonth()} currentYear={currentMonth.getFullYear()} />}
         </div>
     );
 };
