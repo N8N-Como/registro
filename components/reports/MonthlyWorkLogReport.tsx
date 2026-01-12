@@ -43,12 +43,11 @@ const MonthlyWorkLogReport: React.FC = () => {
     const [closedMonths, setClosedMonths] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isGenerating, setIsGenerating] = useState(false);
-    const [isSigningModalOpen, setIsSigningModalOpen] = useState(false);
-    const [isSavingSignature, setIsSavingSignature] = useState(false);
     const [isPrintMode, setIsPrintMode] = useState(false);
 
     const [correctionContext, setCorrectionContext] = useState<{ isOpen: boolean, date: string, time: string, type: 'entry' | 'exit', entryId?: string }>({ isOpen: false, date: '', time: '', type: 'entry' });
 
+    // Permisos restringidos: Solo Admin o Administración ven a todos. El resto solo a sí mismos.
     const isAdmin = auth?.role?.role_id === 'admin' || auth?.role?.role_id === 'administracion';
 
     useEffect(() => {
@@ -69,9 +68,9 @@ const MonthlyWorkLogReport: React.FC = () => {
         try {
             const month = parseInt(selectedMonth, 10);
             const year = parseInt(selectedYear, 10);
-            const hasFullAccess = isAdmin || auth?.role?.permissions.includes('view_reports');
             
-            const targetEmployees = hasFullAccess
+            // FILTRO DE PRIVACIDAD CRÍTICO
+            const targetEmployees = isAdmin
                 ? employees.filter(e => e.employee_id !== 'emp_admin')
                 : employees.filter(e => e.employee_id === auth?.employee?.employee_id);
 
@@ -105,8 +104,6 @@ const MonthlyWorkLogReport: React.FC = () => {
                         const start = new Date(e.clock_in_time).getTime();
                         const end = e.clock_out_time ? new Date(e.clock_out_time).getTime() : start;
                         
-                        // REGLA OFICIAL: Solo restamos pausas de COMIDA del cómputo mensual
-                        // Las pausas de DESCANSO (PRL) cuentan como tiempo trabajado
                         const entryBreaks = allBreaks.filter(b => b.time_entry_id === e.entry_id && b.break_type === 'comida');
                         const breakDuration = entryBreaks.reduce((acc, b) => acc + (new Date(b.end_time || b.start_time).getTime() - new Date(b.start_time).getTime()), 0);
                         
@@ -159,9 +156,11 @@ const MonthlyWorkLogReport: React.FC = () => {
 
             {reportData && (
                 <div className="space-y-6">
-                    <div className="flex justify-end gap-2 no-print">
-                        <Button variant="secondary" size="sm" onClick={() => setIsPrintMode(true)} className="bg-blue-50 border-blue-200 text-blue-700">📄 Generar PDF (Varios Empleados)</Button>
-                    </div>
+                    {isAdmin && (
+                        <div className="flex justify-end gap-2 no-print">
+                            <Button variant="secondary" size="sm" onClick={() => setIsPrintMode(true)} className="bg-blue-50 border-blue-200 text-blue-700">📄 Generar PDF Masivo</Button>
+                        </div>
+                    )}
                     {reportData.map((data, idx) => (
                         <div key={idx} className={`border-2 rounded-2xl overflow-hidden bg-white shadow-sm transition-all ${data.signature ? 'border-green-100' : 'border-gray-100'}`}>
                             <div className={`p-4 border-b flex justify-between items-center ${data.signature ? 'bg-green-50/50' : 'bg-gray-50'}`}>
@@ -184,9 +183,9 @@ const MonthlyWorkLogReport: React.FC = () => {
                                                 <td className="p-3">
                                                     {log.entries.map((e, i) => (
                                                         <div key={i} className="flex gap-2 items-center mb-1 last:mb-0">
-                                                            <span onClick={() => setCorrectionContext({ isOpen: true, date: log.date, time: e.clockIn, type: 'entry', entryId: e.entryId })} className={`px-2 py-1 rounded font-mono cursor-pointer hover:bg-yellow-100 ${e.isManual ? 'text-red-600 font-bold' : ''}`}>{e.clockIn}</span>
+                                                            <span onClick={() => isAdmin && setCorrectionContext({ isOpen: true, date: log.date, time: e.clockIn, type: 'entry', entryId: e.entryId })} className={`px-2 py-1 rounded font-mono ${isAdmin ? 'cursor-pointer hover:bg-yellow-100' : ''} ${e.isManual ? 'text-red-600 font-bold' : ''}`}>{e.clockIn}</span>
                                                             <span className="text-gray-300">-</span>
-                                                            <span onClick={() => e.clockOut !== 'En curso' && setCorrectionContext({ isOpen: true, date: log.date, time: e.clockOut, type: 'exit', entryId: e.entryId })} className={`px-2 py-1 rounded font-mono cursor-pointer hover:bg-yellow-100 ${e.isManual ? 'text-red-600 font-bold' : ''}`}>{e.clockOut}</span>
+                                                            <span onClick={() => isAdmin && e.clockOut !== 'En curso' && setCorrectionContext({ isOpen: true, date: log.date, time: e.clockOut, type: 'exit', entryId: e.entryId })} className={`px-2 py-1 rounded font-mono ${isAdmin ? 'cursor-pointer hover:bg-yellow-100' : ''} ${e.isManual ? 'text-red-600 font-bold' : ''}`}>{e.clockOut}</span>
                                                             <span className="text-[9px] uppercase font-bold text-gray-400">({e.type})</span>
                                                         </div>
                                                     ))}

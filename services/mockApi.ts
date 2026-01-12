@@ -11,9 +11,8 @@ const ensureOnline = () => { if (!navigator.onLine) throw new Error("Offline"); 
 
 const handleError = (error: any) => {
     if (!error) return;
-    // PGRST204: Columna no encontrada | 42P01: Tabla no encontrada
     if (error.code === 'PGRST204' || error.code === '42P01' || (error.message && (error.message.includes('column') || error.message.includes('table')))) {
-        throw new Error(`ERROR DE ESQUEMA: Falta una columna o tabla. 1) Ejecuta el script SQL en el Editor de Supabase. 2) Ve a Supabase -> Settings -> API y pulsa el botón "RELOAD SCHEMA CACHE".`);
+        throw new Error(`ERROR DE ESQUEMA: Falta una columna o tabla. 1) Ejecuta el script SQL en el Editor de Supabase. 2) Ejecuta el comando SQL: NOTIFY pgrst, 'reload schema';`);
     }
     const msg = error.message || error.details || error.hint || JSON.stringify(error);
     throw new Error(msg);
@@ -214,7 +213,6 @@ export const deleteAnnouncement = async (id: string) => { ensureOnline(); const 
 export const getPolicies = async (): Promise<Policy[]> => { const { data, error } = await supabase.from('policies').select('*').order('version', { ascending: false }); if (error) handleError(error); return data || []; };
 
 // --- SHIFT LOG ---
-// Usamos 'shift_log' consistentemente como en el SQL
 export const getShiftLog = async (): Promise<ShiftLogEntry[]> => { const { data, error } = await supabase.from('shift_log').select('*').order('created_at', { ascending: false }); if (error) handleError(error); return data || []; };
 export const addShiftLogEntry = async (d: any) => { ensureOnline(); const { data, error } = await supabase.from('shift_log').insert([d]).select(); if (error) handleError(error); return data ? data[0] : null; };
 export const updateShiftLogEntry = async (d: any) => { ensureOnline(); const { data, error } = await supabase.from('shift_log').update(d).eq('log_id', d.log_id).select(); if (error) handleError(error); return data ? data[0] : null; };
@@ -223,7 +221,50 @@ export const deleteShiftLogEntry = async (id: string) => { ensureOnline(); const
 // --- TIME CORRECTION REQUESTS ---
 export const getTimeCorrectionRequests = async (): Promise<TimeCorrectionRequest[]> => { const { data, error } = await supabase.from('time_correction_requests').select('*').order('created_at', { ascending: false }); if (error) handleError(error); return data || []; };
 export const createTimeCorrectionRequest = async (d: any) => { ensureOnline(); const { data, error } = await supabase.from('time_correction_requests').insert([d]).select(); if (error) handleError(error); return data ? data[0] : null; };
-export const resolveTimeCorrectionRequest = async (id: string, status: string, adminId: string) => { ensureOnline(); const { error } = await supabase.from('time_correction_requests').update({ status, reviewed_by: adminId, reviewed_at: new Date().toISOString() }).eq('request_id', id); if (error) handleError(error); };
+
+// ACTUALIZACIÓN CRÍTICA: Aplica el cambio en la tabla real de fichajes al aprobar
+export const resolveTimeCorrectionRequest = async (id: string, status: string, adminId: string) => { 
+    ensureOnline(); 
+    
+    // 1. Obtener la solicitud
+    const { data: request, error: reqErr } = await supabase.from('time_correction_requests').select('*').eq('request_id', id).single();
+    if (reqErr) handleError(reqErr);
+
+    // 2. Si se aprueba, actualizar o crear el fichaje real
+    if (status === 'approved' && request) {
+        if (request.original_entry_id) {
+            // Actualizar entrada existente
+            const updatePayload: any = {};
+            if (request.requested_clock_in) updatePayload.clock_in_time = request.requested_clock_in;
+            if (request.requested_clock_out) updatePayload.clock_out_time = request.requested_clock_out;
+            updatePayload.is_manual = true;
+            
+            const { error: updateErr } = await supabase.from('time_entries').update(updatePayload).eq('entry_id', request.original_entry_id);
+            if (updateErr) handleError(updateErr);
+        } else {
+            // Crear nueva entrada si no existía (ej: olvidó fichar entrada por completo)
+            const insertPayload = {
+                employee_id: request.employee_id,
+                clock_in_time: request.requested_clock_in || `${request.requested_date}T09:00:00Z`,
+                clock_out_time: request.requested_clock_out,
+                status: 'completed',
+                is_manual: true,
+                work_type: 'ordinaria'
+            };
+            const { error: insertErr } = await supabase.from('time_entries').insert([insertPayload]);
+            if (insertErr) handleError(insertErr);
+        }
+    }
+
+    // 3. Marcar solicitud como revisada
+    const { error } = await supabase.from('time_correction_requests').update({ 
+        status, 
+        reviewed_by: adminId, 
+        reviewed_at: new Date().toISOString() 
+    }).eq('request_id', id); 
+    
+    if (error) handleError(error); 
+};
 
 // --- MONTHLY SIGNATURES ---
 export const getMonthlySignature = async (empId: string, month: number, year: number): Promise<MonthlySignature | null> => { const { data, error } = await supabase.from('monthly_signatures').select('*').eq('employee_id', empId).eq('month', month).eq('year', year).maybeSingle(); if (error) handleError(error); return data; };
