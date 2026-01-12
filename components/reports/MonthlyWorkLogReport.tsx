@@ -47,22 +47,34 @@ const MonthlyWorkLogReport: React.FC = () => {
 
     const [correctionContext, setCorrectionContext] = useState<{ isOpen: boolean, date: string, time: string, type: 'entry' | 'exit', entryId?: string }>({ isOpen: false, date: '', time: '', type: 'entry' });
 
-    // Permisos restringidos: Solo Admin o Administración ven a todos. El resto solo a sí mismos.
+    // Permisos restringidos: Solo Admin o Administración ven a todos.
     const isAdmin = auth?.role?.role_id === 'admin' || auth?.role?.role_id === 'administracion';
 
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const [emps, closed] = await Promise.all([getEmployees(), getClosedMonths()]);
+                // Solo cargamos la lista de empleados si somos administradores
+                const [emps, closed] = await Promise.all([
+                    isAdmin ? getEmployees() : Promise.resolve([]),
+                    getClosedMonths()
+                ]);
                 setEmployees(emps);
                 setClosedMonths(closed);
-            } catch (error) { console.error(error); } 
-            finally { setIsLoading(false); }
+                
+                // Si es un empleado normal, autogenerar su informe al entrar
+                if (!isAdmin && auth?.employee) {
+                    handleGenerateReport(auth.employee);
+                }
+            } catch (error) { 
+                console.error("Error inicializando informes:", error); 
+            } finally { 
+                setIsLoading(false); 
+            }
         };
         fetchData();
-    }, []);
+    }, [isAdmin, auth?.employee]);
 
-    const handleGenerateReport = async () => {
+    const handleGenerateReport = async (singleEmployee?: Employee) => {
         setIsGenerating(true);
         setReportData(null);
         try {
@@ -70,9 +82,14 @@ const MonthlyWorkLogReport: React.FC = () => {
             const year = parseInt(selectedYear, 10);
             
             // FILTRO DE PRIVACIDAD CRÍTICO
-            const targetEmployees = isAdmin
-                ? employees.filter(e => e.employee_id !== 'emp_admin')
-                : employees.filter(e => e.employee_id === auth?.employee?.employee_id);
+            let targetEmployees: Employee[] = [];
+            if (singleEmployee) {
+                targetEmployees = [singleEmployee];
+            } else if (isAdmin) {
+                targetEmployees = employees.filter(e => e.employee_id !== 'emp_admin');
+            } else if (auth?.employee) {
+                targetEmployees = [auth.employee];
+            }
 
             const allEmployeeReports: EmployeeReportData[] = [];
 
@@ -84,7 +101,10 @@ const MonthlyWorkLogReport: React.FC = () => {
                 
                 const filteredEntries = timeEntries.filter(entry => {
                     const entryDate = new Date(entry.clock_in_time);
-                    return entryDate.getFullYear() === year && entryDate.getMonth() === month - 1;
+                    // IMPORTANTE: En informes oficiales mostramos completados, pero para el usuario actual incluimos 'running' si es el mes en curso
+                    return entryDate.getFullYear() === year && 
+                           entryDate.getMonth() === month - 1 &&
+                           (entry.status === 'completed' || (entry.status === 'running' && !isAdmin)); 
                 });
 
                 if (filteredEntries.length === 0 && targetEmployees.length > 1) continue;
@@ -110,7 +130,14 @@ const MonthlyWorkLogReport: React.FC = () => {
                         const effectiveDuration = Math.max(0, (end - start) - breakDuration);
                         dailyTotalMs += effectiveDuration;
                         
-                        return { clockIn: formatTime(new Date(e.clock_in_time)), clockOut: e.clock_out_time ? formatTime(new Date(e.clock_out_time)) : 'En curso', duration: effectiveDuration, isManual: !!e.is_manual, type: e.work_type || 'ordinaria', entryId: e.entry_id };
+                        return { 
+                            clockIn: formatTime(new Date(e.clock_in_time)), 
+                            clockOut: e.clock_out_time ? formatTime(new Date(e.clock_out_time)) : 'En curso', 
+                            duration: effectiveDuration, 
+                            isManual: !!e.is_manual, 
+                            type: e.work_type || 'ordinaria', 
+                            entryId: e.entry_id 
+                        };
                     });
 
                     monthlyTotalMs += dailyTotalMs;
@@ -120,7 +147,11 @@ const MonthlyWorkLogReport: React.FC = () => {
                 allEmployeeReports.push({ employee, dailyLogs, monthlyTotal: monthlyTotalMs, signature });
             }
             setReportData(allEmployeeReports);
-        } catch (error) { console.error(error); } finally { setIsGenerating(false); }
+        } catch (error) { 
+            console.error("Error generando informe:", error); 
+        } finally { 
+            setIsGenerating(false); 
+        }
     };
     
     if (isPrintMode && reportData) {
@@ -150,7 +181,7 @@ const MonthlyWorkLogReport: React.FC = () => {
                     <select value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="text-sm font-bold border rounded-lg p-2 bg-white">
                         {[2025, 2024].map(y => <option key={y} value={y}>{y}</option>)}
                     </select>
-                    <Button onClick={handleGenerateReport} isLoading={isGenerating} size="sm">Generar Informe</Button>
+                    <Button onClick={() => handleGenerateReport()} isLoading={isGenerating} size="sm">Actualizar</Button>
                 </div>
             </div>
 

@@ -12,7 +12,7 @@ const ensureOnline = () => { if (!navigator.onLine) throw new Error("Offline"); 
 const handleError = (error: any) => {
     if (!error) return;
     if (error.code === 'PGRST204' || error.code === '42P01' || (error.message && (error.message.includes('column') || error.message.includes('table')))) {
-        throw new Error(`ERROR DE ESQUEMA: Falta una columna o tabla. 1) Ejecuta el script SQL en el Editor de Supabase. 2) Ejecuta el comando SQL: NOTIFY pgrst, 'reload schema';`);
+        throw new Error(`ERROR DE ESQUEMA: Falta una columna o tabla. 1) Ejecuta el script SQL en el Editor de Supabase. 2) Ve a Supabase -> Settings -> API y pulsa "Reload Schema Cache".`);
     }
     const msg = error.message || error.details || error.hint || JSON.stringify(error);
     throw new Error(msg);
@@ -226,7 +226,7 @@ export const createTimeCorrectionRequest = async (d: any) => { ensureOnline(); c
 export const resolveTimeCorrectionRequest = async (id: string, status: string, adminId: string) => { 
     ensureOnline(); 
     
-    // 1. Obtener la solicitud
+    // 1. Obtener la solicitud completa
     const { data: request, error: reqErr } = await supabase.from('time_correction_requests').select('*').eq('request_id', id).single();
     if (reqErr) handleError(reqErr);
 
@@ -234,20 +234,27 @@ export const resolveTimeCorrectionRequest = async (id: string, status: string, a
     if (status === 'approved' && request) {
         if (request.original_entry_id) {
             // Actualizar entrada existente
-            const updatePayload: any = {};
+            const updatePayload: any = {
+                is_manual: true
+            };
+            
             if (request.requested_clock_in) updatePayload.clock_in_time = request.requested_clock_in;
-            if (request.requested_clock_out) updatePayload.clock_out_time = request.requested_clock_out;
-            updatePayload.is_manual = true;
+            
+            if (request.requested_clock_out) {
+                updatePayload.clock_out_time = request.requested_clock_out;
+                // SI CORREGIMOS SALIDA, FORZAR ESTADO COMPLETED PARA QUE SALGA EN INFORMES
+                updatePayload.status = 'completed';
+            }
             
             const { error: updateErr } = await supabase.from('time_entries').update(updatePayload).eq('entry_id', request.original_entry_id);
             if (updateErr) handleError(updateErr);
         } else {
-            // Crear nueva entrada si no existía (ej: olvidó fichar entrada por completo)
+            // Crear nueva entrada si no existía
             const insertPayload = {
                 employee_id: request.employee_id,
                 clock_in_time: request.requested_clock_in || `${request.requested_date}T09:00:00Z`,
                 clock_out_time: request.requested_clock_out,
-                status: 'completed',
+                status: request.requested_clock_out ? 'completed' : 'running',
                 is_manual: true,
                 work_type: 'ordinaria'
             };
