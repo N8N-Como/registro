@@ -3,7 +3,6 @@ import React, { useState, useEffect, useContext, useMemo, useCallback } from 're
 import { AuthContext } from '../../App';
 import { useGeolocation } from '../../hooks/useGeolocation';
 import { getLocations, getTimeEntriesForEmployee, clockIn, clockOut, getActivityLogsForTimeEntry, checkInToLocation, checkOutOfLocation, getBreaksForTimeEntry, startBreak, endBreak } from '../../services/mockApi';
-// Added getDistanceFromLatLonInMeters to imports to replace inline require() call
 import { formatDuration, getDistanceFromLatLonInMeters } from '../../utils/helpers';
 import { TimeEntry, Location as OfficeLocation, ActivityLog, BreakLog, WorkType, WorkMode } from '../../types';
 import { addToQueue } from '../../services/offlineManager';
@@ -17,7 +16,7 @@ import TimeCorrectionModal from './TimeCorrectionModal';
 
 const TimesheetsView: React.FC = () => {
   const auth = useContext(AuthContext);
-  const { position, getLocation } = useGeolocation();
+  const { position, getLocation, loading: geoLoading } = useGeolocation();
   
   const [timeEntries, setTimeEntries] = useState<TimeEntry[]>([]);
   const [locations, setLocations] = useState<OfficeLocation[]>([]);
@@ -35,6 +34,11 @@ const TimesheetsView: React.FC = () => {
   const runningWorkday = useMemo(() => timeEntries.find(t => t.status === 'running'), [timeEntries]);
   const currentActivity = useMemo(() => activityLogs.find(a => !a.check_out_time), [activityLogs]);
   const currentBreak = useMemo(() => breakLogs.find(b => !b.end_time), [breakLogs]);
+
+  // Intentar obtener ubicación al montar la vista
+  useEffect(() => {
+    getLocation();
+  }, []);
 
   const fetchData = useCallback(async () => {
     if (!auth?.employee) return;
@@ -71,8 +75,6 @@ const TimesheetsView: React.FC = () => {
         const now = Date.now();
         const start = new Date(runningWorkday.clock_in_time).getTime();
         
-        // REGLA: Sólo descontamos las pausas de tipo 'comida'
-        // Las de tipo 'descanso' (café) cuentan como tiempo trabajado retribuido
         let deductibleBreakTime = 0;
         breakLogs.forEach(b => {
             if (b.break_type === 'comida') {
@@ -91,14 +93,45 @@ const TimesheetsView: React.FC = () => {
   const handleClockInConfirm = async (data: any) => {
     if (!auth?.employee) return;
     setIsSubmitting('workday-in');
+    
+    // DETECCIÓN AUTOMÁTICA DE ESTABLECIMIENTO
+    let autoDetectedLocationId: string | undefined = undefined;
+    if (position) {
+        const nearby = locations.find(loc => 
+            getDistanceFromLatLonInMeters(position.coords.latitude, position.coords.longitude, loc.latitude, loc.longitude) <= 250
+        );
+        if (nearby) autoDetectedLocationId = nearby.location_id;
+    }
+
     try {
-      const entry = await clockIn(auth.employee.employee_id, undefined, position?.coords.latitude, position?.coords.longitude, data.workType, data.workMode, data.deviceData, data.customTime);
+      const entry = await clockIn(
+          auth.employee.employee_id, 
+          autoDetectedLocationId, 
+          position?.coords.latitude, 
+          position?.coords.longitude, 
+          data.workType, 
+          data.workMode, 
+          data.deviceData, 
+          data.customTime
+      );
+      
+      // Si se detectó ubicación, registrar automáticamente la entrada en el log de actividad
+      if (autoDetectedLocationId && entry && entry.entry_id) {
+          await checkInToLocation(
+              entry.entry_id, 
+              auth.employee.employee_id, 
+              autoDetectedLocationId, 
+              position!.coords.latitude, 
+              position!.coords.longitude
+          );
+      }
+
       setTimeEntries(prev => [entry, ...prev]);
       setIsClockInModalOpen(false);
       await fetchData();
     } catch (e: any) {
         if (e.message === "Offline") {
-            addToQueue('CLOCK_IN', { employeeId: auth.employee.employee_id, latitude: position?.coords.latitude, longitude: position?.coords.longitude, workType: data.workType, workMode: data.workMode, deviceData: data.deviceData, customTime: data.customTime });
+            addToQueue('CLOCK_IN', { employeeId: auth.employee.employee_id, locationId: autoDetectedLocationId, latitude: position?.coords.latitude, longitude: position?.coords.longitude, workType: data.workType, workMode: data.workMode, deviceData: data.deviceData, customTime: data.customTime });
             setIsClockInModalOpen(false);
             fetchData();
         }
@@ -127,7 +160,7 @@ const TimesheetsView: React.FC = () => {
       try {
           await startBreak(runningWorkday.entry_id, type);
           fetchData();
-      } catch (e: any) { if(e.message === "Offline") addToQueue('UPDATE_ROOM_STATUS' as any, {}); /* Fallback offline break stub */ }
+      } catch (e: any) { if(e.message === "Offline") addToQueue('UPDATE_ROOM_STATUS' as any, {}); }
   };
 
   if (isLoading) return <Spinner />;
@@ -190,17 +223,21 @@ const TimesheetsView: React.FC = () => {
             ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {locations.map(loc => {
-                        // Fix: Replaced CommonJS require call with imported ES function for getDistanceFromLatLonInMeters
                         const dist = position ? getDistanceFromLatLonInMeters(position.coords.latitude, position.coords.longitude, loc.latitude, loc.longitude) : Infinity;
                         const isNear = dist <= 250;
+                        const isLoadingGPS = geoLoading || !position;
+                        
                         return (
                             <button key={loc.location_id} onClick={async () => {
+                                if (isLoadingGPS) { alert("Estamos obteniendo tu ubicación GPS. Espera un segundo..."); return; }
                                 if (!isNear) { alert(`Demasiado lejos (${Math.round(dist)}m). Debes estar a menos de 250m.`); return; }
                                 await checkInToLocation(runningWorkday.entry_id, auth!.employee!.employee_id, loc.location_id, position!.coords.latitude, position!.coords.longitude);
                                 fetchData();
                             }} className={`flex items-center justify-between p-5 rounded-2xl border-2 transition-all ${isNear ? 'bg-white border-primary text-primary hover:bg-primary/5 shadow-md' : 'bg-gray-50 border-gray-100 text-gray-300 opacity-60'}`}>
                                 <div className="text-left"><p className="font-black uppercase text-sm tracking-tight">{loc.name}</p><p className="text-[10px] font-bold opacity-60">{loc.address}</p></div>
-                                <span className={`text-[10px] font-black px-2 py-1 rounded-lg ${isNear ? 'bg-primary text-white' : 'bg-gray-200'}`}>{position ? `${Math.round(dist)}m` : '---'}</span>
+                                <span className={`text-[10px] font-black px-2 py-1 rounded-lg ${isNear ? 'bg-primary text-white' : 'bg-gray-200'}`}>
+                                    {isLoadingGPS ? 'Localizando...' : `${Math.round(dist)}m`}
+                                </span>
                             </button>
                         );
                     })}

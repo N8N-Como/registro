@@ -128,7 +128,26 @@ export const updateRoomStatus = async (roomId: string, status: RoomStatus, emplo
 // --- FICHAJES ---
 export const getTimeEntriesForEmployee = async (id: string) => { const { data, error } = await supabase.from('time_entries').select('*').eq('employee_id', id).order('clock_in_time', { ascending: false }); if(error) handleError(error); return (data || []) as TimeEntry[]; };
 export const getAllRunningTimeEntries = async () => { const { data, error } = await supabase.from('time_entries').select('*').eq('status', 'running'); if(error) handleError(error); return (data || []) as TimeEntry[]; };
-export const clockIn = async (employeeId: string, locationId: any, lat: any, lon: any, workType: any, workMode: any, deviceData: any, customTime?: string) => { ensureOnline(); const payload = { employee_id: employeeId, clock_in_time: customTime || new Date().toISOString(), clock_in_latitude: lat || null, clock_in_longitude: lon || null, work_type: workType, work_mode: workMode, device_id: deviceData?.deviceId || null, device_info: deviceData?.deviceInfo || null, is_manual: !!customTime, status: 'running' }; const { data, error } = await supabase.from('time_entries').insert([payload]).select(); if (error) handleError(error); return data ? data[0] : null; };
+
+export const clockIn = async (employeeId: string, locationId: any, lat: any, lon: any, workType: any, workMode: any, deviceData: any, customTime?: string) => { 
+    ensureOnline(); 
+    const payload = { 
+        employee_id: employeeId, 
+        clock_in_location_id: locationId || null,
+        clock_in_time: customTime || new Date().toISOString(), 
+        clock_in_latitude: lat || null, 
+        clock_in_longitude: lon || null, 
+        work_type: workType, 
+        work_mode: workMode, 
+        device_id: deviceData?.deviceId || null, 
+        device_info: deviceData?.deviceInfo || null, 
+        is_manual: !!customTime, 
+        status: 'running' 
+    }; 
+    const { data, error } = await supabase.from('time_entries').insert([payload]).select(); 
+    if (error) handleError(error); 
+    return data ? data[0] : null; 
+};
 
 export const clockOut = async (id: string, l: any, isManual: boolean, t: any, deviceData?: any) => { 
     ensureOnline(); 
