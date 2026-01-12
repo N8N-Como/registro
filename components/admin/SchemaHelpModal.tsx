@@ -12,19 +12,30 @@ const SchemaHelpModal: React.FC<SchemaHelpModalProps> = ({ isOpen, onClose }) =>
     const [copied, setCopied] = useState(false);
 
     const sqlScript = `
--- 1. TABLA DE CONFIGURACIÓN DEL SISTEMA
+-- 1. CONFIGURACIÓN DEL SISTEMA
 CREATE TABLE IF NOT EXISTS public.app_settings (
     key text PRIMARY KEY,
     value jsonb,
     updated_at timestamptz DEFAULT now()
 );
 
--- 2. ACTUALIZACIÓN CRÍTICA DE INCIDENCIAS (Sin borrar datos)
-ALTER TABLE public.incidents ADD COLUMN IF NOT EXISTS type text DEFAULT 'corrective';
-ALTER TABLE public.incidents ADD COLUMN IF NOT EXISTS due_date timestamptz;
-ALTER TABLE public.incidents ADD COLUMN IF NOT EXISTS photo_url text;
+-- 2. TABLA DE CORRECCIONES HORARIAS
+CREATE TABLE IF NOT EXISTS public.time_correction_requests (
+    request_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    employee_id uuid REFERENCES public.employees(employee_id),
+    original_entry_id uuid,
+    correction_type text,
+    requested_date date,
+    requested_clock_in timestamptz,
+    requested_clock_out timestamptz,
+    reason text,
+    status text DEFAULT 'pending',
+    created_at timestamptz DEFAULT now(),
+    reviewed_by uuid REFERENCES public.employees(employee_id),
+    reviewed_at timestamptz
+);
 
--- 3. TABLA REGISTRO DE TURNO (Si falta)
+-- 3. NOVEDADES Y LIBRO DE TURNO
 CREATE TABLE IF NOT EXISTS public.shift_log (
   log_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   employee_id uuid REFERENCES public.employees(employee_id),
@@ -34,7 +45,7 @@ CREATE TABLE IF NOT EXISTS public.shift_log (
   status text DEFAULT 'pending'
 );
 
--- 4. TABLA DE INVENTARIO Y STOCK (Si no existiera)
+-- 4. INVENTARIO Y STOCK
 CREATE TABLE IF NOT EXISTS public.inventory_items (
     item_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     name text NOT NULL,
@@ -46,7 +57,7 @@ CREATE TABLE IF NOT EXISTS public.inventory_items (
     last_updated timestamptz DEFAULT now()
 );
 
--- 5. TABLA DE MOVIMIENTOS DE STOCK (Para auditoría de consumos)
+-- 5. MOVIMIENTOS DE STOCK
 CREATE TABLE IF NOT EXISTS public.stock_logs (
     log_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     item_id uuid REFERENCES public.inventory_items(item_id),
@@ -56,23 +67,15 @@ CREATE TABLE IF NOT EXISTS public.stock_logs (
     created_at timestamptz DEFAULT now()
 );
 
--- 6. TURNOS POR DEFECTO (SEMILLA PARA IA)
-ALTER TABLE public.shift_configs ADD CONSTRAINT IF NOT EXISTS shift_configs_code_key UNIQUE (code);
+-- 6. RESTRICCIÓN DE CÓDIGO ÚNICO (TURNOS)
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'shift_configs_code_key') THEN
+        ALTER TABLE public.shift_configs ADD CONSTRAINT shift_configs_code_key UNIQUE (code);
+    END IF;
+END $$;
 
-INSERT INTO public.shift_configs (code, name, start_time, end_time, color)
-VALUES 
-('V25', 'Vacaciones', '00:00', '00:00', '#10b981'),
-('V', 'Vacaciones', '00:00', '00:00', '#10b981'),
-('L', 'Libre', '00:00', '00:00', '#9ca3af'),
-('D', 'Descanso', '00:00', '00:00', '#9ca3af'),
-('MM', 'Media Mañana', '10:00', '14:00', '#3b82f6'),
-('T', 'Tarde', '15:00', '23:00', '#6366f1'),
-('AD', 'Asuntos Propios', '09:00', '17:00', '#ec4899'),
-('P', 'Partido', '09:00', '21:00', '#f59e0b'),
-('B', 'Baja Médica', '00:00', '00:00', '#ef4444')
-ON CONFLICT (code) DO NOTHING;
-
--- 7. TABLA DE PLANES DE MANTENIMIENTO PREVENTIVO
+-- 7. PLANES DE MANTENIMIENTO
 CREATE TABLE IF NOT EXISTS public.maintenance_plans (
     plan_id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     title text NOT NULL,
@@ -84,7 +87,8 @@ CREATE TABLE IF NOT EXISTS public.maintenance_plans (
     active boolean DEFAULT true
 );
 
--- IMPORTANTE: Después de ejecutar esto, ve a Supabase -> Settings -> API y pulsa el botón "RELOAD SCHEMA CACHE".
+-- 8. REFRESCAR LA CACHÉ DE LA API
+NOTIFY pgrst, 'reload schema';
 `.trim();
 
     const handleCopy = () => {
@@ -98,11 +102,7 @@ CREATE TABLE IF NOT EXISTS public.maintenance_plans (
             <div className="space-y-4">
                 <div className="bg-red-50 border-l-4 border-red-500 p-4 text-sm text-red-700 font-bold">
                     <p className="uppercase tracking-tight">⚠️ ACTUALIZACIÓN DEFINITIVA:</p>
-                    <p className="mt-1 font-normal">Este script soluciona los problemas de las tablas de Incidencias, Turnos e Inventario sin tocar tus datos actuales.</p>
-                </div>
-
-                <div className="bg-blue-50 border-l-4 border-blue-500 p-3 text-[10px] text-blue-700 uppercase font-black tracking-widest">
-                    <p>Tras ejecutar el SQL, ve a Settings → API → Reload Schema Cache.</p>
+                    <p className="mt-1 font-normal text-xs">Este script incluye la tabla de correcciones que faltaba.</p>
                 </div>
                 
                 <div className="relative">
