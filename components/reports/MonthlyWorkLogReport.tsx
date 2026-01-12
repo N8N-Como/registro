@@ -150,7 +150,7 @@ const MonthlyWorkLogReport: React.FC = () => {
                     <select value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="text-sm font-bold border rounded-lg p-2 bg-white">
                         {[2025, 2024].map(y => <option key={y} value={y}>{y}</option>)}
                     </select>
-                    <Button onClick={handleGenerateReport} isLoading={isGenerating} size="sm">Actualizar</Button>
+                    <Button onClick={handleGenerateReport} isLoading={isGenerating} size="sm">Generar Informe</Button>
                 </div>
             </div>
 

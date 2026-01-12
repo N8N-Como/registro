@@ -56,7 +56,7 @@ const Layout: React.FC = () => {
         { name: 'Objetos Olvidados', view: 'lost_found', icon: ArchiveBoxIcon },
         { name: 'Registro de Turno', view: 'shiftlog', icon: BookOpenIcon, requiredPermission: 'access_shift_log' as Permission },
         { name: 'Comunicados', view: 'announcements', icon: MegaphoneIcon, requiredPermission: 'manage_announcements' as Permission },
-        { name: 'Informes', view: 'reports', icon: ReportIcon, requiredPermission: 'view_reports' as Permission },
+        { name: 'Informes', view: 'reports', icon: ReportIcon }, // Visible para todos
         { name: 'Administración', view: 'admin', icon: AdminIcon, requiredPermission: 'manage_employees' as Permission, badgeCount: pendingCorrectionsCount },
     ];
 
@@ -64,7 +64,6 @@ const Layout: React.FC = () => {
         return navItems.filter(item => {
             const isAdmin = auth?.role?.role_id === 'admin' || auth?.role?.role_id === 'administracion';
             if (isAdmin && item.view !== 'cleaning') return true;
-            if (item.view === 'reports' && !isAdmin) return false;
             const hasPermission = !item.requiredPermission || auth?.role?.permissions.includes(item.requiredPermission);
             const hasRole = !item.role_id || auth?.role?.role_id === item.role_id;
             return hasPermission && hasRole;
